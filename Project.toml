@@ -1,0 +1,11 @@
+name = "TenSolver"
+uuid = "cfd60579-01bf-4b47-9b3b-7c8dc91a23e2"
+authors = ["Pedro Maciel Xavier <pedroxavier@psr-inc.com>"]
+version = "0.1.0"
+
+[deps]
+ITensors = "9136182c-28ba-11e9-034c-db9fb085ebd5"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+QUBODrivers = "a3f166f7-2cd3-47b6-9e1e-6fbfe0449eb0"
+QUBOTools = "60eb5b62-0a39-4ddc-84c5-97d2adff9319"
+TensorNetworks = "2663e259-70c2-4d8c-acc7-c2fc5bad88cc"
