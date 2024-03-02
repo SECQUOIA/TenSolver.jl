@@ -1,11 +1,17 @@
 module TenSolver
 
-import TensorNetworks
 import ITensors
 import QUBODrivers
 import QUBOTools
 
 using LinearAlgebra
+
+include("solver.jl")
+
+export solve_qubo, sample_solution
+
+
+## ~:~ Welcome to the QUBOVerse ~:~ ##
 
 QUBODrivers.@setup Optimizer begin
     name    = "TenSolver"
@@ -19,10 +25,10 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     n, L, Q, α, β = QUBOTools.qubo(sampler, :sparse; sense = :min)
 
     # Solve
-    e, x = TensorNetworks.solve_qubo(Q + diagm(L))
+    e, x = solve_qubo(Q + diagm(L))
 
     λ = α * (e + β)
-    ψ = ITensors.sample(x) .- 1
+    ψ = sample_solution!(x)
     s = QUBOTools.Sample{T,Int}(ψ, λ)
 
     return QUBOTools.SampleSet{T,Int}([s]; sense = :min, domain = :bool)
