@@ -1,4 +1,4 @@
-import ITensors
+using ITensors
 
 function issquare(A :: AbstractMatrix)
   nrows, ncols = size(A)
@@ -46,23 +46,24 @@ function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
 end
 
 """
-    solve_qubo(Q)
+    solve_qubo(Q [; accelerator, kwargs...)
 
 Solve the Quadratic Unconstrained Binary Optimization problem
 
     min <b|Q|b> s.t. b_i in {0, 1}
 
-This function uses DMRG with tensor networks the calculate the optimal solution,
+This function uses DMRG with tensor networks to calculate the optimal solution,
 by finding the ground state of the Hamiltonian
 
     H = Σ Q_ij P_iP_j
 
 where P_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |1>.
 """
-function solve_qubo(Q :: AbstractMatrix{T}
+function solve_qubo( Q :: AbstractMatrix{T}
                    ; cutoff  = 1e-8
-                   , nsweeps :: Int = 5
+                   , nsweeps :: Int = 10
                    , maxdim  = [10, 20, 100, 100, 200]
+                   , accelerator :: Function = identity
                    ) where {T}
   dim   = size(Q)[1]
   sites = ITensors.siteinds("Qubit", dim)
@@ -71,7 +72,8 @@ function solve_qubo(Q :: AbstractMatrix{T}
   # Initial product state
   psi0  = ITensors.MPS(sites, "+")  # ⨂ (|0> + |1>) / √2
 
-  energy, psi = ITensors.dmrg(H, psi0; nsweeps, maxdim, cutoff)
+  energy, psi = ITensors.dmrg(accelerator(H), accelerator(psi0)
+                             ; nsweeps, maxdim, cutoff)
 
   return energy, psi
 end
