@@ -30,7 +30,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     e, x = solve_qubo(Q + diagm(L))
 
     λ = α * (e + β)
-    ψ = sample_solution!(x)
+    ψ = sample_solution(x)
     s = QUBOTools.Sample{T,Int}(ψ, λ)
 
     return QUBOTools.SampleSet{T,Int}([s]; sense = :min, domain = :bool)
