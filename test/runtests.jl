@@ -14,18 +14,19 @@ filepath(x) = joinpath(dirname(@__FILE__), x)
   Q = randn(dim, dim)
 
   # TenSolver solution
-  e, psi = TenSolver.solve_qubo(Q)
-  x = sample_solution(psi)
+  e, psi = TenSolver.solve_qubo(Q; cutoff = 1e-16)
+  x = TenSolver.sample_solution(psi)
 
   # Does the ground energy match solution?
   @test dot(x, Q, x) ≈ e
 
   for i in 1:10
     y = rand(Bool, dim)
-    @test dot(y, Q, y) >= e
+    @test dot(y, Q, y) >= e - 1e-8 # A small gap to amount for floating errors
   end
 
-  # Exact solution
+  # ~:~ Exact solution ~:~ #
+
   e0, x0 = TenSolver.brute_force_qubo(Q)
   # Same minimum value
   @test e ≈ e0
