@@ -12,6 +12,8 @@ export solve_qubo, sample_solution
 
 
 ## ~:~ Welcome to the QUBOVerse ~:~ ##
+# The functions below allow us to solve QUBO JuMP models
+# with the solvers in this package.
 
 QUBODrivers.@setup Optimizer begin
     name    = "TenSolver"

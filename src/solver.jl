@@ -20,7 +20,7 @@ Turn a square matrix into an equivalent MPO Hamiltonian acting on Qubit sites.
 function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
   dim = length(sites)
 
-  os = ITensors.OpSum()
+  os = ITensors.OpSum{T}()
   # Construct the Hamiltonian H = Σ Q_ij P_i P_j
   # The less operators in the sum, the fastest we can calculate an MPO.
   # We use the following simmetries to simplify the construction:
@@ -28,17 +28,22 @@ function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
   #   Thus, the Hamiltonian can be linear in the diagonal.
   # - P_i commutes with P_j.
   #   Thus, we're able to represent Q_ij and Q_ji with a single operator.
-  for i in 1:dim, j in i:dim
-    if j == i # Diagonal part
-      coeff = Q[i, i]
-      if abs(coeff) > cutoff   # Not representing ~zero coeffs produces a speedup
-        os += (coeff, "P1", i)
-      end
-    else      # Upper and Lower parts together
-      coeff = Q[j, i] + Q[i, j]
-      if abs(coeff) > cutoff
-        os += (coeff, "P1", i, "P1", j)
-      end
+
+  # Diagonal part
+  for i in 1:dim
+    coeff = Q[i, i]
+
+    if abs(coeff) > cutoff   # Not representing ~zero coeffs produces a speedup
+      os .+= (coeff, "P1", i)
+    end
+  end
+
+  # Loop on upper triangular part
+  for i in 1:dim, j in i+1:dim
+    coeff = Q[j, i] + Q[i, j]
+
+    if abs(coeff) > cutoff
+      os .+= (coeff, "P1", i, "P1", j)
     end
   end
 
@@ -70,7 +75,7 @@ function solve_qubo( Q :: AbstractMatrix{T}
   H     = tensorize_qubo(Q, sites; cutoff)
 
   # Initial product state
-  psi0  = ITensors.MPS(sites, "+")  # ⨂ (|0> + |1>) / √2
+  psi0  = ITensors.MPS(T, sites, "+")  # ⨂ (|0> + |1>) / √2
 
   energy, psi = ITensors.dmrg(accelerator(H), accelerator(psi0)
                              ; nsweeps, maxdim, cutoff)
@@ -99,14 +104,13 @@ function brute_force_qubo(Q :: Matrix{T}) where T
   @assert issquare(Q)
   n   = size(Q)[1]
 
-  min_now   = +Inf
+  min_now  = +Inf
   solution = Vector{Float64}[]
 
   for i in 0:(2^n-1)
     # The Boolean vector corresponding to the natural i
-    digits  = [parse(Bool, d) for d in last(bitstring(i), n)]
-    bs      = digits #map(d -> convert(T, d), digits)
-    z       = bs'Q*bs
+    bs = [convert(T, parse(Bool, d)) for d in last(bitstring(i), n)]
+    z  = dot(bs, Q, bs)
 
     if z < min_now
       solution = bs
