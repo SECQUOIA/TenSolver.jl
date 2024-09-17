@@ -1,6 +1,7 @@
 module TenSolver
 
 import ITensors
+import ITensorMPS
 import QUBODrivers
 import QUBOTools
 

@@ -1,4 +1,4 @@
-using ITensors
+using ITensors, ITensorMPS
 
 function issquare(A :: AbstractMatrix)
   nrows, ncols = size(A)
@@ -23,7 +23,7 @@ function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
   os = ITensors.OpSum{T}()
   # Construct the Hamiltonian H = Σ Q_ij P_i P_j
   # The less operators in the sum, the fastest we can calculate an MPO.
-  # We use the following simmetries to simplify the construction:
+  # We use the following symmetries to simplify the construction:
   # - For x in Bool, x^2 = x.
   #   Thus, the Hamiltonian can be linear in the diagonal.
   # - P_i commutes with P_j.
