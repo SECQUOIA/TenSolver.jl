@@ -69,6 +69,7 @@ function solve_qubo( Q :: AbstractMatrix{T}
                    , nsweeps :: Int = 10
                    , maxdim  = [10, 20, 100, 100, 200]
                    , accelerator :: Function = identity
+                   , kwargs...
                    ) where {T}
   dim   = size(Q)[1]
   sites = ITensors.siteinds("Qubit", dim)
@@ -78,7 +79,8 @@ function solve_qubo( Q :: AbstractMatrix{T}
   psi0  = ITensors.MPS(T, sites, "+")  # ⨂ (|0> + |1>) / √2
 
   energy, psi = ITensors.dmrg(accelerator(H), accelerator(psi0)
-                             ; nsweeps, maxdim, cutoff)
+                             ; nsweeps, maxdim, cutoff
+                             , kwargs...)
 
   return energy, psi
 end
