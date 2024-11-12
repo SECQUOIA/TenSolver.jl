@@ -1,4 +1,8 @@
+using LinearAlgebra
+
 using ITensors, ITensorMPS
+import ITensorMPS: MPS, MPO, dmrg, OpSum
+
 
 function issquare(A :: AbstractMatrix)
   nrows, ncols = size(A)
@@ -8,7 +12,7 @@ end
 # Projection on |1>, or equivalently, (I - σ_z) / 2
 # This looks like type piracy,
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
-ITensors.op(::OpName"P1",::SiteType"Qubit") = [0 0 ; 0 1]
+ITensors.op(::OpName"P1",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
 
 """
     tensorize_qubo(Q, sites)
@@ -19,8 +23,9 @@ Turn a square matrix into an equivalent MPO Hamiltonian acting on Qubit sites.
 """
 function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
   dim = length(sites)
+  M   = T[0 0; 0 1]
 
-  os = ITensors.OpSum{T}()
+  os = OpSum{T}()
   # Construct the Hamiltonian H = Σ Q_ij P_i P_j
   # The less operators in the sum, the fastest we can calculate an MPO.
   # We use the following symmetries to simplify the construction:
@@ -47,7 +52,7 @@ function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
     end
   end
 
-  return ITensors.MPO(T, os, sites)
+  return MPO(T, os, sites)
 end
 
 """
@@ -70,14 +75,14 @@ function solve_qubo( Q :: AbstractMatrix{T}
                    , maxdim  = [10, 20, 100, 100, 200]
                    , accelerator :: Function = identity
                    ) where {T}
-  dim   = size(Q)[1]
-  sites = ITensors.siteinds("Qubit", dim)
-  H     = tensorize_qubo(Q, sites; cutoff)
+  particles = size(Q)[1]
+  sites     = ITensors.siteinds("Qudit", particles; dim = 2)
+  H         = tensorize_qubo(Q, sites; cutoff)
 
   # Initial product state
-  psi0  = ITensors.MPS(T, sites, "+")  # ⨂ (|0> + |1>) / √2
+  psi0  = MPS(T, sites, "+")  # ⨂ (|0> + |1>) / √2
 
-  energy, psi = ITensors.dmrg(accelerator(H), accelerator(psi0)
+  energy, psi = dmrg(accelerator(H), accelerator(psi0)
                              ; nsweeps, maxdim, cutoff)
 
   return energy, Distribution(psi)
@@ -95,7 +100,7 @@ function brute_force_qubo(Q :: Matrix{T}) where T
   n   = size(Q)[1]
 
   min_now  = +Inf
-  solution = Vector{Float64}[]
+  solution = Vector{T}[]
 
   for i in 0:(2^n-1)
     # The Boolean vector corresponding to the natural i

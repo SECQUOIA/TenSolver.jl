@@ -1,7 +1,8 @@
 import ITensors, ITensorMPS
+import ITensorMPS: MPS
 
 struct Distribution
-  tensor :: ITensors.MPS
+  tensor :: MPS
 end
 
 # Sample from |ψ> in the {0, 1} world instead of 1-based Julia index world.
