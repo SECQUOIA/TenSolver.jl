@@ -1,15 +1,15 @@
 module TenSolver
 
-import ITensors
-import ITensorMPS
-import QUBODrivers
-import QUBOTools
+import ITensors, ITensorMPS
+import QUBODrivers, QUBOTools
 
 using LinearAlgebra
 
-include("solver.jl")
+include("solution.jl")
+export solve_qubo
 
-export solve_qubo, sample_solution
+include("solver.jl")
+export sample
 
 
 ## ~:~ Welcome to the QUBOVerse ~:~ ##
@@ -31,7 +31,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     e, x = solve_qubo(Q + diagm(L))
 
     λ = α * (e + β)
-    ψ = sample_solution(x)
+    ψ = sample(x)
     s = QUBOTools.Sample{T,Int}(ψ, λ)
 
     return QUBOTools.SampleSet{T,Int}([s]; sense = :min, domain = :bool)

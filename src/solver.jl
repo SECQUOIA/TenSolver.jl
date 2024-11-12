@@ -80,18 +80,8 @@ function solve_qubo( Q :: AbstractMatrix{T}
   energy, psi = ITensors.dmrg(accelerator(H), accelerator(psi0)
                              ; nsweeps, maxdim, cutoff)
 
-  return energy, psi
+  return energy, Distribution(psi)
 end
-
-
-# Sample from |ψ> in the {0, 1} world instead of 1-based Julia index world.
-"""
-    sample_solution!(psi)
-
-Sample a bitstring from a Tensor in MPS-form,
-representing a distribution of Qubits.
-"""
-sample_solution(psi) = ITensors.sample!(psi) .- 1
 
 
 """

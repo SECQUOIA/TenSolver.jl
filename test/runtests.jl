@@ -15,7 +15,7 @@ filepath(x) = joinpath(dirname(@__FILE__), x)
 
   # TenSolver solution
   e, psi = TenSolver.solve_qubo(Q; cutoff = 1e-16)
-  x = TenSolver.sample_solution(psi)
+  x = TenSolver.sample(psi)
 
   # Does the ground energy match solution?
   @test dot(x, Q, x) ≈ e
