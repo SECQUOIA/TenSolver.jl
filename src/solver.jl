@@ -14,6 +14,8 @@ end
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
 ITensors.op(::OpName"P1",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
 
+ITensors.state(::StateName"full", ::SiteType"Qudit", s::Index) = (d = dim(s); fill(1/sqrt(d), d))
+
 """
     tensorize_qubo(Q, sites)
 
@@ -22,8 +24,8 @@ Turn a square matrix into an equivalent MPO Hamiltonian acting on Qubit sites.
     Q --> H = Σ Q_ij P_i P_j
 """
 function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
-  dim = length(sites)
-  M   = T[0 0; 0 1]
+  nbits = length(sites)
+  M     = T[0 0; 0 1]
 
   os = OpSum{T}()
   # Construct the Hamiltonian H = Σ Q_ij P_i P_j
@@ -35,7 +37,7 @@ function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
   #   Thus, we're able to represent Q_ij and Q_ji with a single operator.
 
   # Diagonal part
-  for i in 1:dim
+  for i in 1:nbits
     coeff = Q[i, i]
 
     if abs(coeff) > cutoff   # Not representing ~zero coeffs produces a speedup
@@ -44,11 +46,15 @@ function tensorize_qubo(Q :: AbstractMatrix{T}, sites; cutoff = 1e-8) where {T}
   end
 
   # Loop on upper triangular part
-  for i in 1:dim, j in i+1:dim
+  for i in 1:nbits, j in i+1:nbits
     coeff = Q[j, i] + Q[i, j]
 
     if abs(coeff) > cutoff
-      os .+= (coeff, "P1", i, "P1", j)
+      if i == j && dim(sites[i]) == 2 # For bits, x^2 = x
+        os .+= (coeff, "P1", i)
+      else
+        os .+= (coeff, "P1", i, "P1", j)
+      end
     end
   end
 
@@ -80,7 +86,7 @@ function solve_qubo( Q :: AbstractMatrix{T}
   H         = tensorize_qubo(Q, sites; cutoff)
 
   # Initial product state
-  psi0  = MPS(T, sites, "+")  # ⨂ (|0> + |1>) / √2
+  psi0  = MPS(T, sites, "full")  # ⨂ (|0> + |1>) / √2
 
   energy, psi = dmrg(accelerator(H), accelerator(psi0)
                              ; nsweeps, maxdim, cutoff)
