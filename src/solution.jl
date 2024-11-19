@@ -11,4 +11,4 @@ end
 
 Sample a bitstring from a (quantum) probability distribution.
 """
-sample(psi::Distribution) = ITensors.sample!(psi.tensor) .- 1
+sample(psi::Distribution) = ITensorMPS.sample!(psi.tensor) .- 1

@@ -6,7 +6,7 @@ import QUBODrivers, QUBOTools
 using LinearAlgebra
 
 include("solution.jl")
-export solve_qubo
+export solve
 
 include("solver.jl")
 export sample
@@ -28,7 +28,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     n, L, Q, α, β = QUBOTools.qubo(sampler, :sparse; sense = :min)
 
     # Solve
-    e, x = solve_qubo(Q + diagm(L))
+    e, x = solve(Q, L)
 
     λ = α * (e + β)
     ψ = sample(x)
