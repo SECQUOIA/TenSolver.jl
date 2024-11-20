@@ -6,10 +6,10 @@ import QUBODrivers, QUBOTools
 using LinearAlgebra
 
 include("solution.jl")
-export solve
+export sample
 
 include("solver.jl")
-export sample
+export solve
 
 
 ## ~:~ Welcome to the QUBOVerse ~:~ ##

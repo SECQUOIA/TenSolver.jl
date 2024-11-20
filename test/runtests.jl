@@ -1,9 +1,11 @@
 using Test, Random, LinearAlgebra
 
-import ITensors
+import JuMP
+
 using  TenSolver
 
 # Makes ITensor slower but catches more errors. Good for development.
+import ITensors
 ITensors.enable_debug_checks()
 
 filepath(x) = joinpath(dirname(@__FILE__), x)
@@ -86,6 +88,29 @@ end
     @test e ≈ e0
   end
 end
+
+
+@testset "JuMP interface" begin
+  dim = 5
+  Q = 2*randn(dim, dim)
+  l = 2*randn(dim)
+  c = randn()
+  obj(x) = dot(x, Q, x) + dot(l, x) + c
+
+  m = JuMP.Model(TenSolver.Optimizer)
+  @JuMP.variable(m, x[1:dim], Bin)
+  @JuMP.objective(m, Min, dot(x, Q, x) + dot(l, x) + c)
+
+  JuMP.optimize!(m)
+
+  e = JuMP.objective_value(m)
+
+  # ~:~ Exact solution ~:~ #
+  e0, x0 = brute_force(obj, Float64, dim)
+  # Same minimum value
+  @test e ≈ e0
+end
+
 
 @testset "Ill-formed input" begin
   dim = 4
