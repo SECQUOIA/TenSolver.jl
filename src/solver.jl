@@ -93,8 +93,8 @@ where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |
 
 The optional keyword `device` controls whether the solver should run on CPU or GPU.
 For using a GPU, you can import the respective package, e.g. CUDA.jl,
-and pass their accelerator as argument.
-
+and pass its accelerator as argument.
+      
 ```julia
 import CUDA
 solve(Q; device = CUDA.cu)
