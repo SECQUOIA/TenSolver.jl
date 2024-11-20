@@ -34,7 +34,7 @@ while `psi` is a probability distribution over all possible solutions to the pro
 You can sample a Boolean vector from it.
 
 ```julia
-x = sample_solution(psi)
+x = sample(psi)
 ```
 
 ### JuMP interface
