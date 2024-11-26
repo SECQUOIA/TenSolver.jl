@@ -110,6 +110,7 @@ function solve( Q :: AbstractMatrix{T}
               , nsweeps :: Int = 10
               , maxdim = [10, 20, 100, 100, 200]
               , device :: Function = identity
+              , kwargs...
               ) where {T}
   particles = size(Q)[1]
 
@@ -121,7 +122,7 @@ function solve( Q :: AbstractMatrix{T}
   psi0 = MPS(T, sites, "full")  # ⨂ (|0> + |1>) / √2
 
   energy, psi = dmrg(device(H), device(psi0)
-                    ; nsweeps, maxdim, cutoff)
+                    ; nsweeps, maxdim, cutoff, kwargs...)
 
   return energy + c, Distribution(psi)
 end
