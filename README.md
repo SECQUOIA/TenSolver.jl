@@ -26,15 +26,16 @@ using TenSolver
 
 Q = randn(40, 40)
 
-E, psi = solve_qubo(Q)
+E, psi = TenSolver.solve(Q)
 ```
 
 The returned argument `E` is the calculated estimate for the minimum value,
 while `psi` is a probability distribution over all possible solutions to the problem.
-You can sample a Boolean vector from it.
+You can sample Boolean vectors from it.
+These vectors are the (approximate) optimal solutions to the original optimization problem.
 
 ```julia
-x = sample(psi)
+x = TenSolver.sample(psi)
 ```
 
 ### JuMP interface
@@ -53,7 +54,7 @@ begin
   @variable(m, x[1:dim], Bin)
   @objective(m, Min, x'Q*x)
 
-  optimize!(m)                   # <-- Equivalent to running solve_qubo(Q)
+  optimize!(m)                   # <-- Equivalent to running TenSolver.solve(Q)
 end
 ```
 
@@ -72,7 +73,7 @@ import CUDA: cu
 
 Q = randn(4, 4)
 
-E, psi = solve_qubo(Q; accelerator = cu)
+E, psi = solve(Q; device = CUDA.cu)
 ```
 
 Since ITensor's GPU platform support is always improving,
