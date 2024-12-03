@@ -1,7 +1,10 @@
 name = "TenSolver"
 uuid = "cfd60579-01bf-4b47-9b3b-7c8dc91a23e2"
-authors = ["Pedro Maciel Xavier <pedroxavier@psr-inc.com>", "Iago Leal de Freitas <iago@iagoleal.com>"]
-version = "0.1.1"
+authors = [ "Iago Leal de Freitas <iago@iagoleal.com>"
+          , "Pedro Maciel Xavier <pedroxavier@psr-inc.com>"
+          , "David E. Bernal Neira <dbernaln@purdue.edu>"
+          ]
+version = "0.1.2"
 
 [deps]
 Combinatorics = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
