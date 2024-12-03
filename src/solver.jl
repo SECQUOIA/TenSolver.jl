@@ -94,7 +94,7 @@ where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |
 The optional keyword `device` controls whether the solver should run on CPU or GPU.
 For using a GPU, you can import the respective package, e.g. CUDA.jl,
 and pass its accelerator as argument.
-      
+
 ```julia
 import CUDA
 solve(Q; device = CUDA.cu)
@@ -119,7 +119,8 @@ function solve( Q :: AbstractMatrix{T}
   H     = tensorize(sites, Q, l; cutoff)
 
   # Initial product state
-  psi0 = MPS(T, sites, "full")  # ⨂ (|0> + |1>) / √2
+  # Slight entanglement to help DMRG avoid local minima
+  psi0 = random_mps(T, sites; linkdims=2)
 
   energy, psi = dmrg(device(H), device(psi0)
                     ; nsweeps, maxdim, cutoff, kwargs...)
