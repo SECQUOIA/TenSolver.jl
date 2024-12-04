@@ -20,9 +20,7 @@ include(filepath("utils.jl"))
   @test_throws BoundsError solve(Q)
 end
 
-@testset "Solver" begin
-  # Traditional interface
-  include(filepath("qubo.jl"))
-  # JuMP interface
-  include(filepath("jump.jl"))
-end
+# Traditional interface
+include(filepath("qubo.jl"))
+# JuMP interface
+include(filepath("jump.jl"))

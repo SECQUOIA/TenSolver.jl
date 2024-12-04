@@ -1,4 +1,7 @@
 import JuMP
+import QUBODrivers
+
+QUBODrivers.test(TenSolver.Optimizer)
 
 @testset "JuMP interface" begin
   dim = 5
