@@ -107,7 +107,7 @@ function solve( Q :: AbstractMatrix{T}
               , l :: Union{AbstractVector{T}, Nothing} = nothing
               , c :: T = zero(T)
               ; cutoff = 1e-8
-              , nsweeps :: Int = 10
+              , iterations :: Int = 10
               , maxdim = [10, 20, 100, 100, 200]
               , device :: Function = identity
               , kwargs...
@@ -123,7 +123,8 @@ function solve( Q :: AbstractMatrix{T}
   psi0 = random_mps(T, sites; linkdims=2)
 
   energy, psi = dmrg(device(H), device(psi0)
-                    ; nsweeps, maxdim, cutoff, kwargs...)
+                    ; nsweeps = iterations
+                    , maxdim, cutoff, kwargs...)
 
   return energy + c, Distribution(psi)
 end
