@@ -24,3 +24,6 @@ end
 include(filepath("qubo.jl"))
 # JuMP interface
 include(filepath("jump.jl"))
+
+# Cases from papers
+include(filepath("cases/vrp.jl"))
