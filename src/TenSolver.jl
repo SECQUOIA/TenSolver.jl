@@ -25,14 +25,16 @@ QUBODrivers.@setup Optimizer begin
 end
 
 function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
-    n, L, Q, α, β = QUBOTools.qubo(sampler, :sparse; sense = :min)
+    # min_x a*(x'Qx + l'x + b)
+    #  s.t. x in {0, 1}^n
+    n, l, Q, a, b = QUBOTools.qubo(sampler, :sparse; sense = :min)
 
     # Solve
-    e, x = solve(Q, L)
+    energy, psi = solve(Q, l)
 
-    λ = α * (e + β)
-    ψ = sample(x)
-    s = QUBOTools.Sample{T,Int}(ψ, λ)
+    obj = a * (energy + b)
+    x   = sample(psi)
+    s   = QUBOTools.Sample{T,Int}(x, obj)
 
     return QUBOTools.SampleSet{T,Int}([s]; sense = :min, domain = :bool)
 end

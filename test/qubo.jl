@@ -5,7 +5,7 @@
     Q = randn(dim, dim)
 
     # TenSolver solution
-    e, psi = TenSolver.solve(Q; cutoff = 1e-16)
+    e, psi = TenSolver.solve(Q; cutoff = 1e-16, iterations = 20)
     x = TenSolver.sample(psi)
 
     # Is the sampled solution part of the ground state?
