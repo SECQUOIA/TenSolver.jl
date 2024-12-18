@@ -3,6 +3,7 @@ import Combinatorics: multiset_permutations
 
 using ITensorMPS, ITensors
 import ITensorMPS: MPS, MPO, dmrg, OpSum, OpName, SiteType, StateName
+import ITensorMPS: AbstractObserver
 
 
 function issquare(A :: AbstractMatrix)
@@ -13,6 +14,21 @@ end
 function maybe(f::Function, mx::Union{T, Nothing}; default=nothing) where T
   return isnothing(mx) ? default : f(mx)
 end
+
+mutable struct ConvergenceObserver <: AbstractObserver
+  atol            :: Float64
+  rtol            :: Float64
+  previous_energy :: Float64
+end
+
+function ITensorMPS.checkdone!(o::ConvergenceObserver; energy, sweep, kwargs...)
+  abs_err = abs(energy - o.previous_energy)
+  rel_err = abs_err / abs(energy)
+  o.previous_energy = energy
+
+  return abs_err < o.atol || rel_err < o.rtol
+end
+
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -145,9 +161,11 @@ function minimize( Q :: AbstractMatrix{T}
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
   psi0 = random_mps(T, sites; linkdims=2)
+  observer = ConvergenceObserver(atol, rtol, Inf)
 
   energy, tn = dmrg(device(H), device(psi0)
                     ; nsweeps  = iterations
+                    , observer = observer
                     , maxdim, cutoff, kwargs...)
 
   # The calculated energy has approximation errors compared to the true solution.
