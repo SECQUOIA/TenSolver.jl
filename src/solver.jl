@@ -10,6 +10,10 @@ function issquare(A :: AbstractMatrix)
   return nrows == ncols
 end
 
+function maybe(f::Function, mx::Union{T, Nothing}; default=nothing) where T
+  return isnothing(mx) ? default : f(mx)
+end
+
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
 # This looks like type piracy,
@@ -19,61 +23,76 @@ ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
 ITensors.state(::StateName"full", ::SiteType"Qudit", s::Index) = (d = dim(s); fill(1/sqrt(d), d))
 
 """
-    tensorize(Q, l, sites)
+    tensorize(sites, p::AbstractArray{T, n})
 
-Turn a quadratic objective function acting on bitstrings,
-
-    min_x x'Qx + l'x
-     s.t. x_i in K_i ⊆ Z
-
-Into an equivalent MPO Hamiltonian acting on Qudit sites.
-The conversion consists of exchanging each variable `x_i`
+Turn a quadratic/linear function acting on bitstrings
+into an equivalent MPO Hamiltonian acting on Qudit sites.
+The conversion consists of exchanging each integer variable `x_i`
 for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
 
     ∑ Q_ij x_i x_j + ∑ l_i x_i --> H = Σ Q_ij D_i D_j + ∑ l_i D_i
 """
-function tensorize( sites
-                  , Q :: Union{AbstractMatrix{T}, Nothing} = nothing
-                  , l :: Union{AbstractVector{T}, Nothing} = nothing
-                  ; cutoff = 1e-8
-                  ) where {T}
-  nbits = length(sites)
+function tensorize end
+
+function tensorize(sites, Q::AbstractArray{T}, Qs...; cutoff = 1e-8) where T
   os = OpSum{T}()
-  # Construct the Hamiltonian H = Σ Q_ij P_i P_j
-  # The less operators in the sum, the fastest we can calculate an MPO.
-  # We use the following symmetries to simplify the construction:
-  # - For x in Bool, x^2 = x.
-  #   Thus, the Hamiltonian can be linear in the diagonal.
-  # - P_i commutes with P_j.
-  #   Thus, we're able to represent Q_ij and Q_ji with a single operator.
 
-  # Linear term / Diagonal part
-  if l !== nothing
-    for i in 1:nbits
-      coeff = l[i]
-
-      if abs(coeff) > cutoff   # Not representing ~zero coeffs produces a speedup
-        os .+= (coeff, "D", i)
-      end
-    end
-  end
-
-  # Loop on upper triangular part
-  if Q !== nothing
-    for i in 1:nbits, j in i:nbits
-      coeff = sum(K -> Q[K...], multiset_permutations([i, j], 2))
-
-      if abs(coeff) > cutoff
-        if i == j && dim(sites[i]) == 2 # Code optimization for bits: x^2 = x
-          os .+= (coeff, "D", i)
-        else
-          os .+= (coeff, "D", i, "D", j)
-        end
-      end
-    end
+  tensorize!(os, sites, Q; cutoff)
+  for x in Qs
+    tensorize!(os, sites, x; cutoff)
   end
 
   return MPO(T, os, sites)
+end
+
+tensorize!(os, sites, ::Nothing; cutoff = 1e-8) = os
+
+# Construct the Hamiltonian H = Σ Q_ij P_i P_j
+# The less operators in the sum, the fastest we can calculate an MPO.
+# We use the following symmetries to simplify the construction:
+# - For x in Bool, x^2 = x.
+#   Thus, the Hamiltonian can be linear in the diagonal.
+# - P_i commutes with P_j.
+#   Thus, we're able to represent Q_ij and Q_ji with a single operator.
+function tensorize!( os:: OpSum
+                   , sites
+                   , Q :: AbstractArray{T, 2}
+                   ; cutoff = 1e-8
+                   ) where {T}
+  nbits = length(sites)
+
+  for i in 1:nbits, j in (i+1):nbits
+    coeff = sum(K -> Q[K...], multiset_permutations([i, j], 2))
+
+    if abs(coeff) > cutoff
+      if i == j && dim(sites[i]) == 2 # Code optimization for bits: x^2 = x
+        os .+= (coeff, "D", i)
+      else
+        os .+= (coeff, "D", i, "D", j)
+      end
+    end
+  end
+
+  return os
+end
+
+function tensorize!( os:: OpSum
+                  , sites
+                  , l :: AbstractArray{T, 1}
+                  ; cutoff = 1e-8
+                  ) where {T}
+  nbits = length(sites)
+
+  # Linear term / Diagonal part
+  for i in 1:nbits
+    coeff = l[i]
+
+    if abs(coeff) > cutoff   # Not representing ~zero coeffs produces a speedup
+      os .+= (coeff, "D", i)
+    end
+  end
+
+  return os
 end
 
 """
@@ -106,8 +125,10 @@ solve(Q; device = Metal.mtl)
 function solve( Q :: AbstractMatrix{T}
               , l :: Union{AbstractVector{T}, Nothing} = nothing
               , c :: T = zero(T)
-              ; cutoff = 1e-8
-              , iterations :: Int = 10
+              ; cutoff :: Float64  = 1e-8
+              , atol   :: Float64  = cutoff
+              , rtol   :: Float64  = atol > 0.0 ? 0.0 : cutoff
+              , iterations :: Int  = 10
               , maxdim = [10, 20, 100, 100, 200]
               , device :: Function = identity
               , kwargs...
@@ -116,15 +137,21 @@ function solve( Q :: AbstractMatrix{T}
 
   # Quantization
   sites = ITensors.siteinds("Qudit", particles; dim = 2)
-  H     = tensorize(sites, Q, l; cutoff)
+  H = tensorize(sites, Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
 
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
   psi0 = random_mps(T, sites; linkdims=2)
 
-  energy, psi = dmrg(device(H), device(psi0)
-                    ; nsweeps = iterations
+  energy, tn = dmrg(device(H), device(psi0)
+                    ; nsweeps  = iterations
                     , maxdim, cutoff, kwargs...)
 
-  return energy + c, Distribution(psi)
+  # The calculated energy has approximation errors compared to the true solution.
+  # It makes more sense to sample a solution and calculate the true objective function applied to it.
+  psi = Distribution(tn)
+  x = sample(psi)
+  obj = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
+
+  return obj, psi
 end
