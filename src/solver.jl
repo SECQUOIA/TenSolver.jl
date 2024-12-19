@@ -126,8 +126,6 @@ function solve( Q :: AbstractMatrix{T}
               , l :: Union{AbstractVector{T}, Nothing} = nothing
               , c :: T = zero(T)
               ; cutoff :: Float64  = 1e-8
-              , atol   :: Float64  = cutoff
-              , rtol   :: Float64  = atol > 0.0 ? 0.0 : cutoff
               , iterations :: Int  = 10
               , maxdim = [10, 20, 100, 100, 200]
               , device :: Function = identity
