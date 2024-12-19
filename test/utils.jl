@@ -6,7 +6,7 @@
 """
   brute_force(f, n)
 
-A version of `solve` that uses a brute force approach instead of Tensor networks.
+A QUBO solver using a brute force approach instead of Tensor networks.
 Despite being painfully slow, this is useful as a sanity check.
 """
 function brute_force(f::Function, T, n::Int64)

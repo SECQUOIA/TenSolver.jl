@@ -17,7 +17,7 @@ include(filepath("utils.jl"))
 
   # Should throw when the matrix is not square
   Q = randn(dim, dim - 2)
-  @test_throws BoundsError solve(Q)
+  @test_throws BoundsError minimize(Q)
 end
 
 # Traditional interface

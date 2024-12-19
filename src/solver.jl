@@ -96,7 +96,7 @@ function tensorize!( os:: OpSum
 end
 
 """
-    solve(Q [, l, c ; device, cutoff, kwargs...)
+    minimize(Q [, l, c ; device, cutoff, kwargs...)
 
 Solve the Quadratic Unconstrained Binary Optimization problem
 
@@ -116,13 +116,13 @@ and pass its accelerator as argument.
 
 ```julia
 import CUDA
-solve(Q; device = CUDA.cu)
+minimize(Q; device = CUDA.cu)
 
 import Metal
-solve(Q; device = Metal.mtl)
+minimize(Q; device = Metal.mtl)
 ```
 """
-function solve( Q :: AbstractMatrix{T}
+function minimize( Q :: AbstractMatrix{T}
               , l :: Union{AbstractVector{T}, Nothing} = nothing
               , c :: T = zero(T)
               ; cutoff :: Float64  = 1e-8
@@ -153,3 +153,5 @@ function solve( Q :: AbstractMatrix{T}
 
   return obj, psi
 end
+
+minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T = minimize(Q, nothing, c; kwargs...)
