@@ -5,7 +5,7 @@
     Q = randn(dim, dim)
 
     # TenSolver solution
-    e, psi = TenSolver.solve(Q; cutoff = 1e-16, iterations = 20)
+    e, psi = TenSolver.minimize(Q; cutoff = 1e-16, iterations = 20)
     x = TenSolver.sample(psi)
 
     # Is the sampled solution part of the ground state?
@@ -39,7 +39,7 @@
     obj(x) = dot(x, Q, x) + dot(l, x) + c
 
     # TenSolver solution
-    e, psi = TenSolver.solve(Q, l, c; cutoff = 1e-16)
+    e, psi = TenSolver.minimize(Q, l, c; cutoff = 1e-16)
     x = TenSolver.sample(psi)
 
     # Does the ground energy match solution?

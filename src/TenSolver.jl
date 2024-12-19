@@ -9,7 +9,7 @@ include("solution.jl")
 export sample
 
 include("solver.jl")
-export solve
+export minimize
 
 
 ## ~:~ Welcome to the QUBOVerse ~:~ ##
@@ -30,9 +30,9 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     n, l, Q, a, b = QUBOTools.qubo(sampler, :sparse; sense = :min)
 
     # Solve
-    energy, psi = solve(Q, l)
+    energy, psi = minimize(Q, l, b)
 
-    obj = a * (energy + b)
+    obj = a * energy
     x   = sample(psi)
     s   = QUBOTools.Sample{T,Int}(x, obj)
 

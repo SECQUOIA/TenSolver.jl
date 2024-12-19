@@ -26,7 +26,7 @@ using TenSolver
 
 Q = randn(40, 40)
 
-E, psi = TenSolver.solve(Q)
+E, psi = TenSolver.minimize(Q)
 ```
 
 The returned argument `E` is the calculated estimate for the minimum value,
@@ -54,7 +54,7 @@ begin
   @variable(m, x[1:dim], Bin)
   @objective(m, Min, x'Q*x)
 
-  optimize!(m)                   # <-- Equivalent to running TenSolver.solve(Q)
+  optimize!(m)                   # <-- Equivalent to running TenSolver.minimize(Q)
 end
 ```
 
@@ -64,7 +64,7 @@ The solver uses the tensor networks machinery from [ITensors.jl](https://itensor
 which comes with GPU support for tensor contractions.
 
 To run the code in a GPU, all you have to do is passing the appropriate accelerator
-to the `solve_qubo` method.
+as a keyword to the solver.
 For example, the code below optimizes the QUBO using `CUDA.jl`.
 
 ```julia
@@ -73,7 +73,7 @@ import CUDA: cu
 
 Q = randn(4, 4)
 
-E, psi = solve(Q; device = CUDA.cu)
+E, psi = minimize(Q; device = CUDA.cu)
 ```
 
 Since ITensor's GPU platform support is always improving,
