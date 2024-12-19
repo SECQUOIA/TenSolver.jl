@@ -22,11 +22,10 @@ mutable struct ConvergenceObserver <: AbstractObserver
 end
 
 function ITensorMPS.checkdone!(o::ConvergenceObserver; energy, sweep, kwargs...)
-  abs_err = abs(energy - o.previous_energy)
-  rel_err = abs_err / abs(energy)
+  converged = isapprox(energy, o.previous_energy; atol = o.atol, rtol = o.rtol)
   o.previous_energy = energy
 
-  return abs_err < o.atol || rel_err < o.rtol
+  return converged
 end
 
 
