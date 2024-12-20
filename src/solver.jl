@@ -42,7 +42,7 @@ function tensorize(sites, Q::AbstractArray{T}, Qs...; cutoff = 1e-8) where T
     tensorize!(os, sites, x; cutoff)
   end
 
-  return MPO(T, os, sites)
+  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
 tensorize!(os, sites, ::Nothing; cutoff = 1e-8) = os
