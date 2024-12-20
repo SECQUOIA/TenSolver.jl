@@ -21,7 +21,7 @@ end
 @testset "Vehicle Routing Problem (VRP)" begin
   Q, beta = vrp_6nodes()
 
-  E, psi = minimize(Q, beta; iterations = 25, cutoff = 1e-16)
+  E, psi = minimize(Q, beta; iterations = 40, cutoff = 1e-12)
   x = TenSolver.sample(psi)
 
   # Known Solution
