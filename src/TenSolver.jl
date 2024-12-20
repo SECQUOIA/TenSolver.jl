@@ -9,7 +9,7 @@ include("solution.jl")
 export sample
 
 include("solver.jl")
-export minimize
+export minimize, maximize
 
 
 ## ~:~ Welcome to the QUBOVerse ~:~ ##

@@ -96,12 +96,15 @@ function tensorize!( os:: OpSum
 end
 
 """
-    minimize(Q [, l, c ; device, cutoff, kwargs...)
+    minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
 
-Solve the Quadratic Unconstrained Binary Optimization problem
+Solve the Quadratic Unconstrained Binary Optimization (QUBO) problem
 
     min  b'Qb + l'b + c
     s.t. b_i in {0, 1}
+
+Return the optimal value `E` and a probability distribution `ψ` over optimal solutions.
+You can use [`sample`](@ref) to get an actual bitstring solving the QUBO.
 
 This function uses DMRG with tensor networks to calculate the optimal solution,
 by finding the ground state (least eigenspace) of the Hamiltonian
@@ -109,6 +112,8 @@ by finding the ground state (least eigenspace) of the Hamiltonian
     H = Σ Q_ij D_iD_j + Σ l_i D_i
 
 where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |1>.
+
+See also [`maximize`](@ref).
 
 The optional keyword `device` controls whether the solver should run on CPU or GPU.
 For using a GPU, you can import the respective package, e.g. CUDA.jl,
@@ -154,4 +159,35 @@ function minimize( Q :: AbstractMatrix{T}
   return obj, psi
 end
 
+"""
+minimize(Q::Matrix, c::Number; kwargs...)
+
+Solve the Quadratic Unconstrained Binary Optimization problem
+without a linear term.
+
+    min  b'Qb + c
+    s.t. b_i in {0, 1}
+
+See also [`maximize`](@ref).
+"""
 minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T = minimize(Q, nothing, c; kwargs...)
+
+"""
+maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
+
+Solve the Quadratic Unconstrained Binary Optimization problem
+for maximization.
+
+    max  b'Qb + l'b + c
+    s.t. b_i in {0, 1}
+
+See also [`minimize`](@ref).
+"""
+function maximize(qs... ; kwargs...)
+  # Flip the sign of all non-nothing elements
+  # max p(x) = - min -p(x)
+  mqs = map(q -> maybe(-, q), qs)
+  E, psi = minimize(mqs...; kwargs...)
+
+  return -E, psi
+end
