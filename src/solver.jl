@@ -113,8 +113,6 @@ by finding the ground state (least eigenspace) of the Hamiltonian
 
 where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |1>.
 
-See also [`maximize`](@ref).
-
 The optional keyword `device` controls whether the solver should run on CPU or GPU.
 For using a GPU, you can import the respective package, e.g. CUDA.jl,
 and pass its accelerator as argument.
@@ -126,6 +124,8 @@ minimize(Q; device = CUDA.cu)
 import Metal
 minimize(Q; device = Metal.mtl)
 ```
+
+See also [`maximize`](@ref).
 """
 function minimize( Q :: AbstractMatrix{T}
               , l :: Union{AbstractVector{T}, Nothing} = nothing
@@ -160,7 +160,7 @@ function minimize( Q :: AbstractMatrix{T}
 end
 
 """
-minimize(Q::Matrix, c::Number; kwargs...)
+    minimize(Q::Matrix, c::Number; kwargs...)
 
 Solve the Quadratic Unconstrained Binary Optimization problem
 without a linear term.
@@ -173,7 +173,7 @@ See also [`maximize`](@ref).
 minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T = minimize(Q, nothing, c; kwargs...)
 
 """
-maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
+    maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
 
 Solve the Quadratic Unconstrained Binary Optimization problem
 for maximization.

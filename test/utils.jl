@@ -4,7 +4,7 @@
 =#
 
 """
-  brute_force(f, n)
+    brute_force(f, n)
 
 A QUBO solver using a brute force approach instead of Tensor networks.
 Despite being painfully slow, this is useful as a sanity check.

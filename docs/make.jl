@@ -18,4 +18,3 @@ if !("local" in ARGS)
         repo = "github.com/SECQUOIA/TenSolver.jl.git"
     )
 end
-

@@ -15,7 +15,7 @@ sample(psi::Distribution) = ITensorMPS.sample!(psi.tensor) .- 1
 
 
 """
-  in(xs, psi::Distribution [; cutoff)
+    in(xs, psi::Distribution [; cutoff)
 
 Whether the vector `xs` has a positive probability of being sampleable from `psi`.
 When setting `cutoff`, it will be used as the minimum probability considered positive.
