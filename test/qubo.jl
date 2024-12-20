@@ -1,6 +1,77 @@
 @testset "QUBO Correctness" begin
   dim = 5
 
+  @testset "Ultra simple sanity checks" begin
+    @testset "Zero matrix" begin
+      E, psi = minimize([0.0 0; 0 0])
+
+      @test E ≈ 0.0
+      for x in [[i, j] for i in 0:1, j in 0:1]
+        @test x in psi
+      end
+    end
+
+    @testset "Zero matrix + constant" begin
+      E, psi = minimize([0.0 0; 0 0], 3.0)
+
+      @test E ≈ 3.0
+      for x in [[i, j] for i in 0:1, j in 0:1]
+        @test x in psi
+      end
+    end
+
+    @testset "Zero matrix + zero linear" begin
+      E, psi = minimize([0.0 0; 0 0], [0.0, 0.0])
+
+      @test E ≈ 0.0
+      for x in [[i, j] for i in 0:1, j in 0:1]
+        @test x in psi
+      end
+    end
+
+    @testset "Zero matrix + linear" begin
+      E, psi = minimize([0.0 0; 0 0], [1.0, -1.0])
+
+      @test E ≈ -1.0
+      @test TenSolver.sample(psi) == [0, 1]
+    end
+
+    @testset "Zero matrix + linear + const" begin
+      E, psi = minimize([0.0 0; 0 0], [1.0, -1.0], 3.0)
+
+      @test E ≈ 2.0
+      @test TenSolver.sample(psi) == [0, 1]
+    end
+
+    @testset "Identity" begin
+      E, psi = minimize([1.0 0.0; 0.0 1.0])
+
+      @test E ≈ 0.0
+      @test TenSolver.sample(psi) == [0, 0]
+    end
+
+    @testset "Max: Identity" begin
+      E, psi = maximize([1.0 0.0; 0.0 1.0])
+
+      @test E ≈ 2.0
+      @test TenSolver.sample(psi) == [1, 1]
+    end
+
+    @testset "Max: Identity + const" begin
+      E, psi = maximize([1.0 0.0; 0.0 1.0], 3.0)
+
+      @test E ≈ 5.0
+      @test TenSolver.sample(psi) == [1, 1]
+    end
+
+    @testset "Max: Zero matrix + linear + const" begin
+      E, psi = maximize([0.0 0.0; 0.0 0.0], [1.0, -1.0], 3.0)
+
+      @test E ≈ 4.0
+      @test TenSolver.sample(psi) == [1, 0]
+    end
+  end
+
   @testset "Pure quadratic" begin
     Q = randn(dim, dim)
 

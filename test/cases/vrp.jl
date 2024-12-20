@@ -1,6 +1,7 @@
 using LinearAlgebra
 
-function vrp_simple()
+# See https://secquoia.github.io/QUBOBook/QUBO%20and%20Ising%20Models.html
+function vrp_6nodes()
   A = Float64[
       1 0 0 1 1 1 0 1 1 1 1
       0 1 0 1 0 1 1 0 1 1 1
@@ -18,14 +19,13 @@ function vrp_simple()
 end
 
 @testset "Vehicle Routing Problem (VRP)" begin
-  # See https://secquoia.github.io/QUBOBook/QUBO%20and%20Ising%20Models.html
-  Q, beta = vrp_simple()
+  Q, beta = vrp_6nodes()
 
-  E, psi = solve(Q, nothing, beta)
+  E, psi = minimize(Q, beta; iterations = 25, cutoff = 1e-16)
   x = TenSolver.sample(psi)
 
   # Known Solution
-  @test E ≈ 5.0 atol=1e-4
+  @test E ≈ 5.0
 
   @test [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0] in psi
   @test [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] in psi
