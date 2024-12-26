@@ -18,14 +18,18 @@ end
 mutable struct ConvergenceObserver <: AbstractObserver
   atol            :: Float64
   rtol            :: Float64
+  time_limit      :: Float64
+  init_time       :: Float64
   previous_energy :: Float64
+
+  ConvergenceObserver(atol, rtol, time_limit = +Inf) = new(atol, rtol, time_limit, time() , +Inf)
 end
 
 function ITensorMPS.checkdone!(o::ConvergenceObserver; energy, sweep, kwargs...)
   converged = isapprox(energy, o.previous_energy; atol = o.atol, rtol = o.rtol)
   o.previous_energy = energy
 
-  return converged
+  return converged || time() - o.init_time > o.time_limit
 end
 
 
@@ -145,8 +149,11 @@ minimize(Q; device = Metal.mtl)
 function minimize( Q :: AbstractMatrix{T}
               , l :: Union{AbstractVector{T}, Nothing} = nothing
               , c :: T = zero(T)
-              ; cutoff :: Float64  = 1e-8
-              , iterations :: Int  = 10
+              ; cutoff :: Float64     = 1e-8
+              , atol   :: Float64     = cutoff
+              , rtol   :: Float64     = atol
+              , iterations :: Int     = 10
+              , time_limit :: Float64 = +Inf
               , maxdim = [10, 20, 100, 100, 200]
               , device :: Function = identity
               , kwargs...
@@ -160,7 +167,7 @@ function minimize( Q :: AbstractMatrix{T}
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
   psi0 = random_mps(T, sites; linkdims=2)
-  observer = ConvergenceObserver(atol, rtol, Inf)
+  observer = ConvergenceObserver(atol, rtol, time_limit)
 
   energy, tn = dmrg(device(H), device(psi0)
                     ; nsweeps  = iterations
