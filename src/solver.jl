@@ -15,21 +15,25 @@ function maybe(f::Function, mx::Union{T, Nothing}; default=nothing) where T
   return isnothing(mx) ? default : f(mx)
 end
 
+variance(H::MPO, x::MPS) = inner(H, x, H, x) - inner(x, H, x)^2
+
 mutable struct ConvergenceObserver <: AbstractObserver
   atol            :: Float64
   rtol            :: Float64
+  variance_tol    :: Float64
   time_limit      :: Float64
   init_time       :: Float64
   previous_energy :: Float64
 
-  ConvergenceObserver(atol, rtol, time_limit = +Inf) = new(atol, rtol, time_limit, time() , +Inf)
+  ConvergenceObserver(atol, rtol, vtol=0.0, time_limit = +Inf) = new(atol, rtol, vtol, time_limit, time() , +Inf)
 end
 
-function ITensorMPS.checkdone!(o::ConvergenceObserver; energy, sweep, kwargs...)
-  converged = isapprox(energy, o.previous_energy; atol = o.atol, rtol = o.rtol)
+function ITensorMPS.checkdone!(o::ConvergenceObserver; energy, sweep, psi, outputlevel)
+  stagnated = isapprox(energy, o.previous_energy; atol = o.atol, rtol = o.rtol)
   o.previous_energy = energy
+  var = o.variance_tol > 0 ? variance(o.H, psi) : Inf
 
-  return converged || time() - o.init_time > o.time_limit
+  return stagnated || var < o.variance_tol || time() - o.init_time > o.time_limit
 end
 
 
@@ -147,17 +151,19 @@ minimize(Q; device = Metal.mtl)
 See also [`maximize`](@ref).
 """
 function minimize( Q :: AbstractMatrix{T}
-              , l :: Union{AbstractVector{T}, Nothing} = nothing
-              , c :: T = zero(T)
-              ; cutoff :: Float64     = 1e-8
-              , atol   :: Float64     = cutoff
-              , rtol   :: Float64     = atol
-              , iterations :: Int     = 10
-              , time_limit :: Float64 = +Inf
-              , maxdim = [10, 20, 100, 100, 200]
-              , device :: Function = identity
-              , kwargs...
-              ) where {T}
+                 , l :: Union{AbstractVector{T}, Nothing} = nothing
+                 , c :: T = zero(T)
+                  ; cutoff :: Float64    = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
+                 , atol    :: Float64    = cutoff
+                 , rtol    :: Float64    = atol
+                 , vtol    :: Float64    = 0.0
+                 , iterations :: Int     = 10
+                 , time_limit :: Float64 = +Inf
+                 , maxdim = [10, 20, 50, 100, 100, 200]
+                 , noise  = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
+                 , device :: Function = identity
+                 , kwargs...
+                 ) where {T}
   particles = size(Q)[1]
 
   # Quantization
@@ -167,7 +173,7 @@ function minimize( Q :: AbstractMatrix{T}
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
   psi0 = random_mps(T, sites; linkdims=2)
-  observer = ConvergenceObserver(atol, rtol, time_limit)
+  observer = ConvergenceObserver(atol, rtol, vtol, time_limit)
 
   energy, tn = dmrg(device(H), device(psi0)
                     ; nsweeps  = iterations
@@ -186,8 +192,7 @@ end
 """
     minimize(Q::Matrix, c::Number; kwargs...)
 
-Solve the Quadratic Unconstrained Binary Optimization problem
-without a linear term.
+Solve the Quadratic Unconstrained Binary Optimization problem with no linear term.
 
     min  b'Qb + c
     s.t. b_i in {0, 1}
