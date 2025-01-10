@@ -1,9 +1,6 @@
 name = "TenSolver"
 uuid = "cfd60579-01bf-4b47-9b3b-7c8dc91a23e2"
-authors = [ "Iago Leal de Freitas <iago@iagoleal.com>"
-          , "Pedro Maciel Xavier <pedroxavier@psr-inc.com>"
-          , "David E. Bernal Neira <dbernaln@purdue.edu>"
-          ]
+authors = ["Iago Leal de Freitas <iago@iagoleal.com>", "Pedro Maciel Xavier <pedroxavier@psr-inc.com>", "David E. Bernal Neira <dbernaln@purdue.edu>"]
 version = "0.1.2"
 
 [deps]
@@ -16,4 +13,5 @@ QUBOTools = "60eb5b62-0a39-4ddc-84c5-97d2adff9319"
 
 [compat]
 ITensors = ">=0.6"
+QUBODrivers = "0.3"
 julia = "1.10"
