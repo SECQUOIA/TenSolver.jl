@@ -12,6 +12,7 @@ QUBODrivers = "a3f166f7-2cd3-47b6-9e1e-6fbfe0449eb0"
 QUBOTools = "60eb5b62-0a39-4ddc-84c5-97d2adff9319"
 
 [compat]
+Combinatorics = "1"
 ITensorMPS = "0.3"
 ITensors = ">=0.6"
 QUBODrivers = "0.3"
