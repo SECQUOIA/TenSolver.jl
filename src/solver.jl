@@ -153,15 +153,16 @@ See also [`maximize`](@ref).
 function minimize( Q :: AbstractMatrix{T}
                  , l :: Union{AbstractVector{T}, Nothing} = nothing
                  , c :: T = zero(T)
-                  ; cutoff :: Float64    = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
-                 , atol    :: Float64    = cutoff
-                 , rtol    :: Float64    = atol
-                 , vtol    :: Float64    = 0.0
-                 , iterations :: Int     = 10
-                 , time_limit :: Float64 = +Inf
-                 , maxdim = [10, 20, 50, 100, 100, 200]
-                 , noise  = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
-                 , device :: Function = identity
+                 ; cutoff     :: Float64  = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
+                 , atol       :: Float64  = cutoff
+                 , rtol       :: Float64  = atol
+                 , vtol       :: Float64  = 0.0
+                 , iterations :: Int      = 10
+                 , time_limit :: Float64  = +Inf
+                 , maxdim                 = [10, 20, 50, 100, 100, 200]
+                 , noise                  = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
+                 , device     :: Function = cpu
+                 , preprocess :: Bool     = false
                  , kwargs...
                  ) where {T}
   particles = size(Q)[1]
@@ -172,12 +173,22 @@ function minimize( Q :: AbstractMatrix{T}
 
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
-  psi0 = random_mps(T, sites; linkdims=2)
+  if preprocess
+    Tri  = Tridiagonal(Q)
+    psi0 = minimize(Tri; preprocess = false, mindim=10, cutoff, atol, rtol, vtol, iterations, time_limit, maxdim, noise, device, kwargs...)[2].tensor
+    @show psi0
+    for i in 1:particles
+      psi0[i] *= ITensors.delta(T, siteind(psi0, i), sites[i])
+    end
+  else
+    psi0 = random_mps(T, sites; linkdims=10)
+  end
   observer = ConvergenceObserver(atol, rtol, vtol, time_limit)
 
   energy, tn = dmrg(device(H), device(psi0)
-                    ; nsweeps  = iterations
-                    , observer = observer
+                    ; nsweeps     = iterations
+                    , observer    = observer
+                    , ishermitian = true
                     , maxdim, cutoff, kwargs...)
 
   # The calculated energy has approximation errors compared to the true solution.
