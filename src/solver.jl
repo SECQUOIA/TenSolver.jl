@@ -127,7 +127,7 @@ Solve the Quadratic Unconstrained Binary Optimization (QUBO) problem
     s.t. b_i in {0, 1}
 
 Return the optimal value `E` and a probability distribution `ψ` over optimal solutions.
-You can use [`sample`](@ref) to get an actual bitstring solving the QUBO.
+You can use [`sample`](@ref) to get an actual bitstring from `ψ`.
 
 This function uses DMRG with tensor networks to calculate the optimal solution,
 by finding the ground state (least eigenspace) of the Hamiltonian
@@ -135,6 +135,31 @@ by finding the ground state (least eigenspace) of the Hamiltonian
     H = Σ Q_ij D_iD_j + Σ l_i D_i
 
 where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |1>.
+
+Keyword arguments:
+
+- `iterations :: Int` - Maximum iterations the solver should run. Defaults to `10`.
+- `cutoff :: Float64` - Any absolute value below this threshold is considered zero. Defaults to `1e-8`.
+  You can use this keyword to control the solver's accuracy vs resources trade-off.
+- `maxdim` - The maximum allowed bond dimension.
+  Integer or array of integer specifying the bond dimension per iteration.
+  You can use this keyword to control the solver's accuracy vs resources trade-off.
+- `mindim` - The minimum allowed bond dimension, if possible.
+  Integer or array of integer specifying the bond dimension per iteration.
+- `time_limit :: Float64` - If specified, determines the maximum running time in seconds.
+  It only determines whether a new iteration should start or not, thus the solver may run for longer if the threshold happens during an iteration.
+- `device = cpu` - Accelerator device used during computation.
+  See the section below for how to run on GPUs.
+- `vtol :: Float64` - If specified, determines the variance tolerance before the algorithm stops.
+  The variance test determines whether DMRG converged to an eigenstate (not necessarily the ground state),
+  but is expensive to calculate.
+- `noise` - A float or array of floats (per iteration) specifying the noise term added to the system to help with convergence.
+  It is recommended to use a large noise (~ 1e-5) on the initial iterations and let it go to zero on later iterations.
+- `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
+- `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
+- `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
+
+Running on GPU:
 
 The optional keyword `device` controls whether the solver should run on CPU or GPU.
 For using a GPU, you can import the respective package, e.g. CUDA.jl,
@@ -148,22 +173,29 @@ import Metal
 minimize(Q; device = Metal.mtl)
 ```
 
+
 See also [`maximize`](@ref).
 """
 function minimize( Q :: AbstractMatrix{T}
                  , l :: Union{AbstractVector{T}, Nothing} = nothing
                  , c :: T = zero(T)
                  ; cutoff     :: Float64  = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
+                 , iterations :: Int      = 10
+                 , device     :: Function = cpu
+                 , time_limit :: Float64  = +Inf
                  , atol       :: Float64  = cutoff
                  , rtol       :: Float64  = atol
                  , vtol       :: Float64  = 0.0
-                 , iterations :: Int      = 10
-                 , time_limit :: Float64  = +Inf
+                 , verbosity              = 1
+                 # DMRG keywords
                  , maxdim                 = [10, 20, 50, 100, 100, 200]
+                 , mindim                 = 1
                  , noise                  = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
-                 , device     :: Function = cpu
+                 , eigsolve_krylovdim :: Int     = 3
+                 , eigsolve_maxiter   :: Int     = 1
+                 , eigsolve_tol       :: Float64 = 1e-14
+                 # Work in progress
                  , preprocess :: Bool     = false
-                 , kwargs...
                  ) where {T}
   particles = size(Q)[1]
 
@@ -189,8 +221,16 @@ function minimize( Q :: AbstractMatrix{T}
                     ; nsweeps     = iterations
                     , observer    = observer
                     , ishermitian = true
-                    , maxdim, cutoff, kwargs...)
-
+                    , outputlevel = verbosity
+                    , cutoff
+                    , maxdim
+                    , mindim
+                    , noise
+                    , eigsolve_krylovdim
+                    , eigsolve_tol
+                    , eigsolve_maxiter
+                    , eigsolve_verbosity = 0
+               )
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
   psi = Distribution(tn)

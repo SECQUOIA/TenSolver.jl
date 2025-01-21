@@ -25,18 +25,21 @@ QUBODrivers.@setup Optimizer begin
     # JuMP-specific
     NumberOfReads["num_reads"]::Integer = 1_000
     # Solver keywords
-    "cutoff"     :: Float64  = 1e-8
-    "atol"       :: Float64  = 1e-8
-    "rtol"       :: Float64  = 1e-8
-    "vtol"       :: Float64  = 0.0
-    "iterations" :: Int      = 10
-    "time_limit" :: Float64  = +Inf
-    "maxdim"     :: Union{Int, Vector{Int}} = [10, 20, 50, 100, 100, 200]
-    "noise"      :: Union{Float64, Vector{Float64}} = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0]
-    "device"     :: Function = cpu
-    "preprocess" :: Bool     = false
-    # ITensor keywords
-    "outputlevel" :: Int     = 1
+    "cutoff"               :: Float64                         = 1e-8
+    "atol"                 :: Float64                         = 1e-8
+    "rtol"                 :: Float64                         = 1e-8
+    "vtol"                 :: Float64                         = 0.0
+    "iterations"           :: Int                             = 10
+    "time_limit"           :: Float64                         = +Inf
+    "maxdim"               :: Union{Int, Vector{Int}}         = [10, 20, 50, 100, 100, 200]
+    "mindim"               :: Union{Int, Vector{Int}}         = 1
+    "noise"                :: Union{Float64, Vector{Float64}} = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0]
+    "device"               :: Function                        = cpu
+    "eigsolve_krylovdim"   :: Int                             = 3
+    "eigsolve_maxiter"     :: Int                             = 1
+    "eigsolve_tol"         :: Float64                         = 1e-14
+    "preprocess"           :: Bool                            = false
+    "verbosity"            :: Int                             = 1
   end
 end
 
@@ -49,7 +52,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   end
 
   if MOI.get(sampler, MOI.Silent())
-    MOI.set(sampler, MOI.RawOptimizerAttribute("outputlevel"), 0)
+    MOI.set(sampler, MOI.RawOptimizerAttribute("verbosity"), 0)
   end
 
   num_reads = MOI.get(sampler, NumberOfReads())
@@ -66,9 +69,13 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     iterations  = get("iterations"),
     time_limit  = get("time_limit"),
     maxdim      = get("maxdim"),
+    mindim      = get("mindim"),
     noise       = get("noise"),
     device      = get("device"),
-    outputlevel = get("outputlevel"),
+    verbosity   = get("verbosity"),
+    eigsolve_krylovdim =  get("eigsolve_krylovdim"),
+    eigsolve_tol       =  get("eigsolve_tol"),
+    eigsolve_maxiter   =  get("eigsolve_maxiter"),
   )
   energy, psi = results.value
   obj = a * energy
