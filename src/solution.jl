@@ -13,6 +13,7 @@ Sample a bitstring from a (quantum) probability distribution.
 """
 sample(psi::Distribution) = ITensorMPS.sample!(psi.tensor) .- 1
 
+sample(psi::Distribution, n :: Integer) = [sample(psi) for _ in 1:n]
 
 """
     in(xs, psi::Distribution [; cutoff)
