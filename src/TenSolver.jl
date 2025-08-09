@@ -11,6 +11,9 @@ export sample
 include("solver.jl")
 export minimize, maximize
 
+# Convergence logging
+include("log.jl")
+
 cpu = identity
 
 
@@ -26,15 +29,13 @@ QUBODrivers.@setup Optimizer begin
     NumberOfReads["num_reads"]::Integer = 1_000
     # Solver keywords
     "cutoff"               :: Float64                         = 1e-8
-    "atol"                 :: Float64                         = 1e-8
-    "rtol"                 :: Float64                         = 1e-8
+    "device"               :: Function                        = cpu
     "vtol"                 :: Float64                         = 0.0
     "iterations"           :: Int                             = 10
     "time_limit"           :: Float64                         = +Inf
     "maxdim"               :: Union{Int, Vector{Int}}         = [10, 20, 50, 100, 100, 200]
     "mindim"               :: Union{Int, Vector{Int}}         = 1
     "noise"                :: Union{Float64, Vector{Float64}} = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0]
-    "device"               :: Function                        = cpu
     "eigsolve_krylovdim"   :: Int                             = 3
     "eigsolve_maxiter"     :: Int                             = 1
     "eigsolve_tol"         :: Float64                         = 1e-14
@@ -63,8 +64,6 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   #  s.t. x in {0, 1}^n
   results = @timed minimize(Q, l, b;
     cutoff      = get("cutoff"),
-    atol        = get("atol"),
-    rtol        = get("rtol"),
     vtol        = get("vtol"),
     iterations  = get("iterations"),
     time_limit  = get("time_limit"),

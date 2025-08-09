@@ -15,27 +15,8 @@ function maybe(f::Function, mx::Union{T, Nothing}; default=nothing) where T
   return isnothing(mx) ? default : f(mx)
 end
 
-variance(H::MPO, x::MPS) = inner(H, x, H, x) - inner(x, H, x)^2
-
-mutable struct ConvergenceObserver <: AbstractObserver
-  atol            :: Float64
-  rtol            :: Float64
-  variance_tol    :: Float64
-  time_limit      :: Float64
-  init_time       :: Float64
-  previous_energy :: Float64
-
-  ConvergenceObserver(atol, rtol, vtol=0.0, time_limit = +Inf) = new(atol, rtol, vtol, time_limit, time() , +Inf)
-end
-
-function ITensorMPS.checkdone!(o::ConvergenceObserver; energy, sweep, psi, outputlevel)
-  stagnated = isapprox(energy, o.previous_energy; atol = o.atol, rtol = o.rtol)
-  o.previous_energy = energy
-  var = o.variance_tol > 0 ? variance(o.H, psi) : Inf
-
-  return stagnated || var < o.variance_tol || time() - o.init_time > o.time_limit
-end
-
+expectation(H, x) = inner(x', H, x)
+variance(H::MPO, x::MPS) = inner(H, x, H, x) - expectation(H, x)^2
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -57,7 +38,7 @@ for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
 """
 function tensorize end
 
-function tensorize(sites, Q::AbstractArray{T}, Qs...; cutoff = 1e-8) where T
+function tensorize(sites, Q::AbstractArray{T}, Qs...; cutoff = zero(T)) where T
   os = OpSum{T}()
 
   tensorize!(os, sites, Q; cutoff)
@@ -68,7 +49,7 @@ function tensorize(sites, Q::AbstractArray{T}, Qs...; cutoff = 1e-8) where T
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-tensorize!(os, sites, ::Nothing; cutoff = 1e-8) = os
+tensorize!(os, sites, ::Nothing; cutoff = nothing) = os
 
 # Construct the Hamiltonian H = Σ Q_ij P_i P_j
 # The less operators in the sum, the fastest we can calculate an MPO.
@@ -80,7 +61,7 @@ tensorize!(os, sites, ::Nothing; cutoff = 1e-8) = os
 function tensorize!( os:: OpSum
                    , sites
                    , Q :: AbstractArray{T, 2}
-                   ; cutoff = 1e-8
+                   ; cutoff = zero(T)
                    ) where {T}
   nbits = length(sites)
 
@@ -102,7 +83,7 @@ end
 function tensorize!( os:: OpSum
                   , sites
                   , l :: AbstractArray{T, 1}
-                  ; cutoff = 1e-8
+                  ; cutoff = zero(T)
                   ) where {T}
   nbits = length(sites)
 
@@ -183,9 +164,8 @@ function minimize( Q :: AbstractMatrix{T}
                  , iterations :: Int      = 10
                  , device     :: Function = cpu
                  , time_limit :: Float64  = +Inf
-                 , atol       :: Float64  = cutoff
-                 , rtol       :: Float64  = atol
                  , vtol       :: Float64  = 0.0
+                 , check_variance_each_iteration :: Int = 3
                  , verbosity              = 1
                  # DMRG keywords
                  , maxdim                 = [10, 20, 50, 100, 100, 200]
@@ -195,9 +175,10 @@ function minimize( Q :: AbstractMatrix{T}
                  , eigsolve_maxiter   :: Int     = 1
                  , eigsolve_tol       :: Float64 = 1e-14
                  # Work in progress
-                 , preprocess :: Bool     = false
+                 , preprocess :: Bool    = false
                  ) where {T}
   particles = size(Q)[1]
+  initial_time = time()
 
   # Quantization
   sites = ITensors.siteinds("Qudit", particles; dim = 2)
@@ -207,37 +188,71 @@ function minimize( Q :: AbstractMatrix{T}
   # Slight entanglement to help DMRG avoid local minima
   if preprocess
     Tri  = Tridiagonal(Q)
-    psi0 = minimize(Tri; preprocess = false, mindim=10, cutoff, atol, rtol, vtol, iterations, time_limit, maxdim, noise, device, kwargs...)[2].tensor
-    @show psi0
+    psi = minimize(Tri; preprocess = false, mindim=10, cutoff, atol, rtol, vtol, iterations, time_limit, maxdim, noise, device)[2].tensor
+    @show psi
     for i in 1:particles
-      psi0[i] *= ITensors.delta(T, siteind(psi0, i), sites[i])
+      psi[i] *= ITensors.delta(T, siteind(psi, i), sites[i])
     end
   else
-    psi0 = random_mps(T, sites; linkdims=10)
+    psi = random_mps(T, sites; linkdims=500)
   end
-  observer = ConvergenceObserver(atol, rtol, vtol, time_limit)
 
-  energy, tn = dmrg(device(H), device(psi0)
-                    ; nsweeps     = iterations
-                    , observer    = observer
-                    , ishermitian = true
-                    , outputlevel = verbosity
-                    , cutoff
-                    , maxdim
-                    , mindim
-                    , noise
-                    , eigsolve_krylovdim
-                    , eigsolve_tol
-                    , eigsolve_maxiter
-                    , eigsolve_verbosity = 0
-               )
+  @debug "MPO construction finished" time=(time() - initial_time)
+
+  iterlog_header(verbosity)
+  i   = 1
+  var = Inf
+  local energy, psi
+
+  while true
+    energy, psi = dmrg(device(H), device(psi)
+                      ; nsweeps     = 1
+                      , ishermitian = true
+                      , outputlevel = 0
+                      , cutoff
+                      , maxdim
+                      , mindim
+                      , noise
+                      , eigsolve_krylovdim
+                      , eigsolve_tol
+                      , eigsolve_maxiter
+                      , eigsolve_verbosity = 0
+                 )
+
+    # Get metadata #
+    elapsed_time = time() - initial_time
+    if vtol > 0.0 && i % check_variance_each_iteration == 0
+      var = variance(H, psi)
+      @debug "Calculate variance" variance=var time=(time() - elapsed_time)
+    end
+
+    iterlog_iteration(verbosity, i, energy + c, ITensorMPS.maxlinkdim(psi), var, elapsed_time)
+
+    # Stopping criteria #
+    if i > iterations
+      @debug "Stopping: maximum iterations reached" iteration=i
+      break
+    elseif elapsed_time > time_limit
+      @debug "Stopping: maximum time reached" iteration=i limit=time_limit time=elapsed_time
+      break
+    elseif var < vtol
+      @debug "Stopping: variance below tolerance" variance=var tolerance=vtol
+      break
+    end
+
+    i = i + 1
+  end
+
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  psi = Distribution(tn)
-  x = sample(psi)
-  obj = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
+  dist = Distribution(psi)
+  x    = sample(dist)
+  obj  = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
+  elapsed_time = time() - initial_time
 
-  return obj, psi
+  iterlog_footer(verbosity, obj, elapsed_time)
+
+  return obj, dist
 end
 
 """
