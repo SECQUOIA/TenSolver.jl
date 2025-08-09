@@ -1,9 +1,10 @@
 using LinearAlgebra
 import Combinatorics: multiset_permutations
 
-using ITensorMPS, ITensors
-import ITensorMPS: MPS, MPO, dmrg, OpSum, OpName, SiteType, StateName
-import ITensorMPS: AbstractObserver
+import ITensors, ITensorMPS
+
+import ITensorMPS: MPS, MPO, dmrg, OpSum, @OpName_str, @SiteType_str, @StateName_str
+import ITensors: inner
 
 
 function issquare(A :: AbstractMatrix)
@@ -24,7 +25,7 @@ variance(H::MPO, x::MPS) = inner(H, x, H, x) - expectation(H, x)^2
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
 ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
 
-ITensors.state(::StateName"full", ::SiteType"Qudit", s::Index) = (d = dim(s); fill(1/sqrt(d), d))
+ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index) = (d = dim(s); fill(1/sqrt(d), d))
 
 """
     tensorize(sites, p::AbstractArray{T, n})
