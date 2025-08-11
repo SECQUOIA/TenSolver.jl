@@ -22,6 +22,8 @@ end
 
 # Traditional interface
 include(filepath("qubo.jl"))
+# Iteration Log utilities
+include(filepath("log.jl"))
 # JuMP interface
 include(filepath("jump.jl"))
 
