@@ -161,59 +161,53 @@ See also [`maximize`](@ref).
 function minimize( Q :: AbstractMatrix{T}
                  , l :: Union{AbstractVector{T}, Nothing} = nothing
                  , c :: T = zero(T)
-                 ; cutoff     :: Float64  = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
-                 , iterations :: Int      = 10
-                 , device     :: Function = cpu
-                 , time_limit :: Float64  = +Inf
-                 , vtol       :: Float64  = 0.0
-                 , check_variance_each_iteration :: Int = 3
-                 , verbosity              = 1
+                 ; device     :: Function = cpu
+                 , iterations = 10
+                 , cutoff     = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
+                 , time_limit = +Inf
+                 , vtol       = 0.0
+                 , check_variance_each_iteration = 3
+                 , verbosity  = 1
                  # DMRG keywords
-                 , maxdim                 = [10, 20, 50, 100, 100, 200]
-                 , mindim                 = 1
-                 , noise                  = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
+                 , maxdim     = [10, 20, 50, 100, 100, 200]
+                 , mindim     = 1
+                 , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
                  , eigsolve_krylovdim :: Int     = 3
                  , eigsolve_maxiter   :: Int     = 1
                  , eigsolve_tol       :: Float64 = 1e-14
                  # Work in progress
                  , preprocess :: Bool    = false
                  ) where {T}
-  particles = size(Q)[1]
+  N = size(Q)[1]
   initial_time = time()
 
   # Quantization
-  sites = ITensors.siteinds("Qudit", particles; dim = 2)
+  sites = ITensors.siteinds("Qudit", N; dim = 2)
   H = tensorize(sites, Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
+  psi = ITensorMPS.random_mps(T, sites; linkdims=10*N)
 
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
-  if preprocess
-    Tri  = Tridiagonal(Q)
-    psi = minimize(Tri; preprocess = false, mindim=10, cutoff, atol, rtol, vtol, iterations, time_limit, maxdim, noise, device)[2].tensor
-    @show psi
-    for i in 1:particles
-      psi[i] *= ITensors.delta(T, siteind(psi, i), sites[i])
-    end
-  else
-    psi = random_mps(T, sites; linkdims=500)
-  end
 
-  @debug "MPO construction finished" time=(time() - initial_time)
+  @debug("MPO construction finished",
+    time=(time() - initial_time),
+    max_bond = ITensorMPS.maxlinkdim(H),
+    num_coefficients = sum(prod(m) for m in H),
+  )
 
   iterlog_header(verbosity)
-  i   = 1
   var = Inf
   local energy, psi
 
-  while true
+  for i in Iterators.countfrom(1)
     energy, psi = dmrg(device(H), device(psi)
                       ; nsweeps     = 1
                       , ishermitian = true
                       , outputlevel = 0
                       , cutoff
-                      , maxdim
-                      , mindim
-                      , noise
+                      , maxdim = maxdim[min(i, length(maxdim))]
+                      , mindim = mindim[min(i, length(mindim))]
+                      , noise  = noise[min(i, length(noise))]
                       , eigsolve_krylovdim
                       , eigsolve_tol
                       , eigsolve_maxiter
@@ -230,7 +224,7 @@ function minimize( Q :: AbstractMatrix{T}
     iterlog_iteration(verbosity, i, energy + c, ITensorMPS.maxlinkdim(psi), var, elapsed_time)
 
     # Stopping criteria #
-    if i > iterations
+    if i >= iterations
       @debug "Stopping: maximum iterations reached" iteration=i
       break
     elseif elapsed_time > time_limit
@@ -240,8 +234,6 @@ function minimize( Q :: AbstractMatrix{T}
       @debug "Stopping: variance below tolerance" variance=var tolerance=vtol
       break
     end
-
-    i = i + 1
   end
 
   # The calculated energy has approximation errors compared to the true solution.
