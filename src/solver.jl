@@ -162,12 +162,13 @@ function minimize( Q :: AbstractMatrix{T}
                  , l :: Union{AbstractVector{T}, Nothing} = nothing
                  , c :: T = zero(T)
                  ; device     :: Function = cpu
-                 , iterations = 10
                  , cutoff     = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
-                 , time_limit = +Inf
-                 , vtol       = 0.0
-                 , check_variance_each_iteration = 3
                  , verbosity  = 1
+                 # Stopping criteria
+                 , iterations :: Union{Nothing, Int} = nothing
+                 , time_limit = +Inf
+                 , vtol       = cutoff
+                 , check_variance_every_iteration = 10
                  # DMRG keywords
                  , maxdim     = [10, 20, 50, 100, 100, 200]
                  , mindim     = 1
@@ -215,16 +216,18 @@ function minimize( Q :: AbstractMatrix{T}
                  )
 
     # Get metadata #
-    elapsed_time = time() - initial_time
-    if vtol > 0.0 && i % check_variance_each_iteration == 0
+    if i % check_variance_every_iteration == 0
+      vtime = time()
       var = variance(H, psi)
-      @debug "Calculate variance" variance=var time=(time() - elapsed_time)
+      @debug "Calculate variance" variance=var time=(time() - vtime())
     end
+
+    elapsed_time = time() - initial_time
 
     iterlog_iteration(verbosity, i, energy + c, ITensorMPS.maxlinkdim(psi), var, elapsed_time)
 
     # Stopping criteria #
-    if i >= iterations
+    if !isnothing(iterations) && i >= iterations
       @debug "Stopping: maximum iterations reached" iteration=i
       break
     elseif elapsed_time > time_limit
