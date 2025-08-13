@@ -170,11 +170,12 @@ function minimize( Q :: AbstractMatrix{T}
                  , vtol       = cutoff
                  , check_variance_every_iteration = 10
                  # DMRG keywords
-                 , maxdim     = [10, 20, 50, 100, 100, 200]
+                 , inidim     = 40
+                 , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
                  , mindim     = 1
                  , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
                  , eigsolve_krylovdim :: Int     = 3
-                 , eigsolve_maxiter   :: Int     = 1
+                 , eigsolve_maxiter   :: Int     = 2
                  , eigsolve_tol       :: Float64 = 1e-14
                  # Work in progress
                  , preprocess :: Bool    = false
@@ -185,7 +186,7 @@ function minimize( Q :: AbstractMatrix{T}
   # Quantization
   sites = ITensors.siteinds("Qudit", N; dim = 2)
   H = tensorize(sites, Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
-  psi = ITensorMPS.random_mps(T, sites; linkdims=10*N)
+  psi = ITensorMPS.random_mps(T, sites; linkdims=inidim)
 
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
