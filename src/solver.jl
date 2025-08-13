@@ -225,7 +225,14 @@ function minimize( Q :: AbstractMatrix{T}
 
     elapsed_time = time() - initial_time
 
-    iterlog_iteration(verbosity, i, energy + c, ITensorMPS.maxlinkdim(psi), var, elapsed_time)
+    iterlog_iteration(
+      verbosity,
+      i,
+      energy + c,
+      ITensorMPS.maxlinkdim(psi),
+      i % check_variance_every_iteration == 0 ? var : nothing,
+      elapsed_time,
+    )
 
     # Stopping criteria #
     if !isnothing(iterations) && i >= iterations

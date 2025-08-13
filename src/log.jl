@@ -25,6 +25,19 @@ function iterlog_iteration(verbosity, iter, obj, bond_dim, variance, elapsed_tim
   end
 end
 
+function iterlog_iteration(verbosity, iter, obj, bond_dim, variance::Nothing, elapsed_time)
+  if verbosity > 0
+    @printf(
+      "| %9d | %# 11.4g | % 8d | %12s | %#10.2g |\n",
+      iter,
+      obj,
+      bond_dim,
+      "     -     ",
+      elapsed_time,
+    )
+  end
+end
+
 function iterlog_footer(verbosity, obj, elapsed_time)
   if verbosity > 0
     iterlog_horizontal_rule()
