@@ -12,9 +12,8 @@ function issquare(A :: AbstractMatrix)
   return nrows == ncols
 end
 
-function maybe(f::Function, mx::Union{T, Nothing}; default=nothing) where T
-  return isnothing(mx) ? default : f(mx)
-end
+maybe(f::Function, mx::Nothing; default=nothing) = default
+maybe(f::Function, mx; default=nothing) = f(mx)
 
 expectation(H, x) = inner(x', H, x)
 variance(H::MPO, x::MPS) = inner(H, x, H, x) - expectation(H, x)^2
