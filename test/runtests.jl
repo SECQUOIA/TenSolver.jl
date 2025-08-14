@@ -26,8 +26,8 @@ include(filepath("qubo.jl"))
 include(filepath("log.jl"))
 # JuMP interface
 include(filepath("jump.jl"))
-# Aqua.jl tests
-include(filepath("aqua.jl"))
+# QUBODrivers.jl and Aqua.jl test suites
+include(filepath("external.jl"))
 
 # Cases from papers
 include(filepath("cases/vrp.jl"))
