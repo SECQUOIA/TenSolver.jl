@@ -184,8 +184,8 @@ function minimize( Q :: AbstractMatrix{T}
 
   # Quantization
   sites = ITensors.siteinds("Qudit", N; dim = 2)
-  H = tensorize(sites, Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
-  psi = ITensorMPS.random_mps(T, sites; linkdims=inidim)
+  H = device(tensorize(sites, Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff))
+  psi = device(ITensorMPS.random_mps(T, sites; linkdims=inidim))
 
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
@@ -201,7 +201,7 @@ function minimize( Q :: AbstractMatrix{T}
   local energy, psi
 
   for i in Iterators.countfrom(1)
-    energy, psi = dmrg(device(H), device(psi)
+    energy, psi = dmrg(H, device(psi)
                       ; nsweeps     = 1
                       , ishermitian = true
                       , outputlevel = 0
@@ -218,7 +218,7 @@ function minimize( Q :: AbstractMatrix{T}
     # Get metadata #
     if i % check_variance_every_iteration == 0
       vtime = time()
-      var = variance(H, psi)
+      var = variance(H, device(psi))
       @debug "Calculate variance" variance=var time=(time() - vtime())
     end
 
