@@ -26,10 +26,7 @@ end
 
   # Known Solution
   @test E ≈ 5.0
-
-  @info "Probabilities" TenSolver.prob(psi, [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]) TenSolver.prob(psi, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])
-  @test in([0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0], psi ; cutoff = 1e-16)
-  @test in([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1], psi ; cutoff = 1e-16)
+  # It may converge to only one of the solutions
   @test x in ( [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
              , [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
              )
