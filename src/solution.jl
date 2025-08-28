@@ -22,10 +22,17 @@ Whether the vector `xs` has a positive probability of being sampleable from `psi
 When setting `cutoff`, it will be used as the minimum probability considered positive.
 """
 function Base.in(bs, psi::Distribution; cutoff = 1e-8)
-  tn = psi.tensor
+  return prob(psi, bs) > cutoff
+end
+
+function prob(psi::Distribution, bs)
+  return abs2(coeff(psi, bs))
+end
+
+function coeff(psi::Distribution, bs)
+  tn    = psi.tensor
   sites = siteinds(tn)
+  psi0  = MPS(sites, string.(Int.(bs)))
 
-  psi0  = MPS(sites, [iszero(i) ? "0" : "1" for i in bs])
-
-  return abs(dot(psi0, tn)) > cutoff
+  return inner(psi0,  tn)
 end
