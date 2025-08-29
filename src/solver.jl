@@ -8,10 +8,15 @@ import ITensors, ITensorMPS
 
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables
 
+function issquare(a :: AbstractArray)
+  return allequal(size(a))
+end
 
-function issquare(A :: AbstractMatrix)
-  nrows, ncols = size(A)
-  return nrows == ncols
+# Strict upper triangular part of an array
+function upper_indices(a)
+  return (Tuple(ci)
+            for ci in CartesianIndices(size(a))
+            if issorted(Tuple(ci); lt = (<=)))
 end
 
 maybe(f::Function, mx::Nothing; default=nothing) = default
@@ -29,9 +34,9 @@ ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
 ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index) = (d = dim(s); fill(1/sqrt(d), d))
 
 """
-    tensorize(sites, p::AbstractArray{T, n})
+    tensorize(p)
 
-Turn a quadratic/linear function acting on bitstrings
+Turn a polynomial function action on bitstrings
 into an equivalent MPO Hamiltonian acting on Qudit sites.
 The conversion consists of exchanging each integer variable `x_i`
 for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
@@ -40,7 +45,36 @@ for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
 """
 function tensorize end
 
-function tensorize(sites, p::AbstractPolynomial{T}; cutoff = zero(T)) where T
+function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T)) where T
+  Qs = [Q, rest...]
+  if !allequal(Iterators.flatmap(size, Qs))
+    throw(DimensionMismatch("All arrays should act on the same number of variables.\nEncountered dimensions $(collect(map(size, Qs)))."))
+  end
+
+  N = size(Q, 1)
+  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  os = OpSum{T}()
+
+  for t in Qs
+    for idx in upper_indices(t)
+      # Due to commutativity, we can group all terms that have the same indices.
+      # This speeds up the calculations.
+      # e.g., Q_ij x_i x_j + Q_ji x_j x_i = (Q_ij + Q_ji) x_i x_j
+      coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
+
+      if abs(coeff) > cutoff
+        op   = Iterators.flatmap(v -> ("D", v), idx)
+        os .+= (coeff, op...)
+      end
+    end
+  end
+
+  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
+end
+
+function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
+  N = length(effective_variables(p))
+  sites = ITensors.siteinds("Qudit", N; dim = 2)
   os = OpSum{T}()
 
   # Map: var name => index
@@ -50,77 +84,15 @@ function tensorize(sites, p::AbstractPolynomial{T}; cutoff = zero(T)) where T
     coeff = coefficient(t)
 
     if abs(coeff) > cutoff
-      vars = effective_variables(monomial(t))
-      i    = Iterators.flatmap(v -> ("D", indices[v]), vars)
-
-      os .+= (coeff, i...)
+      vars = effective_variables(t)
+      op   = Iterators.flatmap(v -> ("D", indices[v]), vars)
+      os .+= (coeff, op...)
     end
   end
 
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-
-function tensorize(sites, Q::AbstractArray{T}, Qs...; cutoff = zero(T)) where T
-  os = OpSum{T}()
-
-  tensorize!(os, sites, Q; cutoff)
-  for x in Qs
-    tensorize!(os, sites, x; cutoff)
-  end
-
-  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
-end
-
-tensorize!(os, sites, ::Nothing; cutoff = nothing) = os
-
-# Construct the Hamiltonian H = Σ Q_ij P_i P_j
-# The less operators in the sum, the fastest we can calculate an MPO.
-# We use the following symmetries to simplify the construction:
-# - For x in Bool, x^2 = x.
-#   Thus, the Hamiltonian can be linear in the diagonal.
-# - P_i commutes with P_j.
-#   Thus, we're able to represent Q_ij and Q_ji with a single operator.
-function tensorize!( os:: OpSum
-                   , sites
-                   , Q :: AbstractArray{T, 2}
-                   ; cutoff = zero(T)
-                   ) where {T}
-  nbits = length(sites)
-
-  for i in 1:nbits, j in (i+1):nbits
-    coeff = sum(K -> Q[K...], multiset_permutations([i, j], 2))
-
-    if abs(coeff) > cutoff
-      if i == j && dim(sites[i]) == 2 # Code optimization for bits: x^2 = x
-        os .+= (coeff, "D", i)
-      else
-        os .+= (coeff, "D", i, "D", j)
-      end
-    end
-  end
-
-  return os
-end
-
-function tensorize!( os:: OpSum
-                  , sites
-                  , l :: AbstractArray{T, 1}
-                  ; cutoff = zero(T)
-                  ) where {T}
-  nbits = length(sites)
-
-  # Linear term / Diagonal part
-  for i in 1:nbits
-    coeff = l[i]
-
-    if abs(coeff) > cutoff   # Not representing ~zero coeffs produces a speedup
-      os .+= (coeff, "D", i)
-    end
-  end
-
-  return os
-end
 
 """
     minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
@@ -180,6 +152,9 @@ minimize(Q; device = Metal.mtl)
 
 See also [`maximize`](@ref).
 """
+function minimize end
+
+
 function minimize( Q :: AbstractMatrix{T}
                  , l :: Union{AbstractVector{T}, Nothing} = nothing
                  , c :: T = zero(T)
@@ -202,13 +177,12 @@ function minimize( Q :: AbstractMatrix{T}
                  # Work in progress
                  , preprocess :: Bool    = false
                  ) where {T}
-  N = size(Q)[1]
   initial_time = time()
 
   # Quantization
-  sites = ITensors.siteinds("Qudit", N; dim = 2)
-  H = tensorize(sites, Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
-  psi = ITensorMPS.random_mps(T, sites; linkdims=inidim)
+  H     = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
+  sites = ITensorMPS.siteinds(first, H; plev=0)
+  psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim)
 
   # Initial product state
   # Slight entanglement to help DMRG avoid local minima
