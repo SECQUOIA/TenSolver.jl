@@ -1,10 +1,12 @@
 using LinearAlgebra
 import Combinatorics: multiset_permutations
 
+import ITensors: inner
+import ITensorMPS: MPS, MPO, dmrg, OpSum, @OpName_str, @SiteType_str, @StateName_str
+
 import ITensors, ITensorMPS
 
-import ITensorMPS: MPS, MPO, dmrg, OpSum, @OpName_str, @SiteType_str, @StateName_str
-import ITensors: inner
+import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables
 
 
 function issquare(A :: AbstractMatrix)
@@ -37,6 +39,27 @@ for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
     ∑ Q_ij x_i x_j + ∑ l_i x_i --> H = Σ Q_ij D_i D_j + ∑ l_i D_i
 """
 function tensorize end
+
+function tensorize(sites, p::AbstractPolynomial{T}; cutoff = zero(T)) where T
+  os = OpSum{T}()
+
+  # Map: var name => index
+  indices = Dict(v => i for (i, v) in enumerate(effective_variables(p)))
+
+  for t in terms(p)
+    coeff = coefficient(t)
+
+    if abs(coeff) > cutoff
+      vars = effective_variables(monomial(t))
+      i    = Iterators.flatmap(v -> ("D", indices[v]), vars)
+
+      os .+= (coeff, i...)
+    end
+  end
+
+  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
+end
+
 
 function tensorize(sites, Q::AbstractArray{T}, Qs...; cutoff = zero(T)) where T
   os = OpSum{T}()
