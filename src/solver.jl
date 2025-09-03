@@ -2,11 +2,11 @@ using LinearAlgebra
 import Combinatorics: multiset_permutations
 
 import ITensors: inner
-import ITensorMPS: MPS, MPO, dmrg, OpSum, @OpName_str, @SiteType_str, @StateName_str
+import ITensorMPS: MPS, MPO, dmrg, OpSum, @OpName_str, @SiteType_str, @StateName_str, dim
 
 import ITensors, ITensorMPS
 
-import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables
+import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, isconstant
 
 function issquare(a :: AbstractArray)
   return allequal(size(a))
@@ -19,11 +19,18 @@ function upper_indices(a)
             if issorted(Tuple(ci); lt = (<=)))
 end
 
+function constant(p::AbstractPolynomial{T}) where T
+  ts  = terms(p)
+  idx = findfirst(isconstant, ts)
+
+  return isnothing(idx) ? zero(T) : coefficient(ts[idx])
+end
+
 maybe(f::Function, mx::Nothing; default=nothing) = default
 maybe(f::Function, mx; default=nothing) = f(mx)
 
 expectation(H, x) = inner(x', H, x)
-variance(H::MPO, x::MPS) = inner(H, x, H, x) - expectation(H, x)^2
+variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -83,7 +90,7 @@ function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
   for t in terms(p)
     coeff = coefficient(t)
 
-    if abs(coeff) > cutoff
+    if abs(coeff) > cutoff && ! isconstant(t)
       vars = effective_variables(t)
       op   = Iterators.flatmap(v -> ("D", indices[v]), vars)
       os .+= (coeff, op...)
@@ -154,38 +161,47 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
+function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, kwargs...) where T
+  H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
+  obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
 
-function minimize( Q :: AbstractMatrix{T}
-                 , l :: Union{AbstractVector{T}, Nothing} = nothing
-                 , c :: T = zero(T)
-                 ; device     :: Function = cpu
-                 , cutoff     = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
-                 , verbosity  = 1
-                 # Stopping criteria
-                 , iterations :: Union{Nothing, Int} = nothing
-                 , time_limit = +Inf
-                 , vtol       = cutoff
-                 , check_variance_every_iteration = 10
-                 # DMRG keywords
-                 , inidim     = 40
-                 , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
-                 , mindim     = 1
-                 , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
-                 , eigsolve_krylovdim :: Int     = 3
-                 , eigsolve_maxiter   :: Int     = 2
-                 , eigsolve_tol       :: Float64 = 1e-14
-                 # Work in progress
-                 , preprocess :: Bool    = false
-                 ) where {T}
+  return _minimize(H, c, obj; cutoff, kwargs...)
+end
+
+function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
+  H   = tensorize(p)
+  cte = constant(p)
+  vs = variables(p)
+  return _minimize(H, cte, a -> p(vs => a); cutoff, kwargs...)
+end
+
+function _minimize( H :: MPO
+                  , c :: T
+                  , obj
+                  ; device     :: Function = cpu
+                  , cutoff     = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
+                  , verbosity  = 1
+                  # Stopping criteria
+                  , iterations :: Union{Nothing, Int} = nothing
+                  , time_limit = +Inf
+                  , vtol       = cutoff
+                  , check_variance_every_iteration = 10
+                  # DMRG keywords
+                  , inidim     = 40
+                  , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
+                  , mindim     = 1
+                  , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
+                  , eigsolve_krylovdim :: Int     = 3
+                  , eigsolve_maxiter   :: Int     = 2
+                  , eigsolve_tol       :: Float64 = 1e-14
+                  # Work in progress
+                  ) where {T}
   initial_time = time()
 
   # Quantization
-  H     = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
   sites = ITensorMPS.siteinds(first, H; plev=0)
-  psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim)
-
-  # Initial product state
-  # Slight entanglement to help DMRG avoid local minima
+  H     = device(H)
+  psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
 
   @debug("MPO construction finished",
     time=(time() - initial_time),
@@ -198,7 +214,7 @@ function minimize( Q :: AbstractMatrix{T}
   local energy, psi
 
   for i in Iterators.countfrom(1)
-    energy, psi = dmrg(device(H), device(psi)
+    energy, psi = dmrg(H, device(psi)
                       ; nsweeps     = 1
                       , ishermitian = true
                       , outputlevel = 0
@@ -247,12 +263,12 @@ function minimize( Q :: AbstractMatrix{T}
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
   dist = Distribution(psi)
   x    = sample(dist)
-  obj  = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
+  optimal = obj(x)
   elapsed_time = time() - initial_time
 
-  iterlog_footer(verbosity, obj, elapsed_time)
+  iterlog_footer(verbosity, optimal, elapsed_time)
 
-  return obj, dist
+  return optimal, dist
 end
 
 """
