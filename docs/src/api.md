@@ -13,12 +13,18 @@ TenSolver.maximize
 
 ```@docs
 TenSolver.sample
-Base.in(::Any, ::TenSolver.Distribution)
+```
+
+## Utility Functions
+
+```@docs
+Base.in(::AbstractVector, ::TenSolver.Distribution)
 ```
 
 ## Internal Functions
 
-For advanced users, these internal functions are also exported:
+These functions are part of the internal implementation and are not exported. 
+They are documented here for advanced users who may need to understand the internals.
 
 ```@docs
 TenSolver.tensorize
