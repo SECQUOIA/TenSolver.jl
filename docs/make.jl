@@ -7,6 +7,7 @@ makedocs(
         mathengine = Documenter.KaTeX(),
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://SECQUOIA.github.io/TenSolver.jl",
+        repolink = "https://github.com/SECQUOIA/TenSolver.jl",
         assets = String[],
     ),
     modules = [TenSolver],
@@ -15,7 +16,7 @@ makedocs(
         "Examples" => "examples.md",
         "API Reference" => "api.md",
     ],
-    repo = "https://github.com/SECQUOIA/TenSolver.jl/blob/{commit}{path}#{line}",
+    repo = Documenter.Remotes.GitHub("SECQUOIA", "TenSolver.jl"),
     authors = "Iago Leal de Freitas, David E. Bernal Neira",
 )
 
@@ -25,6 +26,8 @@ makedocs(
 # Deploy site to Github Pages
 if !("local" in ARGS)
     deploydocs(
-        repo = "github.com/SECQUOIA/TenSolver.jl.git"
+        repo = "github.com/SECQUOIA/TenSolver.jl.git",
+        devbranch = "main",
+        push_preview = true,
     )
 end
