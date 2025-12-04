@@ -64,6 +64,34 @@ solution = value.(x)
 objective_value = objective_value(model)
 ```
 
+### Passing Solver Parameters to JuMP
+
+You can pass solver-specific parameters to the optimizer using `set_attribute`:
+
+```julia
+using JuMP, TenSolver
+
+dim = 40
+Q   = randn(dim, dim)
+
+model = Model(TenSolver.Optimizer)
+@variable(model, x[1:dim], Bin)
+@objective(model, Min, x' * Q * x)
+
+# Set solver parameters
+set_attribute(model, "iterations", 20)
+set_attribute(model, "cutoff", 1e-10)
+set_attribute(model, "maxdim", [10, 20, 50, 100, 200])
+set_attribute(model, "noise", [1e-5, 1e-6, 1e-7, 0.0])
+set_attribute(model, "time_limit", 60.0)
+set_attribute(model, "verbosity", 1)
+
+# Solve with custom parameters
+optimize!(model)
+
+solution = value.(x)
+```
+
 ## Controlling Solver Parameters
 
 You can control various solver parameters for better performance:
@@ -128,26 +156,6 @@ E, psi = TenSolver.maximize(Q)
 x = TenSolver.sample(psi)
 ```
 
-## Checking Solution Probability
-
-You can check if a specific solution is in the support of the distribution:
-
-```julia
-using TenSolver
-
-Q = randn(40, 40)
-E, psi = TenSolver.minimize(Q)
-
-# Sample a solution
-x = TenSolver.sample(psi)
-
-# Check if x is a likely solution (probability > cutoff)
-is_valid = x in psi  # Uses default cutoff of 1e-8
-
-# Or with custom cutoff
-is_valid = x in (psi, cutoff=1e-6)
-```
-
 ## Multiple Samples
 
 Generate multiple independent samples from the solution distribution:
@@ -167,4 +175,58 @@ energies = [s' * Q * s for s in samples]
 best_idx = argmin(energies)
 best_solution = samples[best_idx]
 best_energy = energies[best_idx]
+```
+
+## Using MultivariatePolynomials.jl Interface (Experimental)
+
+!!! warning "Experimental Feature"
+    The MultivariatePolynomials.jl interface is experimental and may change in future versions.
+
+TenSolver.jl can directly optimize polynomial objective functions defined using the MultivariatePolynomials.jl interface. This is particularly useful for problems that naturally express themselves as polynomial optimization.
+
+```julia
+using TenSolver
+using DynamicPolynomials
+
+# Define polynomial variables
+@polyvar x[1:4]
+
+# Create a polynomial objective function
+# For example: x₁² + 2x₁x₂ + x₂² - x₃ + 3
+polynomial = x[1]^2 + 2*x[1]*x[2] + x[2]^2 - x[3] + 3
+
+# Minimize the polynomial
+E, psi = TenSolver.minimize(polynomial)
+
+# Sample a solution
+solution = TenSolver.sample(psi)
+
+# Evaluate the polynomial at the solution
+# Note: solutions are in {0, 1}, indexed from 1 in Julia
+objective_value = polynomial(x => solution)
+```
+
+This interface automatically handles the conversion of polynomial expressions into the tensor network representation used internally by the solver. The variables in the polynomial are treated as binary variables taking values in {0, 1}.
+
+### Example: Graph Coloring
+
+Here's an example of using the polynomial interface for a graph coloring problem:
+
+```julia
+using TenSolver
+using DynamicPolynomials
+
+# Define variables for a graph with 4 nodes
+@polyvar x[1:4]
+
+# Minimize the number of conflicts (edges with same color)
+# For a simple graph: edges (1,2), (2,3), (3,4), (4,1)
+polynomial = x[1]*x[2] + x[2]*x[3] + x[3]*x[4] + x[4]*x[1]
+
+# Solve
+E, psi = TenSolver.minimize(polynomial)
+coloring = TenSolver.sample(psi)
+
+println("Graph coloring: ", coloring)
+println("Number of conflicts: ", E)
 ```

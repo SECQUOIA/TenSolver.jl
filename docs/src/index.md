@@ -13,11 +13,9 @@ TenSolver.jl provides an efficient solver for QUBO problems using tensor network
 
 ## Installation
 
-This package is currently not registered. Install it directly from the git url:
-
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/SECQUOIA/TenSolver.jl.git")
+Pkg.add("TenSolver")
 ```
 
 ## Quick Start
