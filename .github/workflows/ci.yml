@@ -20,9 +20,24 @@ jobs:
     strategy:
       matrix:
         version: ['lts', '1', 'pre']
+        os: [ubuntu-latest, windows-latest, macOS-latest]
         arch:
           - x64
-        os: [ubuntu-latest, windows-latest, macOS-latest]
+        include:
+          # Add aarch64 (Apple Silicon) for macOS
+          - os: macOS-latest
+            version: 'lts'
+            arch: aarch64
+          - os: macOS-latest
+            version: '1'
+            arch: aarch64
+          - os: macOS-latest
+            version: 'pre'
+            arch: aarch64
+        exclude:
+          # Remove x64 from macOS since it's Apple Silicon
+          - os: macOS-latest
+            arch: x64
 
     steps:
       - uses: actions/checkout@v4
