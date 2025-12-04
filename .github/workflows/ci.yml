@@ -35,7 +35,7 @@ jobs:
             version: 'pre'
             arch: aarch64
         exclude:
-          # Remove x64 from macOS since it's Apple Silicon
+          # Use aarch64 for macOS-latest (Apple Silicon) instead of x64
           - os: macOS-latest
             arch: x64
 
