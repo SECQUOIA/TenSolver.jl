@@ -22,19 +22,30 @@ Pkg.add("TenSolver")
 
 The simplest way to use this package is passing a matrix to the solver:
 
-```julia
-using TenSolver
+```jldoctest quickstart
+using TenSolver, Random
+Random.seed!(123)
 
-Q = randn(40, 40)
-E, psi = TenSolver.minimize(Q)
+Q = randn(4, 4)
+E, psi = TenSolver.minimize(Q; verbosity=0)
+typeof(E)
+
+# output
+
+Float64
 ```
 
 The returned argument `E` is the calculated estimate for the minimum value,
 while `psi` is a probability distribution over all possible solutions to the problem.
 You can sample Boolean vectors from it:
 
-```julia
+```jldoctest quickstart
 x = TenSolver.sample(psi)
+length(x)
+
+# output
+
+4
 ```
 
 ## Features

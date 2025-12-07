@@ -1,3 +1,8 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+DynamicPolynomials = "7c1d4256-1411-5781-91ec-d7bc3513ac07"
+JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
 TenSolver = "cfd60579-01bf-4b47-9b3b-7c8dc91a23e2"
+
+[sources]
+TenSolver = {path = "/home/runner/work/TenSolver.jl/TenSolver.jl"}
