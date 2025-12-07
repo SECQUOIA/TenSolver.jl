@@ -244,11 +244,15 @@ E, psi = TenSolver.minimize(polynomial; verbosity=0)
 
 # Sample a solution
 solution = TenSolver.sample(psi)
-length(solution)
+
+# Evaluate the polynomial at the solution
+# Note: solutions are in {0, 1}, indexed from 1 in Julia
+objective_value = polynomial(x => solution)
+typeof(objective_value)
 
 # output
 
-4
+Float64
 ```
 
 This interface automatically handles the conversion of polynomial expressions into the tensor network representation used internally by the solver. The variables in the polynomial are treated as binary variables taking values in {0, 1}.
@@ -271,9 +275,12 @@ polynomial = 1.0*x[1]*x[2] + 1.0*x[2]*x[3] + 1.0*x[3]*x[4] + 1.0*x[4]*x[1]
 # Solve
 E, psi = TenSolver.minimize(polynomial; verbosity=0)
 coloring = TenSolver.sample(psi)
-length(coloring)
+
+println("Graph coloring: ", coloring)
+println("Number of conflicts: ", E)
 
 # output
 
-4
+Graph coloring: [0, 1, 0, 1]
+Number of conflicts: 0.0
 ```
