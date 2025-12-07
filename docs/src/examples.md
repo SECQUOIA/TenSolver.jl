@@ -229,8 +229,10 @@ Float64
 TenSolver.jl can directly optimize polynomial objective functions defined using the MultivariatePolynomials.jl interface. This is particularly useful for problems that naturally express themselves as polynomial optimization.
 
 ```jldoctest polynomial
-using TenSolver
+using TenSolver, Random
 using DynamicPolynomials
+
+Random.seed!(42)
 
 # Define polynomial variables
 @polyvar x[1:4]
@@ -262,8 +264,10 @@ This interface automatically handles the conversion of polynomial expressions in
 Here's an example of using the polynomial interface for a graph coloring problem:
 
 ```jldoctest graphcolor
-using TenSolver
+using TenSolver, Random
 using DynamicPolynomials
+
+Random.seed!(42)
 
 # Define variables for a graph with 4 nodes
 @polyvar x[1:4]
