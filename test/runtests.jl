@@ -35,3 +35,6 @@ include(filepath("external.jl"))
 
 # Cases from papers
 include(filepath("cases/vrp.jl"))
+
+# Documentation tests
+include(filepath("doctests.jl"))
