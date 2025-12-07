@@ -230,3 +230,54 @@ coloring = TenSolver.sample(psi)
 println("Graph coloring: ", coloring)
 println("Number of conflicts: ", E)
 ```
+
+## Avoiding Local Minima with Multi-Restart
+
+!!! tip "Improving Solution Quality"
+    DMRG-based optimization can sometimes get stuck in local minima. The multi-restart feature helps find better solutions by exploring different starting points.
+
+TenSolver includes a multi-restart mechanism that runs the optimization multiple times with different random initializations and returns the best result. This significantly increases the chances of finding the global optimum or a better local optimum.
+
+### Basic Usage
+
+```julia
+using TenSolver
+
+Q = randn(40, 40)
+
+# Single run (default, faster)
+E1, psi1 = TenSolver.minimize(Q)
+
+# Multi-restart with 10 independent runs (better solution quality)
+E2, psi2 = TenSolver.minimize(Q; num_restarts=10)
+```
+
+### With JuMP
+
+```julia
+using JuMP, TenSolver
+
+model = Model(TenSolver.Optimizer)
+
+# Set number of restarts
+set_attribute(model, "num_restarts", 10)
+
+@variable(model, x[1:40], Bin)
+@objective(model, Min, x'Q*x)
+
+optimize!(model)
+```
+
+### Recommendations
+
+- **For small/easy problems**: Use `num_restarts=1` (default) for fast results
+- **For challenging problems**: Try `num_restarts=5` to `num_restarts=20` to improve solution quality
+- **Trade-off**: Higher `num_restarts` values increase runtime proportionally but may find significantly better solutions
+
+### How It Works
+
+1. The solver runs the DMRG optimization `num_restarts` times
+2. Each run starts with a different random MPS initialization
+3. The best objective value across all runs is returned
+4. When `verbosity > 0` and `num_restarts > 1`, progress headers show which restart is running
+```

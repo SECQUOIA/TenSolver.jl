@@ -141,6 +141,9 @@ Keyword arguments:
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
+- `num_restarts :: Int = 1` - Number of independent optimization runs with different random initializations.
+  The solver returns the best result across all runs. Increasing this value improves the chance of finding
+  the global optimum at the cost of longer runtime. Use values like 5-20 for challenging problems.
 
 Running on GPU:
 
