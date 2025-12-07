@@ -247,7 +247,7 @@ function _minimize( H :: MPO
       if i % check_variance_every_iteration == 0
         vtime = time()
         var = variance(H_device, psi)
-        @debug "Calculate variance" variance=var time=(time() - vtime())
+        @debug "Calculate variance" variance=var time=(time() - vtime)
       end
 
       elapsed_time = time() - initial_time
