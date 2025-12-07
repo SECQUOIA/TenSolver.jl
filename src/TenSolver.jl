@@ -41,6 +41,7 @@ QUBODrivers.@setup Optimizer begin
     "eigsolve_tol"         :: Float64                         = 1e-14
     "preprocess"           :: Bool                            = false
     "verbosity"            :: Int                             = 1
+    "num_restarts"         :: Int                             = 1
   end
 end
 
@@ -75,6 +76,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     eigsolve_krylovdim =  get("eigsolve_krylovdim"),
     eigsolve_tol       =  get("eigsolve_tol"),
     eigsolve_maxiter   =  get("eigsolve_maxiter"),
+    num_restarts       =  get("num_restarts"),
   )
   energy, psi = results.value
   obj = a * energy

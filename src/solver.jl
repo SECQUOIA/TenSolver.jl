@@ -194,81 +194,100 @@ function _minimize( H :: MPO
                   , eigsolve_krylovdim :: Int     = 3
                   , eigsolve_maxiter   :: Int     = 2
                   , eigsolve_tol       :: Float64 = 1e-14
+                  # Restart mechanism
+                  , num_restarts :: Int = 1
                   # Work in progress
                   ) where {T}
-  initial_time = time()
-
-  # Quantization
-  sites = ITensorMPS.siteinds(first, H; plev=0)
-  H     = device(H)
-  psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
-
-  @debug("MPO construction finished",
-    time=(time() - initial_time),
-    max_bond = ITensorMPS.maxlinkdim(H),
-    num_coefficients = sum(prod(m) for m in H),
-  )
-
-  iterlog_header(verbosity)
-  var = Inf
-  local energy, psi
-
-  for i in Iterators.countfrom(1)
-    energy, psi = dmrg(H, device(psi)
-                      ; nsweeps     = 1
-                      , ishermitian = true
-                      , outputlevel = 0
-                      , cutoff
-                      , maxdim = maxdim[min(i, length(maxdim))]
-                      , mindim = mindim[min(i, length(mindim))]
-                      , noise  = noise[min(i, length(noise))]
-                      , eigsolve_krylovdim
-                      , eigsolve_tol
-                      , eigsolve_maxiter
-                      , eigsolve_verbosity = 0
-                 )
-
-    # Get metadata #
-    if i % check_variance_every_iteration == 0
-      vtime = time()
-      var = variance(H, psi)
-      @debug "Calculate variance" variance=var time=(time() - vtime())
+  
+  # Run optimization multiple times with different random seeds
+  best_optimal = Inf
+  best_dist = nothing
+  
+  for restart_idx in 1:num_restarts
+    if verbosity > 0 && num_restarts > 1
+      println("\n=== Restart $restart_idx/$num_restarts ===")
     end
+    
+    initial_time = time()
 
-    elapsed_time = time() - initial_time
+    # Quantization
+    sites = ITensorMPS.siteinds(first, H; plev=0)
+    H_device = device(H)
+    psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
 
-    iterlog_iteration(
-      verbosity,
-      i,
-      energy + c,
-      ITensorMPS.maxlinkdim(psi),
-      i % check_variance_every_iteration == 0 ? var : nothing,
-      elapsed_time,
+    @debug("MPO construction finished",
+      time=(time() - initial_time),
+      max_bond = ITensorMPS.maxlinkdim(H_device),
+      num_coefficients = sum(prod(m) for m in H_device),
     )
 
-    # Stopping criteria #
-    if !isnothing(iterations) && i >= iterations
-      @debug "Stopping: maximum iterations reached" iteration=i
-      break
-    elseif elapsed_time > time_limit
-      @debug "Stopping: maximum time reached" iteration=i limit=time_limit time=elapsed_time
-      break
-    elseif var < vtol
-      @debug "Stopping: variance below tolerance" variance=var tolerance=vtol
-      break
+    iterlog_header(verbosity)
+    var = Inf
+    local energy, psi
+
+    for i in Iterators.countfrom(1)
+      energy, psi = dmrg(H_device, device(psi)
+                        ; nsweeps     = 1
+                        , ishermitian = true
+                        , outputlevel = 0
+                        , cutoff
+                        , maxdim = maxdim[min(i, length(maxdim))]
+                        , mindim = mindim[min(i, length(mindim))]
+                        , noise  = noise[min(i, length(noise))]
+                        , eigsolve_krylovdim
+                        , eigsolve_tol
+                        , eigsolve_maxiter
+                        , eigsolve_verbosity = 0
+                   )
+
+      # Get metadata #
+      if i % check_variance_every_iteration == 0
+        vtime = time()
+        var = variance(H_device, psi)
+        @debug "Calculate variance" variance=var time=(time() - vtime())
+      end
+
+      elapsed_time = time() - initial_time
+
+      iterlog_iteration(
+        verbosity,
+        i,
+        energy + c,
+        ITensorMPS.maxlinkdim(psi),
+        i % check_variance_every_iteration == 0 ? var : nothing,
+        elapsed_time,
+      )
+
+      # Stopping criteria #
+      if !isnothing(iterations) && i >= iterations
+        @debug "Stopping: maximum iterations reached" iteration=i
+        break
+      elseif elapsed_time > time_limit
+        @debug "Stopping: maximum time reached" iteration=i limit=time_limit time=elapsed_time
+        break
+      elseif var < vtol
+        @debug "Stopping: variance below tolerance" variance=var tolerance=vtol
+        break
+      end
+    end
+
+    # The calculated energy has approximation errors compared to the true solution.
+    # It makes more sense to sample a solution and calculate the true objective function applied to it.
+    dist = Distribution(psi)
+    x    = sample(dist)
+    optimal = obj(x)
+    elapsed_time = time() - initial_time
+
+    iterlog_footer(verbosity, optimal, elapsed_time)
+    
+    # Track the best solution across all restarts
+    if optimal < best_optimal
+      best_optimal = optimal
+      best_dist = dist
     end
   end
 
-  # The calculated energy has approximation errors compared to the true solution.
-  # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Distribution(psi)
-  x    = sample(dist)
-  optimal = obj(x)
-  elapsed_time = time() - initial_time
-
-  iterlog_footer(verbosity, optimal, elapsed_time)
-
-  return optimal, dist
+  return best_optimal, best_dist
 end
 
 """
