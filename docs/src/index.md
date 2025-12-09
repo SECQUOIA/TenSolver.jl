@@ -23,16 +23,17 @@ Pkg.add("TenSolver")
 The simplest way to use this package is passing a matrix to the solver:
 
 ```jldoctest quickstart
-using TenSolver, Random
-Random.seed!(123)
+using TenSolver
 
-Q = randn(4, 4)
+Q = [0.0 -1.0; -1.0 0.0]
 E, psi = TenSolver.minimize(Q; verbosity=0)
-typeof(E)
+
+# Verify we found the minimum
+E ≈ -1.0
 
 # output
 
-Float64
+true
 ```
 
 The returned argument `E` is the calculated estimate for the minimum value,
@@ -41,11 +42,13 @@ You can sample Boolean vectors from it:
 
 ```jldoctest quickstart
 x = TenSolver.sample(psi)
-length(x)
+
+# Verify the sampled solution achieves the minimum
+x' * Q * x ≈ E
 
 # output
 
-4
+true
 ```
 
 ## Features
