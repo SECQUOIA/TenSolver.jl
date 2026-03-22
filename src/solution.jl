@@ -5,6 +5,13 @@ struct Distribution
   tensor :: MPS
 end
 
+struct IterationSnapshot
+    iteration    :: Int
+    elapsed_time :: Float64
+    dmrg_energy  :: Float64
+    distribution :: Distribution
+end
+
 # Sample from |ψ> in the {0, 1} world instead of 1-based Julia index world.
 """
     sample(psi)

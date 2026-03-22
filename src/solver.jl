@@ -141,6 +141,10 @@ Keyword arguments:
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
+- `history :: Vector{IterationSnapshot}` - If provided, an `IterationSnapshot` is pushed into
+  this vector at each recorded iteration. Pre-allocate with `IterationSnapshot[]`.
+  Default: `nothing` (no history collected).
+- `save_every :: Int` - Record a snapshot every N iterations. Default: `1` (every iteration).
 
 Running on GPU:
 
@@ -194,7 +198,9 @@ function _minimize( H :: MPO
                   , eigsolve_krylovdim :: Int     = 3
                   , eigsolve_maxiter   :: Int     = 2
                   , eigsolve_tol       :: Float64 = 1e-14
-                  # Work in progress
+                  # History tracking
+                  , history    :: Union{Nothing, Vector{IterationSnapshot}} = nothing
+                  , save_every :: Int = 1
                   ) where {T}
   initial_time = time()
 
@@ -245,6 +251,16 @@ function _minimize( H :: MPO
       i % check_variance_every_iteration == 0 ? var : nothing,
       elapsed_time,
     )
+
+    # History tracking (optional)
+    if !isnothing(history) && i % save_every == 0
+        push!(history, IterationSnapshot(
+            i,
+            elapsed_time,
+            energy,
+            Distribution(copy(psi)),
+        ))
+    end
 
     # Stopping criteria #
     if !isnothing(iterations) && i >= iterations
