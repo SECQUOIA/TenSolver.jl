@@ -72,6 +72,39 @@
     end
   end
 
+  @testset "History tracking" begin
+    @testset "No history by default" begin
+      result = minimize([1.0 0; 0 -1.0]; iterations=3)
+      @test result isa Tuple
+      @test result[1] isa Float64
+    end
+
+    @testset "History is populated" begin
+      hist = IterationSnapshot[]
+      E, psi = minimize([1.0 0; 0 -1.0]; iterations=5, history=hist)
+      @test length(hist) == 5
+      @test [s.iteration for s in hist] == collect(1:5)
+      @test all(s.elapsed_time >= 0 for s in hist)
+      @test all(isfinite(s.dmrg_energy) for s in hist)
+    end
+
+    @testset "save_every" begin
+      hist = IterationSnapshot[]
+      minimize([1.0 0; 0 -1.0]; iterations=9, history=hist, save_every=3)
+      @test length(hist) == 3
+      @test [s.iteration for s in hist] == [3, 6, 9]
+    end
+
+    @testset "Deep copy: snapshots are independent" begin
+      hist = IterationSnapshot[]
+      minimize([1.0 0; 0 -1.0]; iterations=3, history=hist)
+      tensors = [s.distribution.tensor for s in hist]
+      for i in 1:length(tensors), j in (i+1):length(tensors)
+        @test tensors[i] !== tensors[j]
+      end
+    end
+  end
+
   @testset "Pure quadratic" begin
     Q = randn(dim, dim)
 
