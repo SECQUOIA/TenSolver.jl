@@ -112,6 +112,39 @@ E, psi = TenSolver.minimize(
 )
 ```
 
+## Tracking Optimization Progress
+
+Pass a pre-allocated `IterationSnapshot[]` vector to collect the MPS at each iteration.
+This is useful for stochastic post-processing — e.g. analyzing how the energy distribution evolves:
+
+```julia
+using TenSolver, Serialization, Statistics
+
+Q = randn(40, 40)
+
+hist = IterationSnapshot[]
+E, psi = TenSolver.minimize(Q; iterations=50, history=hist, save_every=5)
+
+# Inspect convergence
+for snap in hist
+    xs = TenSolver.sample(snap.distribution, 200)
+    energies = [x' * Q * x for x in xs]
+    println("iter=$(snap.iteration)  mean=$(mean(energies))  std=$(std(energies))")
+end
+
+# Persist for later post-processing
+serialize("history.jls", hist)
+```
+
+To load in a separate session:
+
+```julia
+using TenSolver, Serialization
+
+hist = deserialize("history.jls")
+xs   = TenSolver.sample(hist[end].distribution, 1000)
+```
+
 ## Running on GPU
 
 TenSolver.jl supports GPU acceleration for faster computation:
