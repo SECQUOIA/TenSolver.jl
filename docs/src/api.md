@@ -9,6 +9,12 @@ TenSolver.minimize
 TenSolver.maximize
 ```
 
+## Distribution
+
+```@docs
+TenSolver.Distribution
+```
+
 ## Sampling Functions
 
 ```@docs

@@ -1,6 +1,25 @@
 import ITensors, ITensorMPS
 import ITensorMPS: MPS, siteinds
 
+"""
+    Distribution
+
+A probability distribution over binary solutions, backed by an MPS wave function.
+
+Returned by [`minimize`](@ref) and [`maximize`](@ref). Use [`sample`](@ref) to draw
+bitstrings from it.
+
+## Fields
+
+- `tensor`: the underlying MPS.
+- `energies`: objective value (`energy + c`) recorded at each iteration of the solver.
+- `bond_dims`: maximum MPS bond dimension at each iteration.
+- `elapsed_times`: wall-clock time in seconds from the start of the solve at each iteration.
+
+The three stats vectors are parallel — `energies[i]`, `bond_dims[i]`, and `elapsed_times[i]`
+all correspond to iteration `i`. They are empty when a `Distribution` is constructed
+directly from an MPS (e.g. inside an `on_iteration` callback).
+"""
 struct Distribution{T <: Real}
     tensor        :: MPS
     energies      :: Vector{T}
