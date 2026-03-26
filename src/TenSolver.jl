@@ -6,7 +6,7 @@ using QUBODrivers: QUBODrivers, QUBOTools, MOI
 using LinearAlgebra
 
 include("solution.jl")
-export sample, IterationSnapshot
+export sample
 
 include("solver.jl")
 export minimize, maximize

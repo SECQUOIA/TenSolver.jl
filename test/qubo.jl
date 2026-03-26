@@ -72,35 +72,37 @@
     end
   end
 
-  @testset "History tracking" begin
-    @testset "No history by default" begin
-      result = minimize([1.0 0; 0 -1.0]; iterations=3)
-      @test result isa Tuple
-      @test result[1] isa Float64
+  @testset "Iteration stats tracking" begin
+    @testset "Distribution carries stats" begin
+      E, psi = minimize([1.0 0; 0 -1.0]; iterations=5)
+      @test length(psi.energies)      == 5
+      @test length(psi.bond_dims)     == 5
+      @test length(psi.elapsed_times) == 5
+      @test all(isfinite, psi.energies)
+      @test all(>=(0), psi.elapsed_times)
     end
 
-    @testset "History is populated" begin
-      hist = IterationSnapshot[]
-      E, psi = minimize([1.0 0; 0 -1.0]; iterations=5, history=hist)
-      @test length(hist) == 5
-      @test [s.iteration for s in hist] == collect(1:5)
-      @test all(s.elapsed_time >= 0 for s in hist)
-      @test all(isfinite(s.dmrg_energy) for s in hist)
+    @testset "on_iteration callback is called" begin
+      calls = Int[]
+      cb = (psi; iteration, kw...) -> push!(calls, iteration)
+      minimize([1.0 0; 0 -1.0]; iterations=5, on_iteration=cb)
+      @test calls == collect(1:5)
     end
 
-    @testset "save_every" begin
-      hist = IterationSnapshot[]
-      minimize([1.0 0; 0 -1.0]; iterations=9, history=hist, save_every=3)
-      @test length(hist) == 3
-      @test [s.iteration for s in hist] == [3, 6, 9]
+    @testset "call_every" begin
+      calls = Int[]
+      cb = (psi; iteration, kw...) -> push!(calls, iteration)
+      minimize([1.0 0; 0 -1.0]; iterations=9, on_iteration=cb, call_every=3)
+      @test calls == [3, 6, 9]
     end
 
-    @testset "Deep copy: snapshots are independent" begin
-      hist = IterationSnapshot[]
-      minimize([1.0 0; 0 -1.0]; iterations=3, history=hist)
-      tensors = [s.distribution.tensor for s in hist]
-      for i in 1:length(tensors), j in (i+1):length(tensors)
-        @test tensors[i] !== tensors[j]
+    @testset "callback receives live MPS (no copy)" begin
+      collected = []
+      cb = (psi; kw...) -> push!(collected, copy(psi))
+      minimize([1.0 0; 0 -1.0]; iterations=3, on_iteration=cb)
+      @test length(collected) == 3
+      for i in 1:length(collected), j in (i+1):length(collected)
+        @test collected[i] !== collected[j]
       end
     end
   end

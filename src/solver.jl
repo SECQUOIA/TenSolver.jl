@@ -141,10 +141,13 @@ Keyword arguments:
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
-- `history :: Vector{IterationSnapshot}` - If provided, an `IterationSnapshot` is pushed into
-  this vector at each recorded iteration. Pre-allocate with `IterationSnapshot[]`.
-  Default: `nothing` (no history collected).
-- `save_every :: Int` - Record a snapshot every N iterations. Default: `1` (every iteration).
+- `on_iteration :: Function` - Called as `f(psi::MPS; iteration, energy, bond_dim, elapsed_time)`
+  after each recorded iteration. Use to collect statistics or serialize intermediate states.
+  `psi` is the live MPS — call `copy(psi)` inside the callback to retain it.
+  Default: `nothing` (no callback).
+- `call_every :: Int` - Invoke the callback every N iterations. Default: `1`.
+
+The returned `Distribution` carries per-iteration stats in `.energies`, `.bond_dims`, and `.elapsed_times`.
 
 Running on GPU:
 
@@ -198,11 +201,14 @@ function _minimize( H :: MPO
                   , eigsolve_krylovdim :: Int     = 3
                   , eigsolve_maxiter   :: Int     = 2
                   , eigsolve_tol       :: Float64 = 1e-14
-                  # History tracking
-                  , history    :: Union{Nothing, Vector{IterationSnapshot}} = nothing
-                  , save_every :: Int = 1
+                  # Iteration callback
+                  , on_iteration :: Union{Nothing, Function} = nothing
+                  , call_every   :: Int = 1
                   ) where {T}
-  initial_time = time()
+  initial_time      = time()
+  energies_log      = T[]
+  bond_dims_log     = Int[]
+  elapsed_times_log = Float64[]
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
@@ -243,23 +249,25 @@ function _minimize( H :: MPO
 
     elapsed_time = time() - initial_time
 
+    bond_dim = ITensorMPS.maxlinkdim(psi)
+
     iterlog_iteration(
       verbosity,
       i,
       energy + c,
-      ITensorMPS.maxlinkdim(psi),
+      bond_dim,
       i % check_variance_every_iteration == 0 ? var : nothing,
       elapsed_time,
     )
 
-    # History tracking (optional)
-    if !isnothing(history) && i % save_every == 0
-        push!(history, IterationSnapshot(
-            i,
-            elapsed_time,
-            energy,
-            Distribution(copy(psi)),
-        ))
+    # Per-iteration stats (always collected)
+    push!(energies_log,      energy + c)
+    push!(bond_dims_log,     bond_dim)
+    push!(elapsed_times_log, elapsed_time)
+
+    # Optional callback
+    if !isnothing(on_iteration) && i % call_every == 0
+        on_iteration(psi; iteration=i, energy=energy+c, bond_dim, elapsed_time)
     end
 
     # Stopping criteria #
@@ -277,7 +285,7 @@ function _minimize( H :: MPO
 
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Distribution(psi)
+  dist = Distribution{T}(psi, energies_log, bond_dims_log, elapsed_times_log)
   x    = sample(dist)
   optimal = obj(x)
   elapsed_time = time() - initial_time

@@ -114,35 +114,67 @@ E, psi = TenSolver.minimize(
 
 ## Tracking Optimization Progress
 
-Pass a pre-allocated `IterationSnapshot[]` vector to collect the MPS at each iteration.
-This is useful for stochastic post-processing — e.g. analyzing how the energy distribution evolves:
+The returned `Distribution` always carries lightweight per-iteration stats:
+
+```julia
+using TenSolver
+
+Q = randn(40, 40)
+E, psi = TenSolver.minimize(Q; iterations=50)
+
+psi.energies       # objective value at each iteration
+psi.bond_dims      # MPS bond dimension at each iteration
+psi.elapsed_times  # wall-clock time at each iteration
+```
+
+For per-iteration sampling or serialization, pass an `on_iteration` callback.
+The callback receives the live MPS — call `copy` inside if you need to retain it:
 
 ```julia
 using TenSolver, Serialization, Statistics
 
 Q = randn(40, 40)
 
-hist = IterationSnapshot[]
-E, psi = TenSolver.minimize(Q; iterations=50, history=hist, save_every=5)
-
-# Inspect convergence
-for snap in hist
-    xs = TenSolver.sample(snap.distribution, 200)
-    energies = [x' * Q * x for x in xs]
-    println("iter=$(snap.iteration)  mean=$(mean(energies))  std=$(std(energies))")
+results = Dict{Int, Vector{Float64}}()
+function cb(mps; iteration, energy, kw...)
+    xs = TenSolver.sample(TenSolver.Distribution(mps), 200)
+    results[iteration] = [x' * Q * x for x in xs]
 end
 
-# Persist for later post-processing
-serialize("history.jls", hist)
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, call_every=5)
+
+# Persist derived statistics (not the MPS) for later post-processing
+serialize("results.jls", results)
 ```
 
-To load in a separate session:
+To save the full MPS at each recorded iteration, use HDF5 (ITensors' native format, more
+stable across versions than `Serialization`):
 
 ```julia
-using TenSolver, Serialization
+using TenSolver, HDF5
 
-hist = deserialize("history.jls")
-xs   = TenSolver.sample(hist[end].distribution, 1000)
+Q = randn(40, 40)
+
+function cb(mps; iteration, kw...)
+    h5open("snapshots.h5", "cw") do f
+        write(f, "iter_$iteration", mps)
+    end
+end
+
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, call_every=5)
+```
+
+No `copy` is needed — the MPS is written to disk before the next iteration mutates it.
+To load a snapshot in a later session:
+
+```julia
+using TenSolver, HDF5, ITensorMPS
+
+mps = h5open("snapshots.h5", "r") do f
+    read(f, "iter_25", MPS)
+end
+
+xs = TenSolver.sample(TenSolver.Distribution(mps), 1000)
 ```
 
 ## Running on GPU

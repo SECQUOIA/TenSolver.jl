@@ -1,16 +1,15 @@
 import ITensors, ITensorMPS
 import ITensorMPS: MPS, siteinds
 
-struct Distribution
-  tensor :: MPS
+struct Distribution{T <: Real}
+    tensor        :: MPS
+    energies      :: Vector{T}
+    bond_dims     :: Vector{Int}
+    elapsed_times :: Vector{Float64}
 end
 
-struct IterationSnapshot
-    iteration    :: Int
-    elapsed_time :: Float64
-    dmrg_energy  :: Float64
-    distribution :: Distribution
-end
+# Convenience constructor for wrapping a bare MPS (e.g. in callbacks)
+Distribution(tensor::MPS) = Distribution{Float64}(tensor, Float64[], Int[], Float64[])
 
 # Sample from |ψ> in the {0, 1} world instead of 1-based Julia index world.
 """
