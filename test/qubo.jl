@@ -113,6 +113,11 @@
       @test length(collected) == 3
       for i in 1:length(collected), j in (i+1):length(collected)
         @test collected[i] !== collected[j]
+
+        # Check for shallow copy
+        for k in 1:length(collected[i])
+          @test collected[i][k] !== collected[j][k]
+        end
       end
     end
   end
