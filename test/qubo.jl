@@ -96,6 +96,11 @@
       @test calls == [3, 6, 9]
     end
 
+    @testset "call_every < 1 throws" begin
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, call_every=0)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, call_every=-1)
+    end
+
     @testset "callback receives live MPS (no copy)" begin
       collected = []
       cb = (psi; kw...) -> push!(collected, copy(psi))
