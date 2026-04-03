@@ -86,7 +86,7 @@ function cb(mps; iteration)
     results[iteration] = [x&#39; * Q * x for x in xs]
 end
 
-E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, call_every=5)
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
 
 # Persist derived statistics (not the MPS) for later post-processing
 serialize(&quot;results.jls&quot;, results)</code></pre><p>To save the full MPS at each recorded iteration, use HDF5 (ITensors&#39; native format, more stable across versions than <code>Serialization</code>):</p><pre><code class="language-julia hljs">using TenSolver, HDF5
@@ -99,7 +99,7 @@ function cb(mps; iteration, kw...)
     end
 end
 
-E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, call_every=5)</code></pre><p>No <code>copy</code> is needed — the MPS is written to disk before the next iteration mutates it. To load a snapshot in a later session:</p><pre><code class="language-julia hljs">using TenSolver, HDF5, ITensorMPS
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)</code></pre><p>No <code>copy</code> is needed — the MPS is written to disk before the next iteration mutates it. To load a snapshot in a later session:</p><pre><code class="language-julia hljs">using TenSolver, HDF5, ITensorMPS
 
 mps = h5open(&quot;snapshots.h5&quot;, &quot;r&quot;) do f
     read(f, &quot;iter_25&quot;, MPS)
@@ -173,4 +173,4 @@ E, psi = TenSolver.minimize(polynomial)
 coloring = TenSolver.sample(psi)
 
 println(&quot;Graph coloring: &quot;, coloring)
-println(&quot;Number of conflicts: &quot;, E)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 3 April 2026 16:49">Friday 3 April 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+println(&quot;Number of conflicts: &quot;, E)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 3 April 2026 16:55">Friday 3 April 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
