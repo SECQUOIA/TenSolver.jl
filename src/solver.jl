@@ -272,7 +272,7 @@ function _minimize( H :: MPO
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
-        on_iteration(psi; iteration=i, energy=energy+c, bond_dim, elapsed_time)
+      on_iteration(psi; iteration=i, energy=energy+c, bond_dim, elapsed_time)
     end
 
     # Stopping criteria #
