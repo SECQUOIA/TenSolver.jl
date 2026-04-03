@@ -69,20 +69,20 @@ E, psi = TenSolver.minimize(
     maxdim = [10, 20, 50, 100, 200],  # Bond dimension schedule
     noise = [1e-5, 1e-6, 1e-7, 0.0],  # Noise schedule for convergence
     time_limit = 60.0       # Stop after 60 seconds
-)</code></pre><h2 id="Tracking-Optimization-Progress"><a class="docs-heading-anchor" href="#Tracking-Optimization-Progress">Tracking Optimization Progress</a><a id="Tracking-Optimization-Progress-1"></a><a class="docs-heading-anchor-permalink" href="#Tracking-Optimization-Progress" title="Permalink"></a></h2><p>The returned <code>Distribution</code> always carries lightweight per-iteration stats:</p><pre><code class="language-julia hljs">using TenSolver
+)</code></pre><h2 id="Tracking-Optimization-Progress"><a class="docs-heading-anchor" href="#Tracking-Optimization-Progress">Tracking Optimization Progress</a><a id="Tracking-Optimization-Progress-1"></a><a class="docs-heading-anchor-permalink" href="#Tracking-Optimization-Progress" title="Permalink"></a></h2><p>The returned <code>Solution</code> always carries lightweight per-iteration stats:</p><pre><code class="language-julia hljs">using TenSolver
 
 Q = randn(40, 40)
 E, psi = TenSolver.minimize(Q; iterations=50)
 
 psi.energies       # objective value at each iteration
 psi.bond_dims      # MPS bond dimension at each iteration
-psi.elapsed_times  # wall-clock time at each iteration</code></pre><p>For per-iteration sampling, pass an <code>on_iteration</code> callback. The callback receives the live MPS and iteration metadata as keyword arguments. In this example, 200 bitstrings are sampled at each recorded iteration and their objective values are stored in a dictionary, which is then serialized to disk:</p><pre><code class="language-julia hljs">using TenSolver, Serialization, Statistics
+psi.elapsed_times  # wall-clock time at each iteration</code></pre><p>For per-iteration sampling, pass an <code>on_iteration</code> callback. The callback receives the live MPS and iteration metadata as keyword arguments. In this example, 200 bitstrings are sampled at each recorded iteration and their objective values are stored in a dictionary, which is then serialized to disk:</p><pre><code class="language-julia hljs">using TenSolver, ITensorMPS, Serialization, Statistics
 
 Q = randn(40, 40)
 
 results = Dict{Int, Vector{Float64}}()
 function cb(mps; iteration, kw...)
-    xs = TenSolver.sample(TenSolver.Distribution(mps), 200)
+    xs = ITensorMPS.sample!(mps) .- 1  # sample directly from the live MPS
     results[iteration] = [x&#39; * Q * x for x in xs]
 end
 
@@ -105,7 +105,7 @@ mps = h5open(&quot;snapshots.h5&quot;, &quot;r&quot;) do f
     read(f, &quot;iter_25&quot;, MPS)
 end
 
-xs = TenSolver.sample(TenSolver.Distribution(mps), 1000)</code></pre><h2 id="Running-on-GPU"><a class="docs-heading-anchor" href="#Running-on-GPU">Running on GPU</a><a id="Running-on-GPU-1"></a><a class="docs-heading-anchor-permalink" href="#Running-on-GPU" title="Permalink"></a></h2><p>TenSolver.jl supports GPU acceleration for faster computation:</p><pre><code class="language-julia hljs">using TenSolver
+xs = [ITensorMPS.sample!(mps) .- 1 for _ in 1:1000]</code></pre><h2 id="Running-on-GPU"><a class="docs-heading-anchor" href="#Running-on-GPU">Running on GPU</a><a id="Running-on-GPU-1"></a><a class="docs-heading-anchor-permalink" href="#Running-on-GPU" title="Permalink"></a></h2><p>TenSolver.jl supports GPU acceleration for faster computation:</p><pre><code class="language-julia hljs">using TenSolver
 import CUDA
 
 Q = randn(100, 100)
@@ -173,4 +173,4 @@ E, psi = TenSolver.minimize(polynomial)
 coloring = TenSolver.sample(psi)
 
 println(&quot;Graph coloring: &quot;, coloring)
-println(&quot;Number of conflicts: &quot;, E)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 3 April 2026 17:12">Friday 3 April 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+println(&quot;Number of conflicts: &quot;, E)</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 3 April 2026 17:48">Friday 3 April 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
