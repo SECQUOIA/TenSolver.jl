@@ -136,7 +136,7 @@ using TenSolver, Serialization, Statistics
 Q = randn(40, 40)
 
 results = Dict{Int, Vector{Float64}}()
-function cb(mps; iteration)
+function cb(mps; iteration, kw...)
     xs = TenSolver.sample(TenSolver.Distribution(mps), 200)
     results[iteration] = [x' * Q * x for x in xs]
 end
