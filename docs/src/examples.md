@@ -150,7 +150,8 @@ serialize("results.jls", results)
 ```
 
 To save the full MPS at each recorded iteration, use HDF5 (ITensors' native format, more
-stable across versions than `Serialization`):
+stable across versions than `Serialization`). Writing one file per iteration avoids HDF5
+group management issues:
 
 ```julia
 using TenSolver, HDF5
@@ -158,8 +159,8 @@ using TenSolver, HDF5
 Q = randn(40, 40)
 
 function cb(mps; iteration, kw...)
-    h5open("snapshots.h5", "cw") do f
-        write(f, "iter_$iteration", mps)
+    h5open("snapshot_iter$iteration.h5", "w") do f
+        write(f, "mps", mps)
     end
 end
 
@@ -172,8 +173,8 @@ To load a snapshot in a later session:
 ```julia
 using TenSolver, HDF5, ITensorMPS
 
-mps = h5open("snapshots.h5", "r") do f
-    read(f, "iter_25", MPS)
+mps = h5open("snapshot_iter25.h5", "r") do f
+    read(f, "mps", MPS)
 end
 
 xs = [ITensorMPS.sample!(mps) .- 1 for _ in 1:1000]
