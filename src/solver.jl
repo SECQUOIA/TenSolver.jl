@@ -143,7 +143,7 @@ Keyword arguments:
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
 - `on_iteration :: Function` - Called after each recorded iteration as
   `f(psi::MPS; iteration, objective, bond_dim, elapsed_time)`.
-  `objective` is the eigenvalue plus the constant offset `c` (i.e. `energy + c`).
+  `objective` is the expected objective function ⟨ψ|H|ψ⟩ at this iteration.
   Use to collect statistics or serialize intermediate states.
   `psi` is the MPS for that iteration.
   Default: `nothing` (no callback).
