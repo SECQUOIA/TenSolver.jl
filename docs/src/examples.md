@@ -112,6 +112,74 @@ E, psi = TenSolver.minimize(
 )
 ```
 
+## Tracking Optimization Progress
+
+The returned `Solution` always carries lightweight per-iteration stats:
+
+```julia
+using TenSolver
+
+Q = randn(40, 40)
+E, psi = TenSolver.minimize(Q; iterations=50)
+
+psi.energies       # objective value at each iteration
+psi.bond_dims      # MPS bond dimension at each iteration
+psi.elapsed_times  # wall-clock time at each iteration
+```
+
+For per-iteration sampling, pass an `on_iteration` callback.
+The callback receives the MPS for that iteration alongside metadata as keyword arguments.
+In this example, 200 bitstrings are sampled at each recorded iteration and their objective
+values are stored in a dictionary, which is then serialized to disk:
+
+```julia
+using TenSolver, ITensorMPS, Serialization, Statistics
+
+Q = randn(40, 40)
+
+results = Dict{Int, Vector{Float64}}()
+function cb(mps; iteration, kw...)  # kw... absorbs unused kwargs (objective, bond_dim, elapsed_time)
+    xs = ITensorMPS.sample!(mps) .- 1
+    results[iteration] = [x' * Q * x for x in xs]
+end
+
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
+
+# Persist derived statistics (not the MPS) for later post-processing
+serialize("results.jls", results)
+```
+
+To save the full MPS at each recorded iteration, use HDF5 (ITensors' native format, more
+stable across versions than `Serialization`). Each iteration is stored as a named group
+inside a single file:
+
+```julia
+using TenSolver, HDF5
+
+Q = randn(40, 40)
+
+function cb(mps; iteration, kw...)
+    h5open("snapshots.h5", "cw") do f
+        g = create_group(f, "iter_$iteration")
+        write(g, "mps", mps)
+    end
+end
+
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
+```
+
+To load a snapshot in a later session:
+
+```julia
+using TenSolver, HDF5, ITensorMPS
+
+mps = h5open("snapshots.h5", "r") do f
+    read(f["iter_25"], "mps", MPS)
+end
+
+xs = [ITensorMPS.sample!(mps) .- 1 for _ in 1:1000]
+```
+
 ## Running on GPU
 
 TenSolver.jl supports GPU acceleration for faster computation:

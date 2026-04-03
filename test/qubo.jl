@@ -72,6 +72,51 @@
     end
   end
 
+  @testset "Iteration stats tracking" begin
+    @testset "Solution carries stats" begin
+      E, psi = minimize([1.0 0; 0 -1.0]; iterations=5)
+      @test psi isa TenSolver.Solution
+      @test length(psi.energies)      == 5
+      @test length(psi.bond_dims)     == 5
+      @test length(psi.elapsed_times) == 5
+      @test all(isfinite, psi.energies)
+      @test issorted(psi.elapsed_times)
+      @test all(>(0), psi.bond_dims)
+      @test isfinite(last(psi.energies))
+      @test last(psi.energies) ≈ E
+    end
+
+    @testset "on_iteration callback is called" begin
+      calls = Int[]
+      cb = (psi; iteration, kw...) -> push!(calls, iteration)
+      minimize([1.0 0; 0 -1.0]; iterations=5, on_iteration=cb)
+      @test calls == collect(1:5)
+    end
+
+    @testset "callback_every" begin
+      calls = Int[]
+      cb = (psi; iteration, kw...) -> push!(calls, iteration)
+      minimize([1.0 0; 0 -1.0]; iterations=9, on_iteration=cb, callback_every=3)
+      @test calls == [3, 6, 9]
+    end
+
+    @testset "callback_every < 1 throws" begin
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, callback_every=0)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, callback_every=-1)
+    end
+
+    @testset "callback receives a fresh MPS each iteration" begin
+      # DMRG allocates a new MPS object per iteration rather than mutating
+      # in-place, so each callback invocation receives a distinct object.
+      ids = UInt[]
+      cb = (psi; kw...) -> push!(ids, objectid(psi))
+      minimize([1.0 0; 0 -1.0]; iterations=3, on_iteration=cb)
+      @test length(ids) == 3
+      @test length(unique(ids)) == 3
+    end
+
+  end
+
   @testset "Pure quadratic" begin
     Q = randn(dim, dim)
 

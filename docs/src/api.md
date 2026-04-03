@@ -9,6 +9,12 @@ TenSolver.minimize
 TenSolver.maximize
 ```
 
+## Solution
+
+```@docs
+TenSolver.Solution
+```
+
 ## Sampling Functions
 
 ```@docs
@@ -18,7 +24,7 @@ TenSolver.sample
 ## Utility Functions
 
 ```@docs
-Base.in(::AbstractVector, ::TenSolver.Distribution)
+Base.in(::AbstractVector, ::TenSolver.Solution)
 ```
 
 ## Internal Functions
