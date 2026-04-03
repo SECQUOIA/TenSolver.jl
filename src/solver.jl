@@ -142,7 +142,8 @@ Keyword arguments:
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
 - `on_iteration :: Function` - Called after each recorded iteration as
-  `f(psi::MPS; iteration, energy, bond_dim, elapsed_time)`.
+  `f(psi::MPS; iteration, objective, bond_dim, elapsed_time)`.
+  `objective` is the eigenvalue plus the constant offset `c` (i.e. `energy + c`).
   Use to collect statistics or serialize intermediate states.
   `psi` is the MPS for that iteration. Since DMRG allocates a new MPS each iteration,
   each callback invocation receives a distinct object and `copy` is not needed.
@@ -273,7 +274,7 @@ function _minimize( H :: MPO
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
-      on_iteration(psi; iteration=i, energy=energy+c, bond_dim, elapsed_time)
+      on_iteration(psi; iteration=i, objective=energy+c, bond_dim, elapsed_time)
     end
 
     # Stopping criteria #
