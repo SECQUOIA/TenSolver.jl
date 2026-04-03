@@ -145,8 +145,7 @@ Keyword arguments:
   `f(psi::MPS; iteration, objective, bond_dim, elapsed_time)`.
   `objective` is the eigenvalue plus the constant offset `c` (i.e. `energy + c`).
   Use to collect statistics or serialize intermediate states.
-  `psi` is the MPS for that iteration. Since DMRG allocates a new MPS each iteration,
-  each callback invocation receives a distinct object and `copy` is not needed.
+  `psi` is the MPS for that iteration.
   If your callback only uses some of the keyword arguments, declare `kw...` to absorb the rest,
   otherwise Julia will throw a `MethodError`:
   `f(psi; iteration, kw...) = ...`
