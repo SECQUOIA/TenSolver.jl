@@ -141,7 +141,7 @@ function cb(mps; iteration)
     results[iteration] = [x' * Q * x for x in xs]
 end
 
-E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, call_every=5)
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
 
 # Persist derived statistics (not the MPS) for later post-processing
 serialize("results.jls", results)
@@ -161,7 +161,7 @@ function cb(mps; iteration, kw...)
     end
 end
 
-E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, call_every=5)
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
 ```
 
 No `copy` is needed — the MPS is written to disk before the next iteration mutates it.

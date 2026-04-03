@@ -94,16 +94,16 @@
       @test calls == collect(1:5)
     end
 
-    @testset "call_every" begin
+    @testset "callback_every" begin
       calls = Int[]
       cb = (psi; iteration, kw...) -> push!(calls, iteration)
-      minimize([1.0 0; 0 -1.0]; iterations=9, on_iteration=cb, call_every=3)
+      minimize([1.0 0; 0 -1.0]; iterations=9, on_iteration=cb, callback_every=3)
       @test calls == [3, 6, 9]
     end
 
-    @testset "call_every < 1 throws" begin
-      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, call_every=0)
-      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, call_every=-1)
+    @testset "callback_every < 1 throws" begin
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, callback_every=0)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, callback_every=-1)
     end
 
     @testset "callback receives live MPS (no copy)" begin

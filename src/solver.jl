@@ -145,7 +145,7 @@ Keyword arguments:
   after each recorded iteration. Use to collect statistics or serialize intermediate states.
   `psi` is the live MPS — call `copy(psi)` inside the callback to retain it.
   Default: `nothing` (no callback).
-- `call_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
+- `callback_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
 
 The returned `Distribution` carries per-iteration stats in `.energies`, `.bond_dims`, and `.elapsed_times`.
 
@@ -203,9 +203,9 @@ function _minimize( H :: MPO
                   , eigsolve_tol       :: Float64 = 1e-14
                   # Iteration callback
                   , on_iteration :: Union{Nothing, Function} = nothing
-                  , call_every   :: Int = 1
+                  , callback_every   :: Int = 1
                   ) where {T}
-  call_every >= 1 || throw(ArgumentError("`call_every` must be >= 1, got $call_every"))
+  callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
   initial_time      = time()
   energies_log      = T[]
   bond_dims_log     = Int[]
@@ -267,7 +267,7 @@ function _minimize( H :: MPO
     push!(elapsed_times_log, elapsed_time)
 
     # Optional callback
-    if !isnothing(on_iteration) && i % call_every == 0
+    if !isnothing(on_iteration) && i % callback_every == 0
         on_iteration(psi; iteration=i, energy=energy+c, bond_dim, elapsed_time)
     end
 
