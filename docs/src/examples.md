@@ -127,8 +127,10 @@ psi.bond_dims      # MPS bond dimension at each iteration
 psi.elapsed_times  # wall-clock time at each iteration
 ```
 
-For per-iteration sampling or serialization, pass an `on_iteration` callback.
-The callback receives the live MPS — call `copy` inside if you need to retain it:
+For per-iteration sampling, pass an `on_iteration` callback.
+The callback receives the live MPS and iteration metadata as keyword arguments.
+In this example, 200 bitstrings are sampled at each recorded iteration and their
+objective values are stored in a dictionary, which is then serialized to disk:
 
 ```julia
 using TenSolver, Serialization, Statistics
