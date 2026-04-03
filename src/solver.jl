@@ -146,9 +146,6 @@ Keyword arguments:
   `objective` is the eigenvalue plus the constant offset `c` (i.e. `energy + c`).
   Use to collect statistics or serialize intermediate states.
   `psi` is the MPS for that iteration.
-  If your callback only uses some of the keyword arguments, declare `kw...` to absorb the rest,
-  otherwise Julia will throw a `MethodError`:
-  `f(psi; iteration, kw...) = ...`
   Default: `nothing` (no callback).
 - `callback_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
 

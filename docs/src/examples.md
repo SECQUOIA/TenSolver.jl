@@ -138,7 +138,7 @@ using TenSolver, ITensorMPS, Serialization, Statistics
 Q = randn(40, 40)
 
 results = Dict{Int, Vector{Float64}}()
-function cb(mps; iteration, kw...)
+function cb(mps; iteration, kw...)  # kw... absorbs unused kwargs (objective, bond_dim, elapsed_time)
     xs = ITensorMPS.sample!(mps) .- 1
     results[iteration] = [x' * Q * x for x in xs]
 end
