@@ -144,7 +144,8 @@ Keyword arguments:
 - `on_iteration :: Function` - Called after each recorded iteration as
   `f(psi::MPS; iteration, energy, bond_dim, elapsed_time)`.
   Use to collect statistics or serialize intermediate states.
-  `psi` is the live MPS — call `copy(psi)` inside the callback to retain it.
+  `psi` is the MPS for that iteration. Since DMRG allocates a new MPS each iteration,
+  each callback invocation receives a distinct object and `copy` is not needed.
   If your callback only uses some of the keyword arguments, declare `kw...` to absorb the rest,
   otherwise Julia will throw a `MethodError`:
   `f(psi; iteration, kw...) = ...`

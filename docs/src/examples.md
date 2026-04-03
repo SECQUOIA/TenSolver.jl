@@ -128,9 +128,10 @@ psi.elapsed_times  # wall-clock time at each iteration
 ```
 
 For per-iteration sampling, pass an `on_iteration` callback.
-The callback receives the live MPS and iteration metadata as keyword arguments.
-In this example, 200 bitstrings are sampled at each recorded iteration and their
-objective values are stored in a dictionary, which is then serialized to disk:
+The callback receives the MPS for that iteration alongside metadata as keyword arguments.
+Since DMRG allocates a new MPS each iteration, each invocation receives a distinct object —
+no `copy` is needed. In this example, 200 bitstrings are sampled at each recorded iteration
+and their objective values are stored in a dictionary, which is then serialized to disk:
 
 ```julia
 using TenSolver, ITensorMPS, Serialization, Statistics
@@ -139,7 +140,7 @@ Q = randn(40, 40)
 
 results = Dict{Int, Vector{Float64}}()
 function cb(mps; iteration, kw...)
-    xs = ITensorMPS.sample!(mps) .- 1  # sample directly from the live MPS
+    xs = ITensorMPS.sample!(mps) .- 1
     results[iteration] = [x' * Q * x for x in xs]
 end
 
@@ -167,7 +168,7 @@ end
 E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
 ```
 
-No `copy` is needed — the MPS is written to disk before the next iteration mutates it.
+No `copy` is needed — each callback invocation receives a fresh MPS object.
 To load a snapshot in a later session:
 
 ```julia

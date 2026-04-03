@@ -102,20 +102,16 @@
       @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; iterations=1, callback_every=-1)
     end
 
-    @testset "callback receives live MPS (no copy)" begin
-      collected = []
-      cb = (psi; kw...) -> push!(collected, copy(psi))
+    @testset "callback receives a fresh MPS each iteration" begin
+      # DMRG allocates a new MPS object per iteration rather than mutating
+      # in-place, so each callback invocation receives a distinct object.
+      ids = UInt[]
+      cb = (psi; kw...) -> push!(ids, objectid(psi))
       minimize([1.0 0; 0 -1.0]; iterations=3, on_iteration=cb)
-      @test length(collected) == 3
-      for i in 1:length(collected), j in (i+1):length(collected)
-        @test collected[i] !== collected[j]
-
-        # Check for shallow copy
-        for k in 1:length(collected[i])
-          @test collected[i][k] !== collected[j][k]
-        end
-      end
+      @test length(ids) == 3
+      @test length(unique(ids)) == 3
     end
+
   end
 
   @testset "Pure quadratic" begin
