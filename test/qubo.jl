@@ -80,7 +80,10 @@
       @test length(psi.bond_dims)     == 5
       @test length(psi.elapsed_times) == 5
       @test all(isfinite, psi.energies)
-      @test all(>=(0), psi.elapsed_times)
+      @test issorted(psi.elapsed_times)
+      @test all(>(0), psi.bond_dims)
+      @test isfinite(last(psi.energies))
+      @test last(psi.energies) ≈ E
     end
 
     @testset "on_iteration callback is called" begin
