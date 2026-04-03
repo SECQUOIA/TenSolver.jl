@@ -141,9 +141,13 @@ Keyword arguments:
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
-- `on_iteration :: Function` - Called as `f(psi::MPS; iteration, energy, bond_dim, elapsed_time)`
-  after each recorded iteration. Use to collect statistics or serialize intermediate states.
+- `on_iteration :: Function` - Called after each recorded iteration as
+  `f(psi::MPS; iteration, energy, bond_dim, elapsed_time)`.
+  Use to collect statistics or serialize intermediate states.
   `psi` is the live MPS — call `copy(psi)` inside the callback to retain it.
+  If your callback only uses some of the keyword arguments, declare `kw...` to absorb the rest,
+  otherwise Julia will throw a `MethodError`:
+  `f(psi; iteration, kw...) = ...`
   Default: `nothing` (no callback).
 - `callback_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
 
