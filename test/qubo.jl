@@ -73,8 +73,9 @@
   end
 
   @testset "Iteration stats tracking" begin
-    @testset "Distribution carries stats" begin
+    @testset "Solution carries stats" begin
       E, psi = minimize([1.0 0; 0 -1.0]; iterations=5)
+      @test psi isa TenSolver.Solution
       @test length(psi.energies)      == 5
       @test length(psi.bond_dims)     == 5
       @test length(psi.elapsed_times) == 5
@@ -84,12 +85,7 @@
 
     @testset "on_iteration callback is called" begin
       calls = Int[]
-      cb = (psi; iteration, kw...) -> begin
-        push!(calls, iteration)
-        # exercises the convenience constructor Distribution(::MPS)
-        dist = TenSolver.Distribution(psi)
-        @test dist isa TenSolver.Distribution
-      end
+      cb = (psi; iteration, kw...) -> push!(calls, iteration)
       minimize([1.0 0; 0 -1.0]; iterations=5, on_iteration=cb)
       @test calls == collect(1:5)
     end

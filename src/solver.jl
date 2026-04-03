@@ -151,7 +151,7 @@ Keyword arguments:
   Default: `nothing` (no callback).
 - `callback_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
 
-The returned `Distribution` carries per-iteration stats in `.energies`, `.bond_dims`, and `.elapsed_times`.
+The returned `Solution` carries per-iteration stats in `.energies`, `.bond_dims`, and `.elapsed_times`.
 
 Running on GPU:
 
@@ -290,7 +290,7 @@ function _minimize( H :: MPO
 
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Distribution{T}(psi, energies_log, bond_dims_log, elapsed_times_log)
+  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log)
   x    = sample(dist)
   optimal = obj(x)
   elapsed_time = time() - initial_time

@@ -114,7 +114,7 @@ E, psi = TenSolver.minimize(
 
 ## Tracking Optimization Progress
 
-The returned `Distribution` always carries lightweight per-iteration stats:
+The returned `Solution` always carries lightweight per-iteration stats:
 
 ```julia
 using TenSolver
@@ -133,13 +133,13 @@ In this example, 200 bitstrings are sampled at each recorded iteration and their
 objective values are stored in a dictionary, which is then serialized to disk:
 
 ```julia
-using TenSolver, Serialization, Statistics
+using TenSolver, ITensorMPS, Serialization, Statistics
 
 Q = randn(40, 40)
 
 results = Dict{Int, Vector{Float64}}()
 function cb(mps; iteration, kw...)
-    xs = TenSolver.sample(TenSolver.Distribution(mps), 200)
+    xs = ITensorMPS.sample!(mps) .- 1  # sample directly from the live MPS
     results[iteration] = [x' * Q * x for x in xs]
 end
 
@@ -176,7 +176,7 @@ mps = h5open("snapshots.h5", "r") do f
     read(f, "iter_25", MPS)
 end
 
-xs = TenSolver.sample(TenSolver.Distribution(mps), 1000)
+xs = [ITensorMPS.sample!(mps) .- 1 for _ in 1:1000]
 ```
 
 ## Running on GPU
