@@ -12,7 +12,7 @@ Use [`sample`](@ref) to draw bitstrings from it.
 ## Fields
 
 - `tensor`: the underlying MPS.
-- `energies`: objective value (`energy + c`) recorded at each iteration of the solver.
+- `energies`: expected objective value of the problem recorded at each iteration of the solver.
 - `bond_dims`: maximum MPS bond dimension at each iteration.
 - `elapsed_times`: wall-clock time in seconds from the start of the solve at each iteration.
 
