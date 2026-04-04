@@ -9,8 +9,12 @@ The most basic usage is solving a quadratic unconstrained binary optimization pr
 ```jldoctest basic
 using TenSolver
 
-# Define a QUBO problem
-Q = [0.0 -1.0; -1.0 0.0]
+assets = ["Wind", "Solar", "Battery"]
+
+# Wind and solar overlap, while storage pairs well with either source.
+Q = [0.0 1.0 -1.5;
+     1.0 0.0 -0.5;
+     -1.5 -0.5 0.0]
 
 # Solve for minimum
 E, psi = TenSolver.minimize(Q; verbosity=0)
@@ -18,12 +22,12 @@ E, psi = TenSolver.minimize(Q; verbosity=0)
 # Sample a solution
 x = TenSolver.sample(psi)
 
-# Verify the solution achieves the minimum energy
-x' * Q * x ≈ E
+# Verify the solution achieves the minimum energy and inspect the chosen bundle
+(E ≈ -3.0, join(assets[findall(==(1), x)], ", "))
 
 # output
 
-true
+(true, "Wind, Battery")
 ```
 
 ## QUBO with Linear and Constant Terms
@@ -33,20 +37,25 @@ You can also specify linear and constant terms:
 ```jldoctest linear
 using TenSolver
 
-# Simple example: minimize x1 - x2 + constant
-Q = [0.0 0.0; 0.0 0.0]
-l = [1.0, -1.0]
-c = 3.0
+assets = ["Wind", "Solar", "Battery"]
+
+# Linear terms encode stand-alone value, quadratic terms encode overlap penalties.
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
+c = 5.0
 
 # Solve: min b'Qb + l'b + c
 E, psi = TenSolver.minimize(Q, l, c; verbosity=0)
+x = TenSolver.sample(psi)
 
-# The minimum should be at x = [0, 1] giving E = 0 - 1 + 3 = 2
-E ≈ 2.0
+# The best plan keeps wind and storage, but skips solar because of overlap penalties.
+(E ≈ 0.0, join(assets[findall(==(1), x)], ", "))
 
 # output
 
-true
+(true, "Wind, Battery")
 ```
 
 ## Using with JuMP
@@ -56,24 +65,35 @@ TenSolver.jl provides an optimizer interface for JuMP models:
 ```jldoctest jump
 using JuMP, TenSolver
 
-# Create a simple QUBO problem
-Q = [0.0 -1.0; -1.0 0.0]
+assets = ["Wind", "Solar", "Battery"]
+
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
+c = 5.0
 
 # Create a JuMP model with TenSolver
 model = Model(TenSolver.Optimizer)
 set_silent(model)
-@variable(model, x[1:2], Bin)
-@objective(model, Min, x' * Q * x)
+@variable(model, x[1:3], Bin)
+@objective(
+    model,
+    Min,
+    sum(Q[i, j] * x[i] * x[j] for i in 1:3, j in 1:3) +
+    sum(l[i] * x[i] for i in 1:3) + c
+)
 
 # Solve the optimization problem
 optimize!(model)
+selected = assets[findall(>(0.5), value.(x))]
 
 # Verify the solution is optimal
-objective_value(model) ≈ -2.0
+(objective_value(model) ≈ 0.0, join(selected, ", "))
 
 # output
 
-true
+(true, "Wind, Battery")
 ```
 
 ### Passing Solver Parameters to JuMP
@@ -83,12 +103,23 @@ You can pass solver-specific parameters to the optimizer using `set_attribute`:
 ```jldoctest jump_params
 using JuMP, TenSolver
 
-# Create a simple problem
-Q = [0.0 -1.0; -1.0 0.0]
+assets = ["Wind", "Solar", "Battery"]
+
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
+c = 5.0
 
 model = Model(TenSolver.Optimizer)
-@variable(model, x[1:2], Bin)
-@objective(model, Min, x' * Q * x)
+set_silent(model)
+@variable(model, x[1:3], Bin)
+@objective(
+    model,
+    Min,
+    sum(Q[i, j] * x[i] * x[j] for i in 1:3, j in 1:3) +
+    sum(l[i] * x[i] for i in 1:3) + c
+)
 
 # Set solver parameters
 set_attribute(model, "iterations", 20)
@@ -100,13 +131,14 @@ set_attribute(model, "verbosity", 0)
 
 # Solve with custom parameters
 optimize!(model)
+selected = assets[findall(>(0.5), value.(x))]
 
 # Verify solution
-objective_value(model) ≈ -2.0
+(objective_value(model) ≈ 0.0, join(selected, ", "))
 
 # output
 
-true
+(true, "Wind, Battery")
 ```
 
 ## Controlling Solver Parameters
@@ -116,7 +148,11 @@ You can control various solver parameters for better performance:
 ```jldoctest params
 using TenSolver
 
-Q = [0.0 -1.0; -1.0 0.0]
+assets = ["Wind", "Solar", "Battery"]
+
+Q = [0.0 1.0 -1.5;
+     1.0 0.0 -0.5;
+     -1.5 -0.5 0.0]
 
 # Solve with custom parameters
 E, psi = TenSolver.minimize(
@@ -128,13 +164,14 @@ E, psi = TenSolver.minimize(
     time_limit = 60.0,      # Stop after 60 seconds
     verbosity = 0
 )
+x = TenSolver.sample(psi)
 
 # Verify we get the expected minimum
-E ≈ -2.0
+(E ≈ -3.0, join(assets[findall(==(1), x)], ", "))
 
 # output
 
-true
+(true, "Wind, Battery")
 ```
 
 ## Tracking Optimization Progress
@@ -241,17 +278,22 @@ To solve maximization problems instead of minimization:
 ```jldoctest maximize
 using TenSolver
 
-Q = [0.0 -1.0; -1.0 0.0]
+campaigns = ["Email", "Webinar", "Follow-up"]
+
+Q = [0.0 0.5 0.0;
+     0.5 0.0 0.5;
+     0.0 0.5 0.0]
 
 # Solve for maximum instead of minimum
 E, psi = TenSolver.maximize(Q; verbosity=0)
+x = TenSolver.sample(psi)
 
 # Verify we get the expected maximum
-E ≈ 0.0
+(E ≈ 2.0, join(campaigns[findall(==(1), x)], ", "))
 
 # output
 
-true
+(true, "Email, Webinar, Follow-up")
 ```
 
 ## Multiple Samples
@@ -261,20 +303,23 @@ Generate multiple independent samples from the solution distribution:
 ```jldoctest samples
 using TenSolver
 
-Q = [0.0 -1.0; -1.0 0.0]
-E, psi = TenSolver.minimize(Q; verbosity=0)
+# Two single-route plans are equally good, but taking both routes together is wasteful.
+Q = [0.0 1.0; 1.0 0.0]
+l = [-1.0, -1.0]
+E, psi = TenSolver.minimize(Q, l, 0.0; verbosity=0)
 
 # Generate multiple samples
 num_samples = 10
 samples = [TenSolver.sample(psi) for _ in 1:num_samples]
+optimal_plans = [[1, 0], [0, 1]]
 
-# All samples should achieve the optimal energy
-energies = [s' * Q * s for s in samples]
-all(e -> e ≈ E, energies)
+# All samples should be one of the optimal plans, and both plans are represented in psi
+([1, 0] in psi, [0, 1] in psi,
+ all(s -> s in optimal_plans && (s' * Q * s + l' * s) ≈ E, samples))
 
 # output
 
-true
+(true, true, true)
 ```
 
 ## Using MultivariatePolynomials.jl Interface (Experimental)
