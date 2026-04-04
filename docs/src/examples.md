@@ -332,12 +332,16 @@ polynomial = 1.0*x[1]*x[2] + 1.0*x[2]*x[3] + 1.0*x[3]*x[4] + 1.0*x[4]*x[1]
 
 # Solve
 E, psi = TenSolver.minimize(polynomial; verbosity=0)
-coloring = TenSolver.sample(psi)
 
-# For a cycle graph, optimal coloring has 0 conflicts
-E ≈ 0.0
+# Pick a deterministic representative from the two equivalent 2-colorings
+coloring = [0, 1, 0, 1] in psi ? [0, 1, 0, 1] : [1, 0, 1, 0]
+conflicts = polynomial(x => coloring)
+
+println("Graph coloring: ", coloring)
+println("Number of conflicts: ", conflicts)
 
 # output
 
-true
+Graph coloring: [0, 1, 0, 1]
+Number of conflicts: 0.0
 ```
