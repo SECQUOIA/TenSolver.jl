@@ -29,7 +29,7 @@ Q = [0.0 -1.0; -1.0 0.0]
 E, psi = TenSolver.minimize(Q; verbosity=0)
 
 # Verify we found the minimum
-E ≈ -1.0
+E ≈ -2.0
 
 # output
 
