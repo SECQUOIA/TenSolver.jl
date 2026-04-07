@@ -6,77 +6,120 @@ This page provides practical examples of using TenSolver.jl for various optimiza
 
 The most basic usage is solving a quadratic unconstrained binary optimization problem:
 
-```julia
+```jldoctest basic
 using TenSolver
 
-# Define a random QUBO problem
-Q = randn(40, 40)
+assets = ["Wind", "Solar", "Battery"]
+
+# Wind and solar overlap, while storage pairs well with either source.
+Q = [0.0 1.0 -1.5;
+     1.0 0.0 -0.5;
+     -1.5 -0.5 0.0]
 
 # Solve for minimum
-E, psi = TenSolver.minimize(Q)
+E, psi = TenSolver.minimize(Q; verbosity=0)
 
 # Sample a solution
 x = TenSolver.sample(psi)
 
-# Verify the solution
-energy = x' * Q * x
+# Verify the solution achieves the minimum energy and inspect the chosen bundle
+(E ≈ -3.0, join(assets[findall(==(1), x)], ", "))
+
+# output
+
+(true, "Wind, Battery")
 ```
 
 ## QUBO with Linear and Constant Terms
 
 You can also specify linear and constant terms:
 
-```julia
+```jldoctest linear
 using TenSolver
 
-n = 40
-Q = randn(n, n)
-l = randn(n)
+assets = ["Wind", "Solar", "Battery"]
+
+# Linear terms encode stand-alone value, quadratic terms encode overlap penalties.
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
 c = 5.0
 
 # Solve: min b'Qb + l'b + c
-E, psi = TenSolver.minimize(Q, l, c)
+E, psi = TenSolver.minimize(Q, l, c; verbosity=0)
+x = TenSolver.sample(psi)
 
-# Sample multiple solutions
-samples = [TenSolver.sample(psi) for _ in 1:10]
+# The best plan keeps wind and storage, but skips solar because of overlap penalties.
+(E ≈ 0.0, join(assets[findall(==(1), x)], ", "))
+
+# output
+
+(true, "Wind, Battery")
 ```
 
 ## Using with JuMP
 
 TenSolver.jl provides an optimizer interface for JuMP models:
 
-```julia
+```jldoctest jump
 using JuMP, TenSolver
 
-dim = 40
-Q   = randn(dim, dim)
+assets = ["Wind", "Solar", "Battery"]
+
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
+c = 5.0
 
 # Create a JuMP model with TenSolver
 model = Model(TenSolver.Optimizer)
-@variable(model, x[1:dim], Bin)
-@objective(model, Min, x' * Q * x)
+set_silent(model)
+@variable(model, x[1:3], Bin)
+@objective(
+    model,
+    Min,
+    sum(Q[i, j] * x[i] * x[j] for i in 1:3, j in 1:3) +
+    sum(l[i] * x[i] for i in 1:3) + c
+)
 
 # Solve the optimization problem
 optimize!(model)
+selected = assets[findall(>(0.5), value.(x))]
 
-# Get the solution
-solution = value.(x)
-objective_value = objective_value(model)
+# Verify the solution is optimal
+(objective_value(model) ≈ 0.0, join(selected, ", "))
+
+# output
+
+(true, "Wind, Battery")
 ```
 
 ### Passing Solver Parameters to JuMP
 
 You can pass solver-specific parameters to the optimizer using `set_attribute`:
 
-```julia
+```jldoctest jump_params
 using JuMP, TenSolver
 
-dim = 40
-Q   = randn(dim, dim)
+assets = ["Wind", "Solar", "Battery"]
+
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
+c = 5.0
 
 model = Model(TenSolver.Optimizer)
-@variable(model, x[1:dim], Bin)
-@objective(model, Min, x' * Q * x)
+set_silent(model)
+@variable(model, x[1:3], Bin)
+@objective(
+    model,
+    Min,
+    sum(Q[i, j] * x[i] * x[j] for i in 1:3, j in 1:3) +
+    sum(l[i] * x[i] for i in 1:3) + c
+)
 
 # Set solver parameters
 set_attribute(model, "iterations", 20)
@@ -84,22 +127,32 @@ set_attribute(model, "cutoff", 1e-10)
 set_attribute(model, "maxdim", [10, 20, 50, 100, 200])
 set_attribute(model, "noise", [1e-5, 1e-6, 1e-7, 0.0])
 set_attribute(model, "time_limit", 60.0)
-set_attribute(model, "verbosity", 1)
+set_attribute(model, "verbosity", 0)
 
 # Solve with custom parameters
 optimize!(model)
+selected = assets[findall(>(0.5), value.(x))]
 
-solution = value.(x)
+# Verify solution
+(objective_value(model) ≈ 0.0, join(selected, ", "))
+
+# output
+
+(true, "Wind, Battery")
 ```
 
 ## Controlling Solver Parameters
 
 You can control various solver parameters for better performance:
 
-```julia
+```jldoctest params
 using TenSolver
 
-Q = randn(40, 40)
+assets = ["Wind", "Solar", "Battery"]
+
+Q = [0.0 1.0 -1.5;
+     1.0 0.0 -0.5;
+     -1.5 -0.5 0.0]
 
 # Solve with custom parameters
 E, psi = TenSolver.minimize(
@@ -108,8 +161,17 @@ E, psi = TenSolver.minimize(
     cutoff = 1e-10,         # Higher accuracy
     maxdim = [10, 20, 50, 100, 200],  # Bond dimension schedule
     noise = [1e-5, 1e-6, 1e-7, 0.0],  # Noise schedule for convergence
-    time_limit = 60.0       # Stop after 60 seconds
+    time_limit = 60.0,      # Stop after 60 seconds
+    verbosity = 0
 )
+x = TenSolver.sample(psi)
+
+# Verify we get the expected minimum
+(E ≈ -3.0, join(assets[findall(==(1), x)], ", "))
+
+# output
+
+(true, "Wind, Battery")
 ```
 
 ## Tracking Optimization Progress
@@ -213,36 +275,51 @@ E, psi = TenSolver.minimize(Q; device = Metal.mtl)
 
 To solve maximization problems instead of minimization:
 
-```julia
+```jldoctest maximize
 using TenSolver
 
-Q = randn(40, 40)
+campaigns = ["Email", "Webinar", "Follow-up"]
+
+Q = [0.0 0.5 0.0;
+     0.5 0.0 0.5;
+     0.0 0.5 0.0]
 
 # Solve for maximum instead of minimum
-E, psi = TenSolver.maximize(Q)
-
+E, psi = TenSolver.maximize(Q; verbosity=0)
 x = TenSolver.sample(psi)
+
+# Verify we get the expected maximum
+(E ≈ 2.0, join(campaigns[findall(==(1), x)], ", "))
+
+# output
+
+(true, "Email, Webinar, Follow-up")
 ```
 
 ## Multiple Samples
 
 Generate multiple independent samples from the solution distribution:
 
-```julia
+```jldoctest samples
 using TenSolver
 
-Q = randn(40, 40)
-E, psi = TenSolver.minimize(Q)
+# Two single-route plans are equally good, but taking both routes together is wasteful.
+Q = [0.0 1.0; 1.0 0.0]
+l = [-1.0, -1.0]
+E, psi = TenSolver.minimize(Q, l, 0.0; verbosity=0)
 
-# Generate 1000 samples
-num_samples = 1000
+# Generate multiple samples
+num_samples = 10
 samples = [TenSolver.sample(psi) for _ in 1:num_samples]
+optimal_plans = [[1, 0], [0, 1]]
 
-# Find the best sample
-energies = [s' * Q * s for s in samples]
-best_idx = argmin(energies)
-best_solution = samples[best_idx]
-best_energy = energies[best_idx]
+# All samples should be one of the optimal plans, and both plans are represented in psi
+([1, 0] in psi, [0, 1] in psi,
+ all(s -> s in optimal_plans && (s' * Q * s + l' * s) ≈ E, samples))
+
+# output
+
+(true, true, true)
 ```
 
 ## Using MultivariatePolynomials.jl Interface (Experimental)
@@ -252,7 +329,7 @@ best_energy = energies[best_idx]
 
 TenSolver.jl can directly optimize polynomial objective functions defined using the MultivariatePolynomials.jl interface. This is particularly useful for problems that naturally express themselves as polynomial optimization.
 
-```julia
+```jldoctest polynomial
 using TenSolver
 using DynamicPolynomials
 
@@ -260,11 +337,11 @@ using DynamicPolynomials
 @polyvar x[1:4]
 
 # Create a polynomial objective function
-# For example: x₁² + 2x₁x₂ + x₂² - x₃ + 3
-polynomial = x[1]^2 + 2*x[1]*x[2] + x[2]^2 - x[3] + 3
+# For example: x₁² + 2x₁x₂ + x₂² - x₃ + x₄
+polynomial = 1.0*x[1]^2 + 2.0*x[1]*x[2] + 1.0*x[2]^2 - 1.0*x[3] + 1.0*x[4]
 
 # Minimize the polynomial
-E, psi = TenSolver.minimize(polynomial)
+E, psi = TenSolver.minimize(polynomial; verbosity=0)
 
 # Sample a solution
 solution = TenSolver.sample(psi)
@@ -272,6 +349,13 @@ solution = TenSolver.sample(psi)
 # Evaluate the polynomial at the solution
 # Note: solutions are in {0, 1}, indexed from 1 in Julia
 objective_value = polynomial(x => solution)
+
+# Verify the sampled solution achieves the reported minimum
+objective_value ≈ E
+
+# output
+
+true
 ```
 
 This interface automatically handles the conversion of polynomial expressions into the tensor network representation used internally by the solver. The variables in the polynomial are treated as binary variables taking values in {0, 1}.
@@ -280,7 +364,7 @@ This interface automatically handles the conversion of polynomial expressions in
 
 Here's an example of using the polynomial interface for a graph coloring problem:
 
-```julia
+```jldoctest graphcolor
 using TenSolver
 using DynamicPolynomials
 
@@ -289,12 +373,20 @@ using DynamicPolynomials
 
 # Minimize the number of conflicts (edges with same color)
 # For a simple graph: edges (1,2), (2,3), (3,4), (4,1)
-polynomial = x[1]*x[2] + x[2]*x[3] + x[3]*x[4] + x[4]*x[1]
+polynomial = 1.0*x[1]*x[2] + 1.0*x[2]*x[3] + 1.0*x[3]*x[4] + 1.0*x[4]*x[1]
 
 # Solve
-E, psi = TenSolver.minimize(polynomial)
-coloring = TenSolver.sample(psi)
+E, psi = TenSolver.minimize(polynomial; verbosity=0)
+
+# Pick a deterministic representative from the two equivalent 2-colorings
+coloring = [0, 1, 0, 1] in psi ? [0, 1, 0, 1] : [1, 0, 1, 0]
+conflicts = polynomial(x => coloring)
 
 println("Graph coloring: ", coloring)
-println("Number of conflicts: ", E)
+println("Number of conflicts: ", conflicts)
+
+# output
+
+Graph coloring: [0, 1, 0, 1]
+Number of conflicts: 0.0
 ```

@@ -1,5 +1,6 @@
 [deps]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 ITensorMPS = "0d1a4710-d33b-49a5-8f18-73bdf49b47e2"
 DynamicPolynomials = "7c1d4256-1411-5781-91ec-d7bc3513ac07"

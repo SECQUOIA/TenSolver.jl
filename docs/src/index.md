@@ -22,19 +22,38 @@ Pkg.add("TenSolver")
 
 The simplest way to use this package is passing a matrix to the solver:
 
-```julia
+```jldoctest quickstart
 using TenSolver
 
-Q = randn(40, 40)
-E, psi = TenSolver.minimize(Q)
+assets = ["Wind", "Solar", "Battery"]
+
+# Wind and solar overlap, while storage pairs well with either source.
+Q = [0.0 1.0 -1.5;
+     1.0 0.0 -0.5;
+     -1.5 -0.5 0.0]
+E, psi = TenSolver.minimize(Q; verbosity=0)
+
+# Verify we found the minimum
+E ≈ -3.0
+
+# output
+
+true
 ```
 
 The returned argument `E` is the calculated estimate for the minimum value,
 while `psi` is a probability distribution over all possible solutions to the problem.
 You can sample Boolean vectors from it:
 
-```julia
+```jldoctest quickstart
 x = TenSolver.sample(psi)
+
+# Verify the sampled solution achieves the minimum and inspect the chosen assets
+(x' * Q * x ≈ E, join(assets[findall(==(1), x)], ", "))
+
+# output
+
+(true, "Wind, Battery")
 ```
 
 ## Features

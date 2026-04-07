@@ -38,3 +38,6 @@ include(filepath("cases/vrp.jl"))
 
 # HDF5 snapshot callback
 include(filepath("hdf5.jl"))
+
+# Documentation tests
+include(filepath("doctests.jl"))
