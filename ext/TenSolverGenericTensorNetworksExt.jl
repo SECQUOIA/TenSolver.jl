@@ -63,8 +63,10 @@ function _property(property::Symbol, backend::TenSolver.GTNBackend)
   elseif property in (:single, :config)
     return k == 1 ? GenericTensorNetworks.SingleConfigMin(; bounded=backend.bounded) : GenericTensorNetworks.SingleConfigMin(k; bounded=false)
   elseif property in (:count, :degeneracy)
+    k == 1 || throw(ArgumentError("GTNBackend property `$(property)` only supports k=1 for TenSolver pseudo-Boolean objectives."))
     return k == 1 ? GenericTensorNetworks.CountingMin() : GenericTensorNetworks.CountingMin(k)
   elseif property in (:configs, :enumerate)
+    k == 1 || throw(ArgumentError("GTNBackend property `$(property)` only supports k=1 for TenSolver pseudo-Boolean objectives. Use property=:single with k > 1 to request representative k-best configurations."))
     return k == 1 ? GenericTensorNetworks.ConfigsMin(; bounded=backend.bounded, tree_storage=backend.tree_storage) :
                     GenericTensorNetworks.ConfigsMin(k; bounded=backend.bounded, tree_storage=backend.tree_storage)
   elseif property in (:kbest_sizes, :spectrum)
@@ -77,7 +79,6 @@ end
 _scalar(x::AbstractArray) = x[]
 _scalar(x) = x
 
-_number(x::Number) = x
 _number(x) = hasproperty(x, :n) ? getproperty(x, :n) : x
 
 function _numbers(x)

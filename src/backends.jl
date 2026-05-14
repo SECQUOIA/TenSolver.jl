@@ -20,6 +20,9 @@ Optional exact contraction backend powered by GenericTensorNetworks.jl.
 
 The backend is available when the `TenSolverGenericTensorNetworksExt` package
 extension is loaded, which requires `using GenericTensorNetworks, ProblemReductions`.
+Supported properties are `:size`, `:single`, `:count`, `:configs`, and
+`:kbest_sizes`. Values `k > 1` are supported for `:size`, `:single`, and
+`:kbest_sizes`; `:count` and `:configs` currently require `k == 1`.
 """
 Base.@kwdef struct GTNBackend <: AbstractBackend
   property     :: Symbol = :single
@@ -41,10 +44,13 @@ end
 
 Compute exact solution-space information with a backend that supports it.
 Currently this is implemented by `GTNBackend` when GenericTensorNetworks is loaded.
+Use `GTNBackend(property=:single, k=n)` for representative k-best configurations;
+full enumeration and degeneracy counting currently require `k == 1`.
 """
 function solution_space(args...; property::Union{Symbol, Nothing}=nothing, backend=GTNBackend(property=isnothing(property) ? :configs : property), kwargs...)
   model = pseudoboolean(args...)
   selected_backend = backend isa AbstractBackend ? backend : backend_from_attribute(backend; property=isnothing(property) ? :configs : property)
+  selected_backend isa GTNBackend || throw(ArgumentError("solution_space requires a backend that supports exact solution-space properties; use GTNBackend after loading GenericTensorNetworks and ProblemReductions."))
   selected_property = isnothing(property) && selected_backend isa GTNBackend ? selected_backend.property : (isnothing(property) ? :configs : property)
   return _solve_backend(selected_backend, model; property=selected_property, kwargs...)
 end

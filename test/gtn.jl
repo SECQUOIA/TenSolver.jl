@@ -35,6 +35,17 @@ import DynamicPolynomials
       E_configs, config_sol = TenSolver.solution_space(Q, l, c; property=:configs)
       @test E_configs ≈ 2.0
       @test sort(config_sol.configs) == sort(optimum_configs)
+
+      E_kbest, kbest_sol = TenSolver.solution_space(Q, l, c; backend=TenSolver.GTNBackend(property=:kbest_sizes, k=2))
+      @test E_kbest ≈ 2.0
+      @test sort(kbest_sol.metadata["size"]) ≈ [-1.0, -1.0]
+
+      E_single_k, single_k_sol = TenSolver.solution_space(Q, l, c; backend=TenSolver.GTNBackend(property=:single, k=2))
+      @test E_single_k ≈ 2.0
+      @test sort(single_k_sol.configs) == sort(optimum_configs)
+
+      @test_throws ArgumentError TenSolver.solution_space(Q, l, c; backend=TenSolver.GTNBackend(property=:configs, k=2))
+      @test_throws ArgumentError TenSolver.solution_space(Q, l, c; backend=TenSolver.GTNBackend(property=:count, k=2))
     end
 
     @testset "Higher-order polynomial objective" begin

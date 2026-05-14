@@ -25,6 +25,7 @@ end
 
 # Traditional interface
 include(filepath("objective.jl"))
+include(filepath("backends.jl"))
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
 include(filepath("gtn.jl"))

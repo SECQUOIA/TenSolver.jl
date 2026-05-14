@@ -205,6 +205,13 @@ function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, backend=DMRGBackend(), 
   return minimize(model; backend, cutoff, kwargs...)
 end
 
+function _check_no_unknown_solver_kwargs(kwargs)
+  if !isempty(kwargs)
+    unknown = join(("`$key`" for key in keys(kwargs)), ", ")
+    throw(ArgumentError("Unsupported solver keyword(s): $unknown"))
+  end
+end
+
 function _minimize_single_variable(
   model::PseudoBooleanModel{T};
   cutoff = 1e-8,
@@ -212,9 +219,22 @@ function _minimize_single_variable(
   verbosity = 1,
   on_iteration :: Union{Nothing, Function} = nothing,
   callback_every :: Int = 1,
+  # Accepted for API compatibility with the DMRG path. This exact path does not iterate.
+  iterations :: Union{Nothing, Int} = nothing,
+  time_limit = +Inf,
+  vtol = cutoff,
+  check_variance_every_iteration = 10,
+  inidim = 40,
+  maxdim = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000],
+  mindim = 1,
+  noise = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0],
+  eigsolve_krylovdim :: Int = 3,
+  eigsolve_maxiter :: Int = 2,
+  eigsolve_tol :: Float64 = 1e-14,
   kwargs...
 ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
+  _check_no_unknown_solver_kwargs(kwargs)
 
   initial_time = time()
   objective_zero = evaluate(model, [0])
