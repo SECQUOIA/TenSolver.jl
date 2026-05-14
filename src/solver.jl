@@ -8,10 +8,6 @@ import ITensors, ITensorMPS
 
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, isconstant
 
-function issquare(a :: AbstractArray)
-  return allequal(size(a))
-end
-
 # Strict upper triangular part of an array
 function upper_indices(a)
   return (Tuple(ci)
@@ -51,6 +47,21 @@ for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
     ∑ Q_ij x_i x_j + ∑ l_i x_i --> H = Σ Q_ij D_i D_j + ∑ l_i D_i
 """
 function tensorize end
+
+function tensorize(model::PseudoBooleanModel{T}; cutoff = zero(T)) where T
+  N = length(model)
+  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  os = OpSum{T}()
+
+  for (vars, coeff) in model.terms
+    if abs(coeff) > cutoff
+      op = Iterators.flatmap(v -> ("D", v), vars)
+      os .+= (coeff, op...)
+    end
+  end
+
+  return isempty(os) ? MPO(T, sites) : MPO(T, os, sites)
+end
 
 function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T)) where T
   Qs = [Q, rest...]
@@ -170,18 +181,88 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, kwargs...) where T
-  H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
-  obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
-
-  return _minimize(H, c, obj; cutoff, kwargs...)
+function minimize(model::PseudoBooleanModel; backend=DMRGBackend(), cutoff=1e-8, kwargs...)
+  selected_backend = backend isa AbstractBackend ? backend : backend_from_attribute(backend)
+  return _solve_backend(selected_backend, model; cutoff, kwargs...)
 end
 
-function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
-  H   = tensorize(p)
-  cte = constant(p)
-  vs = variables(p)
-  return _minimize(H, cte, a -> p(vs => a); cutoff, kwargs...)
+function _solve_backend(::DMRGBackend, model::PseudoBooleanModel{T}; cutoff=1e-8, kwargs...) where {T}
+  if length(model) == 1
+    return _minimize_single_variable(model; cutoff, kwargs...)
+  end
+
+  H = tensorize(model; cutoff)
+  return _minimize(H, model.constant, x -> evaluate(model, x); cutoff, kwargs...)
+end
+
+function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, backend=DMRGBackend(), kwargs...) where T
+  model = pseudoboolean(Q, l, c; cutoff=zero(T))
+  return minimize(model; backend, cutoff, kwargs...)
+end
+
+function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, backend=DMRGBackend(), kwargs...) where T
+  model = pseudoboolean(p; cutoff=zero(T))
+  return minimize(model; backend, cutoff, kwargs...)
+end
+
+function _check_no_unknown_solver_kwargs(kwargs)
+  if !isempty(kwargs)
+    unknown = join(("`$key`" for key in keys(kwargs)), ", ")
+    throw(ArgumentError("Unsupported solver keyword(s): $unknown"))
+  end
+end
+
+function _minimize_single_variable(
+  model::PseudoBooleanModel{T};
+  cutoff = 1e-8,
+  device :: Function = cpu,
+  verbosity = 1,
+  on_iteration :: Union{Nothing, Function} = nothing,
+  callback_every :: Int = 1,
+  # Accepted for API compatibility with the DMRG path. This exact path does not iterate.
+  iterations :: Union{Nothing, Int} = nothing,
+  time_limit = +Inf,
+  vtol = cutoff,
+  check_variance_every_iteration = 10,
+  inidim = 40,
+  maxdim = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000],
+  mindim = 1,
+  noise = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0],
+  eigsolve_krylovdim :: Int = 3,
+  eigsolve_maxiter :: Int = 2,
+  eigsolve_tol :: Float64 = 1e-14,
+  kwargs...
+) where {T}
+  callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
+  _check_no_unknown_solver_kwargs(kwargs)
+
+  initial_time = time()
+  objective_zero = evaluate(model, [0])
+  objective_one = evaluate(model, [1])
+  optimal = min(objective_zero, objective_one)
+
+  state = if abs(objective_zero - objective_one) <= cutoff
+    "full"
+  elseif objective_zero < objective_one
+    "0"
+  else
+    "1"
+  end
+
+  sites = ITensors.siteinds("Qudit", 1; dim = 2)
+  psi = MPS(sites, [state]) |> device
+  elapsed_time = time() - initial_time
+  solution = Solution{T}(psi, T[optimal], Int[1], Float64[elapsed_time])
+
+  iterlog_header(verbosity)
+  iterlog_iteration(verbosity, 1, optimal, 1, nothing, elapsed_time)
+  iterlog_footer(verbosity, optimal, elapsed_time)
+
+  if !isnothing(on_iteration)
+    on_iteration(psi; iteration=1, objective=optimal, bond_dim=1, elapsed_time)
+  end
+
+  return optimal, solution
 end
 
 function _minimize( H :: MPO
@@ -327,5 +408,5 @@ function maximize(qs... ; kwargs...)
   mqs = map(q -> maybe(-, q), qs)
   E, psi = minimize(mqs...; kwargs...)
 
-  return -E, psi
+  return -E, _with_objective(psi, -E)
 end

@@ -5,8 +5,13 @@ using QUBODrivers: QUBODrivers, QUBOTools, MOI
 
 using LinearAlgebra
 
+include("objective.jl")
+
+include("backends.jl")
+export AbstractBackend, DMRGBackend, GTNBackend, solution_space
+
 include("solution.jl")
-export sample
+export Solution, GTNSolution, sample
 
 include("solver.jl")
 export minimize, maximize
@@ -28,6 +33,11 @@ QUBODrivers.@setup Optimizer begin
     # JuMP-specific
     NumberOfReads["num_reads"]::Integer = 1_000
     # Solver keywords
+    "backend"              :: Union{AbstractBackend, String, Symbol} = DMRGBackend()
+    "gtn_property"         :: Symbol                          = :single
+    "gtn_k"                :: Int                             = 1
+    "gtn_usecuda"          :: Bool                            = false
+    "gtn_T"                :: Type                            = Float64
     "cutoff"               :: Float64                         = 1e-8
     "device"               :: Function                        = cpu
     "vtol"                 :: Float64                         = 0.0
@@ -57,6 +67,13 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   end
 
   num_reads = MOI.get(sampler, NumberOfReads())
+  backend = backend_from_attribute(
+    get("backend");
+    property = get("gtn_property"),
+    k = get("gtn_k"),
+    usecuda = get("gtn_usecuda"),
+    T = get("gtn_T"),
+  )
 
   # ~ Solve ~ #
   n, l, Q, a, b = QUBOTools.qubo(sampler, :sparse; sense = :min)
@@ -75,6 +92,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     eigsolve_krylovdim =  get("eigsolve_krylovdim"),
     eigsolve_tol       =  get("eigsolve_tol"),
     eigsolve_maxiter   =  get("eigsolve_maxiter"),
+    backend     = backend,
   )
   energy, psi = results.value
   obj = a * energy
