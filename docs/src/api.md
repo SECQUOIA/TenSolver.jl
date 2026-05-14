@@ -13,12 +13,22 @@ TenSolver.maximize
 
 ```@docs
 TenSolver.Solution
+TenSolver.GTNSolution
 ```
 
 ## Sampling Functions
 
 ```@docs
 TenSolver.sample
+```
+
+## Backends
+
+```@docs
+TenSolver.AbstractBackend
+TenSolver.DMRGBackend
+TenSolver.GTNBackend
+TenSolver.solution_space
 ```
 
 ## Utility Functions
