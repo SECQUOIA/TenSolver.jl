@@ -43,6 +43,22 @@
       @test TenSolver.sample(psi) == [0, 1]
     end
 
+    @testset "Single variable" begin
+      E, psi = minimize([0.0;;], [-2.0], 3.0; verbosity=0)
+
+      @test E ≈ 1.0
+      @test TenSolver.sample(psi) == [1]
+      @test [1] in psi
+    end
+
+    @testset "Single variable tie" begin
+      E, psi = minimize([0.0;;]; verbosity=0)
+
+      @test E ≈ 0.0
+      @test [0] in psi
+      @test [1] in psi
+    end
+
     @testset "Identity" begin
       E, psi = minimize([1.0 0.0; 0.0 1.0])
 

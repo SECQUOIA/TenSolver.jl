@@ -187,6 +187,10 @@ function minimize(model::PseudoBooleanModel; backend=DMRGBackend(), cutoff=1e-8,
 end
 
 function _solve_backend(::DMRGBackend, model::PseudoBooleanModel{T}; cutoff=1e-8, kwargs...) where {T}
+  if length(model) == 1
+    return _minimize_single_variable(model; cutoff, kwargs...)
+  end
+
   H = tensorize(model; cutoff)
   return _minimize(H, model.constant, x -> evaluate(model, x); cutoff, kwargs...)
 end
@@ -199,6 +203,46 @@ end
 function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, backend=DMRGBackend(), kwargs...) where T
   model = pseudoboolean(p; cutoff=zero(T))
   return minimize(model; backend, cutoff, kwargs...)
+end
+
+function _minimize_single_variable(
+  model::PseudoBooleanModel{T};
+  cutoff = 1e-8,
+  device :: Function = cpu,
+  verbosity = 1,
+  on_iteration :: Union{Nothing, Function} = nothing,
+  callback_every :: Int = 1,
+  kwargs...
+) where {T}
+  callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
+
+  initial_time = time()
+  objective_zero = evaluate(model, [0])
+  objective_one = evaluate(model, [1])
+  optimal = min(objective_zero, objective_one)
+
+  state = if abs(objective_zero - objective_one) <= cutoff
+    "full"
+  elseif objective_zero < objective_one
+    "0"
+  else
+    "1"
+  end
+
+  sites = ITensors.siteinds("Qudit", 1; dim = 2)
+  psi = MPS(sites, [state]) |> device
+  elapsed_time = time() - initial_time
+  solution = Solution{T}(psi, T[optimal], Int[1], Float64[elapsed_time])
+
+  iterlog_header(verbosity)
+  iterlog_iteration(verbosity, 1, optimal, 1, nothing, elapsed_time)
+  iterlog_footer(verbosity, optimal, elapsed_time)
+
+  if !isnothing(on_iteration)
+    on_iteration(psi; iteration=1, objective=optimal, bond_dim=1, elapsed_time)
+  end
+
+  return optimal, solution
 end
 
 function _minimize( H :: MPO
