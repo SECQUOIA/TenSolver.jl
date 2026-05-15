@@ -1,4 +1,4 @@
-import SparseArrays: dropzeros!, sparse
+import SparseArrays: SparseMatrixCSC, findnz, sparse, dropzeros!
 
 function conversion_type(Q::AbstractMatrix, l, c)
   T = promote_type(eltype(Q), isnothing(l) ? eltype(Q) : eltype(l), typeof(c))
@@ -165,4 +165,32 @@ end
 
 function ising_to_qubo(J::AbstractMatrix, h::AbstractVector, offset::Real=0)
   return ising_to_qubo(ising_form(J, h, offset))
+end
+
+
+"""
+    ising_energy(J, h, c, s)
+
+Evaluate an Ising Model at a spin vector `s_i in {-1, +1}`.
+"""
+
+function ising_energy(J::AbstractMatrix, h::AbstractVector, s::AbstractVector, offset::Real=0)
+  check_ising_dimensions(J, h)
+  length(s) == length(h) || throw(DimensionMismatch("Spin vector length must match the Ising model size. Encountered length $(length(s)) and field length $(length(h))."))
+
+  s = checked_spin_state(s)
+  T = promote_type(eltype(J), eltype(h), typeof(offset), eltype(s))
+
+  energy = T(offset) + sum(T(h[i]) * T(s[i]) for i in eachindex(h))
+
+  for j in 2:length(h)
+    for i in 1:(j - 1)
+      coupling = T(J[i, j]) + T(J[j, i])
+      if !iszero(coupling)
+        energy += coupling * T(s[i]) * T(s[j])
+      end
+    end
+  end
+
+  return energy
 end
