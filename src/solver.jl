@@ -320,6 +320,28 @@ function _minimize( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+
+  if length(sites) == 1
+    values = (obj(Int[0]), obj(Int[1]))
+    optimal = convert(T, min(values...))
+    states = findall(e -> isapprox(e, optimal; atol=cutoff, rtol=0), values) .- 1
+    labels = length(states) == 2 ? ["full"] : string.(states)
+    psi = MPS(sites, labels)
+    elapsed_time = time() - initial_time
+    dist = Solution{T}(psi, T[optimal], Int[1], Float64[elapsed_time], permutation)
+
+    iterlog_header(verbosity)
+    iterlog_iteration(verbosity, 1, optimal, 1, zero(T), elapsed_time)
+
+    if !isnothing(on_iteration) && 1 % callback_every == 0
+      on_iteration(psi; iteration=1, objective=optimal, bond_dim=1, elapsed_time)
+    end
+
+    iterlog_footer(verbosity, optimal, elapsed_time)
+
+    return optimal, dist
+  end
+
   H     = device(H)
   psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
 
