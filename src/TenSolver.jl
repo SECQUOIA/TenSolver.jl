@@ -39,6 +39,9 @@ QUBODrivers.@setup Optimizer begin
     "eigsolve_krylovdim"   :: Int                             = 3
     "eigsolve_maxiter"     :: Int                             = 1
     "eigsolve_tol"         :: Float64                         = 1e-14
+    "polish"               :: Bool                            = true
+    "polish_max_variables" :: Int                             = 36
+    "polish_time_limit"    :: Float64                         = 1.0
     "preprocess"           :: Bool                            = false
     "verbosity"            :: Int                             = 1
   end
@@ -75,6 +78,9 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     eigsolve_krylovdim =  get("eigsolve_krylovdim"),
     eigsolve_tol       =  get("eigsolve_tol"),
     eigsolve_maxiter   =  get("eigsolve_maxiter"),
+    polish             =  get("polish"),
+    polish_max_variables = get("polish_max_variables"),
+    polish_time_limit  =  get("polish_time_limit"),
   )
   energy, psi = results.value
   obj = a * energy

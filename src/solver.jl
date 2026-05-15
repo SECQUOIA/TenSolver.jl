@@ -100,6 +100,183 @@ function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
+function _qubo_coefficients(Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}, c::T) where T
+  n = size(Q, 1)
+  R = promote_type(T, Float64)
+  linear = Vector{R}(undef, n)
+  quadratic = zeros(R, n, n)
+
+  for i in 1:n
+    linear[i] = Q[i, i] + maybe(v -> v[i], l; default=zero(T))
+  end
+
+  for i in 1:n
+    for j in (i + 1):n
+      quadratic[i, j] = Q[i, j] + Q[j, i]
+    end
+  end
+
+  return linear, quadratic, R(c)
+end
+
+function _qubo_value(x, linear, quadratic, c)
+  n = length(x)
+  value = c
+
+  @inbounds for i in 1:n
+    if x[i] == 1
+      value += linear[i]
+
+      for j in (i + 1):n
+        if x[j] == 1
+          value += quadratic[i, j]
+        end
+      end
+    end
+  end
+
+  return value
+end
+
+function _branch_bound_qubo(
+  Q::AbstractMatrix{T},
+  l::Union{AbstractVector{T}, Nothing},
+  c::T,
+  incumbent_x,
+  incumbent;
+  max_variables::Integer = 36,
+  time_limit::Real = 1.0,
+) where T
+  n = size(Q, 1)
+
+  if n > max_variables || time_limit <= 0
+    return nothing
+  end
+
+  linear, quadratic, constant = _qubo_coefficients(Q, l, c)
+  x0 = Int.(incumbent_x)
+  best = min(float(incumbent), _qubo_value(x0, linear, quadratic, constant))
+  tol = sqrt(eps(Float64))
+
+  score = [
+    abs(linear[i]) + sum(abs(quadratic[min(i, j), max(i, j)]) for j in 1:n if j != i)
+    for i in 1:n
+  ]
+  order = sortperm(score; rev=true)
+
+  ordered_linear = linear[order]
+  ordered_quadratic = zeros(eltype(quadratic), n, n)
+
+  for i in 1:n
+    for j in (i + 1):n
+      oi, oj = order[i], order[j]
+      ordered_quadratic[i, j] = quadratic[min(oi, oj), max(oi, oj)]
+    end
+  end
+
+  negative_suffix = zeros(eltype(quadratic), n + 1)
+  for i in n:-1:1
+    negative_suffix[i] = negative_suffix[i + 1]
+
+    for j in (i + 1):n
+      q = ordered_quadratic[i, j]
+      if q < 0
+        negative_suffix[i] += q
+      end
+    end
+  end
+
+  assignment = zeros(Int, n)
+  best_assignment = x0[order]
+  coeff = copy(ordered_linear)
+  deadline = time() + time_limit
+  nodes = 0
+  timed_out = false
+
+  function lower_bound(depth, partial)
+    bound = partial
+
+    @inbounds for i in depth:n
+      bound += min(zero(coeff[i]), coeff[i])
+    end
+
+    return bound + negative_suffix[depth]
+  end
+
+  function search(depth, partial)
+    if timed_out
+      return
+    end
+
+    nodes += 1
+    if nodes % 1024 == 0 && time() >= deadline
+      timed_out = true
+      return
+    end
+
+    if lower_bound(depth, partial) >= best - tol
+      return
+    end
+
+    if depth > n
+      if partial < best - tol
+        best = partial
+        best_assignment = copy(assignment)
+      end
+
+      return
+    end
+
+    one_partial = partial + coeff[depth]
+
+    if one_partial < partial
+      assignment[depth] = 1
+
+      @inbounds for j in (depth + 1):n
+        coeff[j] += ordered_quadratic[depth, j]
+      end
+
+      search(depth + 1, one_partial)
+
+      @inbounds for j in (depth + 1):n
+        coeff[j] -= ordered_quadratic[depth, j]
+      end
+
+      assignment[depth] = 0
+      search(depth + 1, partial)
+    else
+      assignment[depth] = 0
+      search(depth + 1, partial)
+      assignment[depth] = 1
+
+      @inbounds for j in (depth + 1):n
+        coeff[j] += ordered_quadratic[depth, j]
+      end
+
+      search(depth + 1, one_partial)
+
+      @inbounds for j in (depth + 1):n
+        coeff[j] -= ordered_quadratic[depth, j]
+      end
+
+      assignment[depth] = 0
+    end
+  end
+
+  search(1, constant)
+
+  if best >= float(incumbent) - tol
+    return nothing
+  end
+
+  x = zeros(Int, n)
+  for (i, original_index) in pairs(order)
+    x[original_index] = best_assignment[i]
+  end
+
+  return best, x
+end
+
 
 """
     minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
@@ -136,6 +313,9 @@ Keyword arguments:
 - `vtol :: Float64` - If specified, determines the variance tolerance before the algorithm stops.
   The variance test determines whether DMRG converged to an eigenstate (not necessarily the ground state),
   but is expensive to calculate.
+- `polish :: Bool` - Run bounded branch-and-bound postprocessing for QUBO matrix inputs. Defaults to `true`.
+- `polish_max_variables :: Int` - Maximum number of variables eligible for exact polishing. Defaults to `36`.
+- `polish_time_limit :: Float64` - Maximum seconds spent in exact polishing. Defaults to `1.0`.
 - `noise` - A float or array of floats (per iteration) specifying the noise term added to the system to help with convergence.
   It is recommended to use a large noise (~ 1e-5) on the initial iterations and let it go to zero on later iterations.
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
@@ -170,11 +350,22 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, kwargs...) where T
+function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T);
+                  cutoff=1e-8, polish::Bool=true, polish_max_variables::Integer=36,
+                  polish_time_limit::Real=1.0, kwargs...) where T
   H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
+  postprocess = polish ? (x, incumbent) -> _branch_bound_qubo(
+    Q,
+    l,
+    c,
+    x,
+    incumbent;
+    max_variables=polish_max_variables,
+    time_limit=polish_time_limit,
+  ) : nothing
 
-  return _minimize(H, c, obj; cutoff, kwargs...)
+  return _minimize(H, c, obj; cutoff, postprocess, kwargs...)
 end
 
 function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
@@ -203,6 +394,7 @@ function _minimize( H :: MPO
                   , eigsolve_krylovdim :: Int     = 3
                   , eigsolve_maxiter   :: Int     = 2
                   , eigsolve_tol       :: Float64 = 1e-14
+                  , postprocess :: Union{Nothing, Function} = nothing
                   # Iteration callback
                   , on_iteration :: Union{Nothing, Function} = nothing
                   , callback_every   :: Int = 1
@@ -215,6 +407,29 @@ function _minimize( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+
+  if length(sites) == 1
+    x0, x1 = [0], [1]
+    e0, e1 = obj(x0), obj(x1)
+    tol = sqrt(eps(Float64))
+
+    if e0 < e1 - tol
+      optimal, state = e0, "0"
+    elseif e1 < e0 - tol
+      optimal, state = e1, "1"
+    else
+      optimal, state = e0, "full"
+    end
+
+    psi = MPS(sites, [state]) |> device
+    dist = Solution{T}(psi, T[], Int[], Float64[])
+    elapsed_time = time() - initial_time
+
+    iterlog_footer(verbosity, optimal, elapsed_time)
+
+    return optimal, dist
+  end
+
   H     = device(H)
   psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
 
@@ -291,6 +506,21 @@ function _minimize( H :: MPO
   dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log)
   x    = sample(dist)
   optimal = obj(x)
+
+  if !isnothing(postprocess)
+    polished = postprocess(x, optimal)
+
+    if !isnothing(polished)
+      polished_optimal, polished_x = polished
+
+      if polished_optimal < optimal - sqrt(eps(Float64))
+        optimal = polished_optimal
+        psi = MPS(sites, string.(Int.(polished_x))) |> device
+        dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log)
+      end
+    end
+  end
+
   elapsed_time = time() - initial_time
 
   iterlog_footer(verbosity, optimal, elapsed_time)
