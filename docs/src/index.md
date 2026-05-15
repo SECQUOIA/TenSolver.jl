@@ -67,6 +67,6 @@ x = TenSolver.sample(psi)
 ## Contents
 
 ```@contents
-Pages = ["api.md", "examples.md"]
+Pages = ["examples.md", "spinglasspeps_integration.md", "api.md"]
 Depth = 2
 ```
