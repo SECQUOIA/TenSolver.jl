@@ -184,6 +184,37 @@ function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
   return _minimize(H, cte, a -> p(vs => a); cutoff, kwargs...)
 end
 
+function _single_variable_minimize(::Type{T}, sites, obj, initial_time; device, verbosity, on_iteration, callback_every) where {T}
+  x0 = [0]
+  x1 = [1]
+  e0 = obj(x0)
+  e1 = obj(x1)
+
+  energy, state = if e0 == e1
+    (T(e0), ["full"])
+  elseif e0 < e1
+    (T(e0), string.(x0))
+  else
+    (T(e1), string.(x1))
+  end
+
+  psi = ITensorMPS.MPS(sites, state) |> device
+  elapsed_time = time() - initial_time
+  bond_dim = ITensorMPS.maxlinkdim(psi)
+
+  iterlog_header(verbosity)
+  iterlog_iteration(verbosity, 1, energy, bond_dim, 0.0, elapsed_time)
+
+  dist = Solution{T}(psi, T[energy], Int[bond_dim], Float64[elapsed_time])
+  if !isnothing(on_iteration) && 1 % callback_every == 0
+    on_iteration(psi; iteration=1, objective=energy, bond_dim, elapsed_time)
+  end
+
+  iterlog_footer(verbosity, energy, elapsed_time)
+
+  return energy, dist
+end
+
 function _minimize( H :: MPO
                   , c :: T
                   , obj
@@ -215,6 +246,10 @@ function _minimize( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+  if length(sites) == 1
+    return _single_variable_minimize(T, sites, obj, initial_time; device, verbosity, on_iteration, callback_every)
+  end
+
   H     = device(H)
   psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
 
