@@ -71,6 +71,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     mindim      = get("mindim"),
     noise       = get("noise"),
     device      = get("device"),
+    preprocess  = get("preprocess"),
     verbosity   = get("verbosity"),
     eigsolve_krylovdim =  get("eigsolve_krylovdim"),
     eigsolve_tol       =  get("eigsolve_tol"),

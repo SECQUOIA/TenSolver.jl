@@ -1,6 +1,16 @@
 @testset "QUBO Correctness" begin
   dim = 5
 
+  qubo_bandwidth(Q) = begin
+    bw = 0
+    for i in axes(Q, 1), j in (i + 1):last(axes(Q, 2))
+      if abs(Q[i, j] + Q[j, i]) > 0
+        bw = max(bw, j - i)
+      end
+    end
+    bw
+  end
+
   @testset "Ultra simple sanity checks" begin
     @testset "Zero matrix" begin
       E, psi = minimize([0.0 0; 0 0])
@@ -48,6 +58,14 @@
 
       @test E ≈ 0.0
       @test TenSolver.sample(psi) == [0, 0]
+    end
+
+    @testset "One variable" begin
+      E, psi = minimize(reshape([2.0], 1, 1), [-3.0]; verbosity=0)
+
+      @test E ≈ -1.0
+      @test TenSolver.sample(psi) == [1]
+      @test [1] in psi
     end
 
     @testset "Max: Identity" begin
@@ -115,6 +133,36 @@
       @test length(unique(ids)) == 3
     end
 
+  end
+
+  @testset "Q-matrix preprocessing" begin
+    @testset "Permutation reduces coupling bandwidth" begin
+      path = zeros(5, 5)
+      for i in 1:4
+        path[i, i + 1] = 1.0
+        path[i + 1, i] = 1.0
+      end
+
+      scramble = [1, 3, 5, 2, 4]
+      Q = path[scramble, scramble]
+      permutation = TenSolver.qmatrix_permutation(Q)
+
+      @test sort(permutation) == collect(1:5)
+      @test qubo_bandwidth(Q[permutation, permutation]) < qubo_bandwidth(Q)
+    end
+
+    @testset "Samples are returned in original variable order" begin
+      Q = [0.0 0.0 -2.0;
+           0.0 0.0  0.0;
+          -2.0 0.0  0.0]
+      l = [0.5, 1.0, 0.5]
+
+      E, psi = minimize(Q, l; preprocess=true, iterations=3, verbosity=0)
+
+      @test E ≈ -3.0
+      @test TenSolver.sample(psi) == [1, 0, 1]
+      @test [1, 0, 1] in psi
+    end
   end
 
   @testset "Pure quadratic" begin

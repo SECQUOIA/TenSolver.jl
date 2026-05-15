@@ -12,11 +12,111 @@ function issquare(a :: AbstractArray)
   return allequal(size(a))
 end
 
+function edge_key(i::Integer, j::Integer)
+  return i < j ? (Int(i), Int(j)) : (Int(j), Int(i))
+end
+
 # Strict upper triangular part of an array
 function upper_indices(a)
   return (Tuple(ci)
             for ci in CartesianIndices(size(a))
             if issorted(Tuple(ci); lt = (<=)))
+end
+
+function qmatrix_adjacency(Q::AbstractMatrix, cutoff)
+  n = size(Q, 1)
+  adjacency = [Int[] for _ in 1:n]
+  weights = Dict{Tuple{Int, Int}, Float64}()
+
+  for i in 1:n, j in (i + 1):n
+    coeff = Q[i, j] + Q[j, i]
+
+    if abs(coeff) > cutoff
+      push!(adjacency[i], j)
+      push!(adjacency[j], i)
+      weights[(i, j)] = Float64(abs(coeff))
+    end
+  end
+
+  return adjacency, weights
+end
+
+function reverse_cuthill_mckee(adjacency, weights)
+  n = length(adjacency)
+  degrees = length.(adjacency)
+  weighted_degrees = [
+    sum(weights[edge_key(i, j)] for j in adjacency[i]; init = 0.0)
+    for i in 1:n
+  ]
+
+  visited = falses(n)
+  order = Int[]
+
+  while true
+    start = nothing
+    best = nothing
+
+    for i in 1:n
+      if !visited[i] && degrees[i] > 0
+        candidate = (degrees[i], -weighted_degrees[i], i)
+        if isnothing(best) || candidate < best
+          start = i
+          best = candidate
+        end
+      end
+    end
+
+    isnothing(start) && break
+
+    queue = [start]
+    visited[start] = true
+    head = 1
+
+    while head <= length(queue)
+      i = queue[head]
+      head += 1
+      push!(order, i)
+
+      neighbors = [j for j in adjacency[i] if !visited[j]]
+      sort!(neighbors; by = j -> (degrees[j], -weights[edge_key(i, j)], j))
+
+      for j in neighbors
+        visited[j] = true
+        push!(queue, j)
+      end
+    end
+  end
+
+  isempty(order) && return collect(1:n)
+
+  isolated = [i for i in 1:n if degrees[i] == 0]
+  return vcat(reverse(order), isolated)
+end
+
+"""
+    qmatrix_permutation(Q; cutoff=0)
+
+Return a deterministic permutation that places coupled QUBO variables closer
+together in the one-dimensional MPS ordering.
+"""
+function qmatrix_permutation(Q::AbstractMatrix; cutoff = 0)
+  issquare(Q) || throw(DimensionMismatch("Q must be square. Encountered dimensions $(size(Q))."))
+
+  adjacency, weights = qmatrix_adjacency(Q, cutoff)
+  return reverse_cuthill_mckee(adjacency, weights)
+end
+
+function is_identity_permutation(permutation)
+  return all(i -> permutation[i] == i, eachindex(permutation))
+end
+
+function preprocess_qubo(Q, l, cutoff)
+  permutation = qmatrix_permutation(Q; cutoff)
+  is_identity_permutation(permutation) && return Q, l, nothing
+
+  return Q[permutation, permutation],
+         isnothing(l) ? nothing : l[permutation],
+         permutation
 end
 
 function constant(p::AbstractPolynomial{T}) where T
@@ -136,6 +236,9 @@ Keyword arguments:
 - `vtol :: Float64` - If specified, determines the variance tolerance before the algorithm stops.
   The variance test determines whether DMRG converged to an eigenstate (not necessarily the ground state),
   but is expensive to calculate.
+- `preprocess :: Bool` - If `true`, permute QUBO variables before constructing the MPS Hamiltonian
+  so coupled variables are closer in the one-dimensional tensor order. Samples are returned in the
+  caller's original variable order.
 - `noise` - A float or array of floats (per iteration) specifying the noise term added to the system to help with convergence.
   It is recommended to use a large noise (~ 1e-5) on the initial iterations and let it go to zero on later iterations.
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
@@ -170,11 +273,12 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, kwargs...) where T
-  H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
+function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, preprocess::Bool=false, kwargs...) where T
+  Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, nothing)
+  H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
 
-  return _minimize(H, c, obj; cutoff, kwargs...)
+  return _minimize(H, c, obj; cutoff, permutation, kwargs...)
 end
 
 function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
@@ -206,6 +310,7 @@ function _minimize( H :: MPO
                   # Iteration callback
                   , on_iteration :: Union{Nothing, Function} = nothing
                   , callback_every   :: Int = 1
+                  , permutation :: Union{Nothing, Vector{Int}} = nothing
                   ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
   initial_time      = time()
@@ -215,6 +320,28 @@ function _minimize( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+
+  if length(sites) == 1
+    values = (obj(Int[0]), obj(Int[1]))
+    optimal = convert(T, min(values...))
+    states = findall(e -> isapprox(e, optimal; atol=cutoff, rtol=0), values) .- 1
+    labels = length(states) == 2 ? ["full"] : string.(states)
+    psi = MPS(sites, labels)
+    elapsed_time = time() - initial_time
+    dist = Solution{T}(psi, T[optimal], Int[1], Float64[elapsed_time], permutation)
+
+    iterlog_header(verbosity)
+    iterlog_iteration(verbosity, 1, optimal, 1, zero(T), elapsed_time)
+
+    if !isnothing(on_iteration) && 1 % callback_every == 0
+      on_iteration(psi; iteration=1, objective=optimal, bond_dim=1, elapsed_time)
+    end
+
+    iterlog_footer(verbosity, optimal, elapsed_time)
+
+    return optimal, dist
+  end
+
   H     = device(H)
   psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
 
@@ -288,7 +415,7 @@ function _minimize( H :: MPO
 
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log)
+  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation)
   x    = sample(dist)
   optimal = obj(x)
   elapsed_time = time() - initial_time

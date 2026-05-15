@@ -15,6 +15,8 @@ Use [`sample`](@ref) to draw bitstrings from it.
 - `energies`: expected objective value of the problem recorded at each iteration of the solver.
 - `bond_dims`: maximum MPS bond dimension at each iteration.
 - `elapsed_times`: wall-clock time in seconds from the start of the solve at each iteration.
+- `permutation`: original variable index represented by each tensor site, or `nothing`
+  when the tensor uses the caller's variable order.
 
 The three stats vectors are parallel — `energies[i]`, `bond_dims[i]`, and `elapsed_times[i]`
 all correspond to iteration `i`.
@@ -24,6 +26,27 @@ struct Solution{T <: Real}
     energies      :: Vector{T}
     bond_dims     :: Vector{Int}
     elapsed_times :: Vector{Float64}
+    permutation   :: Union{Nothing, Vector{Int}}
+end
+
+Solution{T}(
+  tensor::MPS,
+  energies::Vector{T},
+  bond_dims::Vector{Int},
+  elapsed_times::Vector{Float64},
+) where {T <: Real} = Solution{T}(tensor, energies, bond_dims, elapsed_times, nothing)
+
+Solution(
+  tensor::MPS,
+  energies::Vector{T},
+  bond_dims::Vector{Int},
+  elapsed_times::Vector{Float64},
+) where {T <: Real} = Solution{T}(tensor, energies, bond_dims, elapsed_times)
+
+function original_order(bs, permutation)
+  x = similar(bs)
+  x[permutation] = bs
+  return x
 end
 
 # Sample from |ψ> in the {0, 1} world instead of 1-based Julia index world.
@@ -32,7 +55,10 @@ end
 
 Sample a bitstring from a (quantum) probability distribution.
 """
-sample(psi::Solution) = ITensorMPS.sample!(psi.tensor) .- 1
+function sample(psi::Solution)
+  bs = ITensorMPS.sample!(psi.tensor) .- 1
+  return isnothing(psi.permutation) ? bs : original_order(bs, psi.permutation)
+end
 
 sample(psi::Solution, n :: Integer) = [sample(psi) for _ in 1:n]
 
@@ -53,6 +79,7 @@ end
 function coeff(psi::Solution, bs)
   tn    = psi.tensor
   sites = siteinds(tn)
+  bs    = isnothing(psi.permutation) ? bs : bs[psi.permutation]
   psi0  = MPS(sites, string.(Int.(bs)))
 
   return inner(psi0,  tn)
