@@ -206,8 +206,30 @@ Ising graph, clusters it with `super_square_lattice`, constructs the Potts
 Hamiltonian, runs `MpsContractor` plus `low_energy_spectrum`, and decodes
 retained states back to TenSolver Boolean vectors.
 
-Later PRs should add QUBODrivers/JuMP raw optimizer attributes for backend and
-PEPS parameters.
+The QUBODrivers/JuMP optimizer interface can also select the backend through
+raw optimizer attributes. DMRG remains the default:
+
+```julia
+set_attribute(model, "backend", :dmrg)
+```
+
+The PEPS path is selected explicitly and requires topology metadata:
+
+```julia
+set_attribute(model, "backend", :peps)
+set_attribute(model, "peps_layout", :square)
+set_attribute(model, "peps_topology", (m, n))
+set_attribute(model, "peps_beta", 2.0)
+set_attribute(model, "peps_bond_dim", 8)
+set_attribute(model, "peps_max_states", 256)
+set_attribute(model, "peps_cutoff_prob", 0.0)
+set_attribute(model, "peps_strategy", :svd)
+```
+
+PEPS runs add namespaced data under the returned QUBOTools `SampleSet`
+metadata, including the selected backend, topology/layout, contraction/search
+parameters, candidate-state count, effective time, selected transformation, and
+largest discarded probability when available.
 
 Any PEPS selection API must validate that the problem includes enough topology
 metadata for the structured backend. If the topology is missing or unsupported,
