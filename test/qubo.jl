@@ -128,6 +128,28 @@
       @test length(unique(ids)) == 3
     end
 
+    @testset "polish respects solve time limit" begin
+      Q = [0.0 0.0; 0.0 0.0]
+      H = TenSolver.tensorize(Q, diag(Q); cutoff=1e-8)
+      called = Ref(false)
+      postprocess = (x, incumbent, remaining_time) -> begin
+        called[] = true
+        return incumbent - 1, ones(Int, 2)
+      end
+
+      TenSolver._minimize(
+        H,
+        0.0,
+        x -> dot(x, Q, x);
+        iterations=1,
+        time_limit=0.0,
+        postprocess,
+        verbosity=0,
+      )
+
+      @test !called[]
+    end
+
   end
 
   @testset "Pure quadratic" begin
@@ -187,7 +209,7 @@
     @test x0 in psi
   end
 
-  @testset "Issue #19 exact polish escapes local minima" begin
+  @testset "Issue #19 polish escapes local minima" begin
     rows = [
       1, 1, 2, 1, 2, 3, 5, 1, 2, 3, 4, 5, 6, 5, 6, 7, 9, 9, 10, 8, 9, 10, 11,
       9, 10, 11, 12, 1, 2, 4, 7, 1, 2, 3, 1, 2, 3, 4, 14, 4, 5, 6, 7, 14, 8, 9,
@@ -242,6 +264,13 @@
     @test !isnothing(polished)
     E, x = polished
     @test E ≈ 11.7099
+    @test dot(x, Q, x) + dot(l, x) + c ≈ E
+
+    Random.seed!(1)
+    E, psi = TenSolver.minimize(Q, l, c; iterations=1, polish=true, polish_time_limit=1.0, verbosity=0)
+    x = TenSolver.sample(psi)
+
+    @test E <= 11.7099 + 1e-8
     @test dot(x, Q, x) + dot(l, x) + c ≈ E
   end
 end

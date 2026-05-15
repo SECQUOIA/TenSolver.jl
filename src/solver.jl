@@ -314,8 +314,9 @@ Keyword arguments:
   The variance test determines whether DMRG converged to an eigenstate (not necessarily the ground state),
   but is expensive to calculate.
 - `polish :: Bool` - Run bounded branch-and-bound postprocessing for QUBO matrix inputs. Defaults to `true`.
-- `polish_max_variables :: Int` - Maximum number of variables eligible for exact polishing. Defaults to `36`.
-- `polish_time_limit :: Float64` - Maximum seconds spent in exact polishing. Defaults to `1.0`.
+- `polish_max_variables :: Int` - Maximum number of variables eligible for bounded polishing. Defaults to `36`.
+- `polish_time_limit :: Float64` - Maximum seconds spent in bounded polishing. Defaults to `1.0`.
+  The polish step returns the best improved incumbent found within this budget.
 - `noise` - A float or array of floats (per iteration) specifying the noise term added to the system to help with convergence.
   It is recommended to use a large noise (~ 1e-5) on the initial iterations and let it go to zero on later iterations.
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
@@ -355,14 +356,14 @@ function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing
                   polish_time_limit::Real=1.0, kwargs...) where T
   H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
-  postprocess = polish ? (x, incumbent) -> _branch_bound_qubo(
+  postprocess = polish ? (x, incumbent, remaining_time) -> _branch_bound_qubo(
     Q,
     l,
     c,
     x,
     incumbent;
     max_variables=polish_max_variables,
-    time_limit=polish_time_limit,
+    time_limit=min(polish_time_limit, remaining_time),
   ) : nothing
 
   return _minimize(H, c, obj; cutoff, postprocess, kwargs...)
@@ -508,7 +509,12 @@ function _minimize( H :: MPO
   optimal = obj(x)
 
   if !isnothing(postprocess)
-    polished = postprocess(x, optimal)
+    remaining_time = if isfinite(time_limit)
+      max(0.0, Float64(time_limit) - (time() - initial_time))
+    else
+      time_limit
+    end
+    polished = remaining_time > 0 ? postprocess(x, optimal, remaining_time) : nothing
 
     if !isnothing(polished)
       polished_optimal, polished_x = polished
