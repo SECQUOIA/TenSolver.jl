@@ -34,7 +34,7 @@ QUBODrivers.@setup Optimizer begin
     "iterations"           :: Int                             = 10
     "time_limit"           :: Float64                         = +Inf
     "maxdim"               :: Union{Int, Vector{Int}}         = [10, 20, 50, 100, 100, 200]
-    "mindim"               :: Union{Int, Vector{Int}}         = 1
+    "mindim"               :: Union{Int, Vector{Int}}         = 2
     "noise"                :: Union{Float64, Vector{Float64}} = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0]
     "eigsolve_krylovdim"   :: Int                             = 3
     "eigsolve_maxiter"     :: Int                             = 1

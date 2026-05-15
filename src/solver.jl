@@ -127,7 +127,7 @@ Keyword arguments:
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
-- `mindim` - The minimum allowed bond dimension, if possible.
+- `mindim` - The minimum allowed bond dimension, if possible. Defaults to `2`.
   Integer or array of integer specifying the bond dimension per iteration.
 - `time_limit :: Float64` - If specified, determines the maximum running time in seconds.
   It only determines whether a new iteration should start or not, thus the solver may run for longer if the threshold happens during an iteration.
@@ -198,7 +198,7 @@ function _minimize( H :: MPO
                   # DMRG keywords
                   , inidim     = 40
                   , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
-                  , mindim     = 1
+                  , mindim     = 2
                   , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
                   , eigsolve_krylovdim :: Int     = 3
                   , eigsolve_maxiter   :: Int     = 2
@@ -215,6 +215,27 @@ function _minimize( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+  # ITensor DMRG does not support one-site systems, so solve the binary case exactly.
+  if length(sites) == 1
+    candidates = ([0], [1])
+    values = map(obj, candidates)
+    optimal = min(values...)
+    winners = [candidate for (candidate, value) in zip(candidates, values) if value ≈ optimal]
+    state = length(winners) == length(candidates) ? "full" : string(only(only(winners)))
+    psi = MPS(sites, state) |> device
+    elapsed_time = time() - initial_time
+    bond_dim = max(1, ITensorMPS.maxlinkdim(psi))
+
+    iterlog_header(verbosity)
+    iterlog_iteration(verbosity, 1, optimal, bond_dim, zero(optimal), elapsed_time)
+    if !isnothing(on_iteration) && 1 % callback_every == 0
+      on_iteration(psi; iteration=1, objective=optimal, bond_dim, elapsed_time)
+    end
+    iterlog_footer(verbosity, optimal, elapsed_time)
+
+    return optimal, Solution{typeof(optimal)}(psi, [optimal], [bond_dim], [elapsed_time])
+  end
+
   H     = device(H)
   psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
 
