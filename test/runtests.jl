@@ -11,6 +11,7 @@ filepath(x) = joinpath(dirname(@__FILE__), x)
 # Exact solvers. No testset on this file
 include(filepath("utils.jl"))
 
+include(filepath("ising_conversion.jl"))
 
 #----------------------------------------------------------#
 #                         Test sets                        #
