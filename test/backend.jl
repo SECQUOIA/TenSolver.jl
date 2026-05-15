@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 struct TestSymbolBackend <: TenSolver.AbstractTenSolverBackend end
 struct MissingMethodBackend <: TenSolver.AbstractTenSolverBackend end
 
