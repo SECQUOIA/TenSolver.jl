@@ -351,6 +351,7 @@ function _minimize( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+
   if length(sites) == 1
     return _single_variable_minimize(T, sites, obj, initial_time; device, verbosity, on_iteration, callback_every)
   end
