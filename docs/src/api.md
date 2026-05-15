@@ -7,6 +7,7 @@ This page documents the public API of TenSolver.jl.
 ```@docs
 TenSolver.minimize
 TenSolver.maximize
+TenSolver.solve_ising
 ```
 
 ## Solver Backends
@@ -14,12 +15,16 @@ TenSolver.maximize
 ```@docs
 TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
+TenSolver.PEPSBackend
+TenSolver.SquareGrid
+TenSolver.KingGrid
 ```
 
 ## Solution
 
 ```@docs
 TenSolver.Solution
+TenSolver.PEPSSolution
 ```
 
 ## Sampling Functions
@@ -43,6 +48,7 @@ TenSolver.ising_energy
 
 ```@docs
 Base.in(::AbstractVector, ::TenSolver.Solution)
+Base.in(::AbstractVector, ::TenSolver.PEPSSolution)
 ```
 
 ## Internal Functions

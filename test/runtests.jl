@@ -13,6 +13,7 @@ include(filepath("utils.jl"))
 
 include(filepath("ising_conversion.jl"))
 include(filepath("backend.jl"))
+include(filepath("peps_backend.jl"))
 
 @testset "Ill-formed input" begin
   dim = 4

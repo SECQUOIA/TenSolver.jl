@@ -49,18 +49,148 @@ Select TenSolver's default ITensorMPS DMRG backend.
 """
 struct DMRGBackend <: AbstractTenSolverBackend end
 
+abstract type AbstractStructuredTopology end
+
+"""
+    SquareGrid(m, n[, spins_per_site])
+
+Structured square-grid topology for optional PEPS solves.
+
+Variables are assumed to be ordered according to SpinGlassNetworks'
+`super_square_lattice((m, n, spins_per_site))` convention.
+"""
+struct SquareGrid <: AbstractStructuredTopology
+  m :: Int
+  n :: Int
+  spins_per_site :: Int
+
+  function SquareGrid(m::Integer, n::Integer, spins_per_site::Integer=1)
+    m > 0 || throw(ArgumentError("SquareGrid requires m > 0. Got $m."))
+    n > 0 || throw(ArgumentError("SquareGrid requires n > 0. Got $n."))
+    spins_per_site > 0 || throw(ArgumentError("SquareGrid requires spins_per_site > 0. Got $spins_per_site."))
+    return new(Int(m), Int(n), Int(spins_per_site))
+  end
+end
+
+"""
+    KingGrid(m, n[, spins_per_site])
+
+Structured king-grid topology for optional PEPS solves. It uses the same
+variable ordering as [`SquareGrid`](@ref), but the PEPS compatibility graph
+also allows diagonal interactions between neighboring grid cells.
+"""
+struct KingGrid <: AbstractStructuredTopology
+  m :: Int
+  n :: Int
+  spins_per_site :: Int
+
+  function KingGrid(m::Integer, n::Integer, spins_per_site::Integer=1)
+    m > 0 || throw(ArgumentError("KingGrid requires m > 0. Got $m."))
+    n > 0 || throw(ArgumentError("KingGrid requires n > 0. Got $n."))
+    spins_per_site > 0 || throw(ArgumentError("KingGrid requires spins_per_site > 0. Got $spins_per_site."))
+    return new(Int(m), Int(n), Int(spins_per_site))
+  end
+end
+
+_topology_size(topology::AbstractStructuredTopology) = topology.m * topology.n * topology.spins_per_site
+_topology_tuple(topology::AbstractStructuredTopology) = (topology.m, topology.n, topology.spins_per_site)
+_topology_name(::SquareGrid) = "square"
+_topology_name(::KingGrid) = "king"
+
+"""
+    PEPSBackend(topology; kwargs...)
+
+Select the optional SpinGlassPEPS structured backend.
+
+The backend is implemented by the `TenSolverSpinGlassPEPSExt` package extension,
+which loads only when `SpinGlassNetworks`, `SpinGlassEngine`, and
+`SpinGlassTensors` are available. Without those packages this backend errors
+clearly and the default DMRG backend remains unchanged.
+
+The extension is experimental because the current registered SpinGlass
+component dependency stack may not resolve in the same environment as
+TenSolver's ITensors/QUBOTools stack.
+
+Supported core options are:
+
+- `topology`: a [`SquareGrid`](@ref) or [`KingGrid`](@ref).
+- `beta`: inverse temperature used by the PEPS contractor.
+- `bond_dim`: boundary MPS bond dimension.
+- `max_states`: branch-and-bound state width.
+- `cutoff_prob`: branch-and-bound probability cutoff.
+- `onGPU`: whether SpinGlassPEPS should use GPU execution.
+- `contraction`: `:auto`, `:svd`, `:svd_truncate`, or `:zipper`.
+- `transformations`: `:all`, `:identity`, a single transformation, or a
+  collection of SpinGlassEngine lattice transformations.
+"""
+struct PEPSBackend{T <: AbstractStructuredTopology, S} <: AbstractTenSolverBackend
+  topology :: T
+  beta :: Float64
+  bond_dim :: Int
+  max_states :: Int
+  cutoff_prob :: Float64
+  onGPU :: Bool
+  contraction :: Symbol
+  num_sweeps :: Int
+  graduate_truncation :: Bool
+  transformations :: S
+  local_dimension :: Union{Nothing, Int}
+  no_cache :: Bool
+end
+
+function PEPSBackend(topology::AbstractStructuredTopology;
+                     beta::Real = 2.0,
+                     bond_dim::Integer = 16,
+                     max_states::Integer = 2^8,
+                     cutoff_prob::Real = 1e-4,
+                     onGPU::Bool = false,
+                     contraction::Symbol = :auto,
+                     num_sweeps::Integer = 1,
+                     graduate_truncation::Bool = true,
+                     transformations = :all,
+                     local_dimension::Union{Nothing, Integer} = nothing,
+                     no_cache::Bool = false)
+  beta > 0 && isfinite(beta) || throw(ArgumentError("PEPSBackend requires finite beta > 0. Got $beta."))
+  bond_dim >= 1 || throw(ArgumentError("PEPSBackend requires bond_dim >= 1. Got $bond_dim."))
+  max_states >= 1 || throw(ArgumentError("PEPSBackend requires max_states >= 1. Got $max_states."))
+  cutoff_prob >= 0 || throw(ArgumentError("PEPSBackend requires cutoff_prob >= 0. Got $cutoff_prob."))
+  num_sweeps >= 1 || throw(ArgumentError("PEPSBackend requires num_sweeps >= 1. Got $num_sweeps."))
+  contraction in (:auto, :svd, :svd_truncate, :zipper) ||
+    throw(ArgumentError("Unsupported PEPS contraction $(repr(contraction)). Use :auto, :svd, :svd_truncate, or :zipper."))
+  if !isnothing(local_dimension)
+    local_dimension >= 1 || throw(ArgumentError("PEPSBackend requires local_dimension >= 1 when provided. Got $local_dimension."))
+  end
+
+  return PEPSBackend{typeof(topology), typeof(transformations)}(
+    topology,
+    Float64(beta),
+    Int(bond_dim),
+    Int(max_states),
+    Float64(cutoff_prob),
+    onGPU,
+    contraction,
+    Int(num_sweeps),
+    graduate_truncation,
+    transformations,
+    isnothing(local_dimension) ? nothing : Int(local_dimension),
+    no_cache,
+  )
+end
+
 const default_backend = DMRGBackend()
 
 _backend_error(backend) = ArgumentError("backend $(repr(backend)) is not available. Install/load the PEPS extension or use backend = :dmrg.")
+_backend_error(::PEPSBackend) = ArgumentError("PEPSBackend is not available. Install/load SpinGlassNetworks, SpinGlassEngine, and SpinGlassTensors to activate the PEPS extension, or use backend = :dmrg.")
 
 _normalize_backend(backend::DMRGBackend) = backend
+_normalize_backend(backend::PEPSBackend) = backend
 _normalize_backend(backend::AbstractTenSolverBackend) = backend
 _normalize_backend(backend::Symbol) = _normalize_backend(Val(backend))
 _normalize_backend(::Val{:dmrg}) = default_backend
 function _normalize_backend(::Val{backend}) where {backend}
   throw(_backend_error(backend))
 end
-_normalize_backend(backend) = throw(ArgumentError("Unsupported backend $(repr(backend)). Use backend = :dmrg or backend = DMRGBackend()."))
+_normalize_backend(backend) = throw(ArgumentError("Unsupported backend $(repr(backend)). Use backend = :dmrg, backend = DMRGBackend(), or backend = PEPSBackend(topology)."))
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -214,6 +344,44 @@ end
 
 function _minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
   throw(_backend_error(backend))
+end
+
+function _minimize(backend::PEPSBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); kwargs...) where T
+  return _solve_ising(backend, qubo_to_ising(Q, l, c); kwargs...)
+end
+
+function _minimize(backend::PEPSBackend, p::AbstractPolynomial; kwargs...)
+  throw(ArgumentError("PEPSBackend does not support polynomial inputs directly. Convert to a structured QUBO or call solve_ising with a supported topology."))
+end
+
+"""
+    solve_ising(model; backend = DMRGBackend(), kwargs...)
+    solve_ising(J, h[, offset]; backend = DMRGBackend(), kwargs...)
+
+Solve an Ising model with spins `s_i in {-1, +1}`.
+
+The returned solution still samples TenSolver Boolean vectors using
+`x_i = (s_i + 1) / 2`. The default DMRG path converts the Ising model back to a
+QUBO and calls [`minimize`](@ref). Optional structured backends, such as
+[`PEPSBackend`](@ref), implement this boundary directly.
+"""
+function solve_ising end
+
+function solve_ising(model::IsingModel; backend=default_backend, kwargs...)
+  return _solve_ising(_normalize_backend(backend), model; kwargs...)
+end
+
+function solve_ising(J::AbstractMatrix, h::AbstractVector, offset::Real=0; backend=default_backend, kwargs...)
+  return solve_ising(IsingModel(J, h, offset); backend, kwargs...)
+end
+
+function _solve_ising(backend::AbstractTenSolverBackend, model::IsingModel; kwargs...)
+  throw(_backend_error(backend))
+end
+
+function _solve_ising(::DMRGBackend, model::IsingModel; kwargs...)
+  qubo = ising_to_qubo(model)
+  return _minimize(default_backend, qubo.Q, qubo.l, qubo.c; kwargs...)
 end
 
 function _minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); cutoff=1e-8, kwargs...) where T
