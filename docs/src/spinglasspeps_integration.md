@@ -173,15 +173,18 @@ The first bridge should preserve at least:
 
 The default backend must remain the current DMRG implementation.
 
-Later PRs should add a small backend-selection interface without forcing users
-to learn the SpinGlassPEPS API. The intended behavior is:
+TenSolver exposes a small backend-selection interface without forcing users to
+learn the SpinGlassPEPS API. The current behavior is:
 
 - no backend argument means current DMRG behavior;
 - `backend = :dmrg` selects the current path explicitly;
-- `backend = :peps` selects the optional structured backend and errors clearly
-  if the bridge package or extension is not loaded; and
-- QUBODrivers/JuMP receives equivalent raw optimizer attributes for backend and
-  PEPS parameters.
+- `backend = DMRGBackend()` selects the current path explicitly through the
+  backend-object interface; and
+- `backend = :peps` errors clearly until a later optional bridge package or
+  extension provides the structured backend.
+
+Later PRs should add QUBODrivers/JuMP raw optimizer attributes for backend and
+PEPS parameters.
 
 Any PEPS selection API must validate that the problem includes enough topology
 metadata for the structured backend. If the topology is missing or unsupported,

@@ -9,6 +9,13 @@ TenSolver.minimize
 TenSolver.maximize
 ```
 
+## Solver Backends
+
+```@docs
+TenSolver.AbstractTenSolverBackend
+TenSolver.DMRGBackend
+```
+
 ## Solution
 
 ```@docs
