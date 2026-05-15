@@ -96,6 +96,14 @@
       @test TenSolver.sample(psi) == [0, 0]
     end
 
+    @testset "One variable" begin
+      E, psi = minimize(reshape([2.0], 1, 1), [-3.0]; verbosity=0)
+
+      @test E ≈ -1.0
+      @test TenSolver.sample(psi) == [1]
+      @test [1] in psi
+    end
+
     @testset "Max: Identity" begin
       E, psi = maximize([1.0 0.0; 0.0 1.0])
 
