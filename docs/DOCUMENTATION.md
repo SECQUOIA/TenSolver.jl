@@ -8,7 +8,8 @@ The documentation is built using [Documenter.jl](https://github.com/JuliaDocs/Do
 
 - **Home** (`docs/src/index.md`): Overview, installation, quick start, and features
 - **Examples** (`docs/src/examples.md`): Practical examples showing how to use TenSolver.jl
-- **SpinGlassPEPS Integration** (`docs/src/spinglasspeps_integration.md`): Planned architecture for the optional structured PEPS backend
+- **PEPS Backend** (`docs/src/peps_backend.md`): User guide for the optional structured PEPS backend, examples, limitations, and benchmark scripts
+- **SpinGlassPEPS Integration** (`docs/src/spinglasspeps_integration.md`): Architecture notes for the optional structured PEPS backend
 - **API Reference** (`docs/src/api.md`): Complete API documentation with docstrings
 
 ## Building Documentation Locally

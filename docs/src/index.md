@@ -4,7 +4,13 @@ Tensor Network-based solver for **Q**uadratic **U**nconstrained **B**inary **O**
 
 ## Overview
 
-TenSolver.jl provides an efficient solver for QUBO problems using tensor network methods, specifically leveraging the Density Matrix Renormalization Group (DMRG) algorithm. The package is particularly useful for:
+TenSolver.jl provides tensor network solvers for QUBO problems. The default
+backend uses the Density Matrix Renormalization Group (DMRG) algorithm for
+general QUBO/PUBO inputs. An optional experimental PEPS backend is available for
+structured quasi-two-dimensional Ising/QUBO layouts when the SpinGlassPEPS
+component packages are installed.
+
+The package is particularly useful for:
 
 - Solving large-scale binary optimization problems
 - Finding approximate solutions to NP-hard problems
@@ -59,6 +65,7 @@ x = TenSolver.sample(psi)
 ## Features
 
 - **Tensor Network Optimization**: Uses advanced tensor network methods (DMRG) for efficient optimization
+- **Optional Structured PEPS Backend**: Exposes an experimental SpinGlassPEPS-based path for square and king-grid instances
 - **Probability Distribution**: Returns a probability distribution over optimal solutions
 - **JuMP Integration**: Works seamlessly with the JuMP modeling language
 - **GPU Support**: Supports GPU acceleration via CUDA.jl, Metal.jl, and other accelerators
@@ -67,6 +74,6 @@ x = TenSolver.sample(psi)
 ## Contents
 
 ```@contents
-Pages = ["examples.md", "spinglasspeps_integration.md", "api.md"]
+Pages = ["examples.md", "peps_backend.md", "spinglasspeps_integration.md", "api.md"]
 Depth = 2
 ```

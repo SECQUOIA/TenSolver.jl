@@ -42,5 +42,8 @@ include(filepath("cases/vrp.jl"))
 # HDF5 snapshot callback
 include(filepath("hdf5.jl"))
 
+# Benchmark helper smoke tests
+include(filepath("benchmarks.jl"))
+
 # Documentation tests
 include(filepath("doctests.jl"))
