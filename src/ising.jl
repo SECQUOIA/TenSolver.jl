@@ -1,4 +1,33 @@
-import SparseArrays: SparseMatrixCSC, findnz, sparse, dropzeros!
+import SparseArrays: findnz, sparse, dropzeros!
+
+function canonical_ising_couplings(J::AbstractMatrix, ::Type{T}) where {T}
+  couplings = Dict{Tuple{Int, Int}, T}()
+  rows, cols, vals = findnz(sparse(T.(J)))
+
+  for k in eachindex(vals)
+    i = rows[k]
+    j = cols[k]
+    i == j && continue
+
+    a, b = minmax(i, j)
+    key = (a, b)
+    couplings[key] = get(couplings, key, zero(T)) + vals[k]
+  end
+
+  out_rows = Int[]
+  out_cols = Int[]
+  out_vals = T[]
+  for (i, j) in sort!(collect(keys(couplings)))
+    coupling = couplings[(i, j)]
+    if !iszero(coupling)
+      push!(out_rows, i)
+      push!(out_cols, j)
+      push!(out_vals, coupling)
+    end
+  end
+
+  return sparse(out_rows, out_cols, out_vals, size(J, 1), size(J, 2))
+end
 
 function conversion_type(Q::AbstractMatrix, l, c)
   T = promote_type(eltype(Q), isnothing(l) ? eltype(Q) : eltype(l), typeof(c))
