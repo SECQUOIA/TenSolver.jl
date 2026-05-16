@@ -127,6 +127,14 @@ tests for small instances. The implementation should make sign and constant
 offset conventions visible because mistakes there can silently return plausible
 but wrong energies.
 
+TenSolver uses the Boolean/spin convention `x_i = (s_i + 1) / 2` and
+`s_i = 2x_i - 1`. The conversion utilities preserve TenSolver's current QUBO
+truth objective, `dot(x, Q, x) + dot(l, x) + c`; for non-symmetric matrices the
+effective pair coefficient is therefore `Q[i, j] + Q[j, i]`. The Ising model
+stores one coupling per unordered pair plus an explicit constant offset, so
+`ising_energy(qubo_to_ising(Q, l, c), bool_to_spin(x))` matches the Boolean
+objective for every bitstring `x`.
+
 Layout metadata should also be explicit. A PEPS backend call should know whether
 the variables are in row-major square-grid order, king-grid order, or a later
 Pegasus/Zephyr indexing convention. TenSolver should not guess a topology from a
