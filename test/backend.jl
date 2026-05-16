@@ -1,3 +1,10 @@
+struct TestSymbolBackend <: TenSolver.AbstractTenSolverBackend end
+
+TenSolver._normalize_backend(::Val{:test_symbol_backend}) = TestSymbolBackend()
+function TenSolver._minimize(::TestSymbolBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); kwargs...) where {T}
+  return T(42), (; Q, l, c, kwargs)
+end
+
 @testset "Backend interface" begin
   @testset "DMRG is the default backend" begin
     Q = reshape([-2.0], 1, 1)
@@ -20,6 +27,18 @@
 
     @test E ≈ 2.0
     @test TenSolver.sample(psi) == [1]
+  end
+
+  @testset "Symbol backends can be provided by extensions" begin
+    Q = reshape([1.0], 1, 1)
+    E, payload = minimize(Q; backend=:test_symbol_backend, verbosity=0)
+
+    @test E == 42.0
+    @test payload.Q === Q
+    @test isnothing(payload.l)
+    @test payload.c == 0.0
+    @test payload.kwargs[:cutoff] == 1e-8
+    @test payload.kwargs[:verbosity] == 0
   end
 
   @testset "Unavailable backends error clearly" begin
