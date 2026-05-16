@@ -100,6 +100,45 @@ using SparseArrays
     assert_conversion(Q, l, 7 // 3)
   end
 
+  @testset "IsingModel canonicalizes unordered couplings" begin
+    function assert_model_roundtrip(J, h=zeros(eltype(J), size(J, 1)), offset=zero(eltype(J)), expected=J)
+      model = TenSolver.IsingModel(J, h, offset)
+      qubo = TenSolver.ising_to_qubo(model)
+      xs = bitstrings(size(J, 1))
+
+      rows, cols, _ = findnz(model.J)
+      @test all(rows[i] < cols[i] for i in eachindex(rows))
+      @test Matrix(model.J) == expected
+
+      for x in xs
+        spin = TenSolver.bool_to_spin(x)
+        @test TenSolver.ising_energy(model, spin) == qubo_value(qubo.Q, qubo.l, qubo.c, x)
+      end
+    end
+
+    assert_model_roundtrip(
+      [0 0; 2 0],
+      zeros(Int, 2),
+      0,
+      [0 2; 0 0],
+    )
+    assert_model_roundtrip(
+      [0 2; 2 0],
+      [1, -1],
+      3,
+      [0 4; 0 0],
+    )
+    assert_model_roundtrip(
+      [5 3; -3 7],
+      zeros(Int, 2),
+      0,
+      [0 0; 0 0],
+    )
+
+    lower = TenSolver.IsingModel([0 0; 2 0], zeros(Int, 2))
+    @test TenSolver.ising_energy(lower, [1, 1]) == 2
+  end
+
   @testset "Input validation" begin
     @test_throws DimensionMismatch TenSolver.qubo_to_ising(ones(2, 3))
     @test_throws DimensionMismatch TenSolver.qubo_to_ising(ones(2, 2), ones(3))

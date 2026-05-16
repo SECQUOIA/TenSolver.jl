@@ -13,8 +13,10 @@ sum(J[i, j] * s[i] * s[j] for i < j)
 ```
 
 `J` stores one coupling per unordered pair, conventionally in the upper
-triangle, and the diagonal is ignored. This convention avoids double-counting
-pair terms and matches the output of [`qubo_to_ising`](@ref).
+triangle, and the diagonal is ignored. The public constructor canonicalizes an
+input matrix by storing `J[i, j] + J[j, i]` in the upper triangle for each
+unordered pair. This convention avoids double-counting pair terms and matches
+the output of [`qubo_to_ising`](@ref).
 """
 struct IsingModel{T <: Real}
     J      :: SparseMatrixCSC{T, Int}
@@ -27,7 +29,36 @@ function IsingModel(J::AbstractMatrix{<:Real}, h::AbstractVector{<:Real}, offset
   size(J, 1) == length(h) || throw(DimensionMismatch("The Ising field vector length must match the coupling matrix size. Encountered dimensions $(size(J)) and length $(length(h))."))
 
   T = promote_type(eltype(J), eltype(h), typeof(offset))
-  return IsingModel{T}(sparse(T.(J)), collect(T, h), T(offset))
+  return IsingModel{T}(_canonical_ising_couplings(J, T), collect(T, h), T(offset))
+end
+
+function _canonical_ising_couplings(J::AbstractMatrix, ::Type{T}) where {T}
+  couplings = Dict{Tuple{Int, Int}, T}()
+  rows, cols, vals = findnz(sparse(T.(J)))
+
+  for k in eachindex(vals)
+    i = rows[k]
+    j = cols[k]
+    i == j && continue
+
+    a, b = minmax(i, j)
+    key = (a, b)
+    couplings[key] = get(couplings, key, zero(T)) + vals[k]
+  end
+
+  out_rows = Int[]
+  out_cols = Int[]
+  out_vals = T[]
+  for (i, j) in sort!(collect(keys(couplings)))
+    coupling = couplings[(i, j)]
+    if !iszero(coupling)
+      push!(out_rows, i)
+      push!(out_cols, j)
+      push!(out_vals, coupling)
+    end
+  end
+
+  return sparse(out_rows, out_cols, out_vals, size(J, 1), size(J, 2))
 end
 
 function _conversion_type(Q::AbstractMatrix, l, c)
