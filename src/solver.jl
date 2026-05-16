@@ -51,8 +51,9 @@ _backend_error(backend) = ArgumentError("backend $(repr(backend)) is not availab
 
 _normalize_backend(backend::DMRGBackend) = backend
 _normalize_backend(backend::AbstractTenSolverBackend) = backend
-function _normalize_backend(backend::Symbol)
-  backend === :dmrg && return default_backend
+_normalize_backend(backend::Symbol) = _normalize_backend(Val(backend))
+_normalize_backend(::Val{:dmrg}) = default_backend
+function _normalize_backend(::Val{backend}) where {backend}
   throw(_backend_error(backend))
 end
 _normalize_backend(backend) = throw(ArgumentError("Unsupported backend $(repr(backend)). Use backend = :dmrg or backend = DMRGBackend()."))
