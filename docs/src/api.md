@@ -7,6 +7,7 @@ This page documents the public API of TenSolver.jl.
 ```@docs
 TenSolver.minimize
 TenSolver.maximize
+TenSolver.solve_ising
 ```
 
 ## Solver Backends

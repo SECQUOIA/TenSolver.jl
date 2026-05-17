@@ -180,8 +180,31 @@ learn the SpinGlassPEPS API. The current behavior is:
 - `backend = :dmrg` selects the current path explicitly;
 - `backend = DMRGBackend()` selects the current path explicitly through the
   backend-object interface; and
-- `backend = :peps` errors clearly until a later optional bridge package or
-  extension provides the structured backend.
+- unavailable backend symbols error clearly without changing default DMRG
+  behavior.
+
+This stack step keeps the direct PEPS path as non-public scaffolding. The core
+package contains internal backend, topology, and result boundaries, while the
+exported `solve_ising` function is the public Ising boundary that optional
+structured backends may implement. `TenSolverSpinGlassPEPSExt` owns the
+SpinGlass component imports and calls. This keeps ordinary TenSolver installs
+on the existing dependency footprint and avoids documenting an activation path
+that cannot be tested from registered packages.
+
+The extension remains gated while the upstream dependency stack settles. In
+local checks against SpinGlassNetworks 1.4, SpinGlassEngine 1.6, and
+SpinGlassTensors 1.3, the current registered component compat bounds do not
+resolve with TenSolver's ITensors/QUBOTools environment. The source bridge and
+gated tests are kept in this stack step so the TenSolver boundary is concrete,
+but the PEPS backend types are not exported or listed in the public API until
+CI can exercise the SpinGlass component stack.
+
+The initial internal structured topology scaffolding covers one-spin-per-site
+and multi-spin-per-site square/king grids. QUBO inputs are converted through
+[`qubo_to_ising`](@ref) before the PEPS extension builds a SpinGlassNetworks
+Ising graph, clusters it with `super_square_lattice`, constructs the Potts
+Hamiltonian, runs `MpsContractor` plus `low_energy_spectrum`, and decodes
+retained states back to TenSolver Boolean vectors.
 
 Later PRs should add QUBODrivers/JuMP raw optimizer attributes for backend and
 PEPS parameters.
