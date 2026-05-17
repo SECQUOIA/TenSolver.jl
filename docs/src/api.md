@@ -15,16 +15,12 @@ TenSolver.solve_ising
 ```@docs
 TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
-TenSolver.PEPSBackend
-TenSolver.SquareGrid
-TenSolver.KingGrid
 ```
 
 ## Solution
 
 ```@docs
 TenSolver.Solution
-TenSolver.PEPSSolution
 ```
 
 ## Sampling Functions
@@ -48,7 +44,6 @@ TenSolver.ising_energy
 
 ```@docs
 Base.in(::AbstractVector, ::TenSolver.Solution)
-Base.in(::AbstractVector, ::TenSolver.PEPSSolution)
 ```
 
 ## Internal Functions

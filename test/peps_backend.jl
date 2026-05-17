@@ -1,13 +1,18 @@
 @testset "PEPS backend core" begin
-  @test SquareGrid(2, 3).m == 2
-  @test SquareGrid(2, 3).n == 3
-  @test SquareGrid(2, 3).spins_per_site == 1
-  @test KingGrid(2, 3, 2).spins_per_site == 2
-  @test_throws ArgumentError SquareGrid(0, 1)
-  @test_throws ArgumentError KingGrid(1, 0)
+  @test !(:PEPSBackend in names(TenSolver))
+  @test !(:SquareGrid in names(TenSolver))
+  @test !(:KingGrid in names(TenSolver))
+  @test !(:PEPSSolution in names(TenSolver))
 
-  backend = PEPSBackend(
-    SquareGrid(1, 1);
+  @test TenSolver.SquareGrid(2, 3).m == 2
+  @test TenSolver.SquareGrid(2, 3).n == 3
+  @test TenSolver.SquareGrid(2, 3).spins_per_site == 1
+  @test TenSolver.KingGrid(2, 3, 2).spins_per_site == 2
+  @test_throws ArgumentError TenSolver.SquareGrid(0, 1)
+  @test_throws ArgumentError TenSolver.KingGrid(1, 0)
+
+  backend = TenSolver.PEPSBackend(
+    TenSolver.SquareGrid(1, 1);
     beta = 1.5,
     bond_dim = 4,
     max_states = 2,
@@ -17,16 +22,16 @@
     transformations = :identity,
   )
 
-  @test backend.topology == SquareGrid(1, 1)
+  @test backend.topology == TenSolver.SquareGrid(1, 1)
   @test backend.beta == 1.5
   @test backend.bond_dim == 4
   @test backend.max_states == 2
   @test backend.cutoff_prob == 0.0
   @test backend.contraction == :svd
-  @test_throws ArgumentError PEPSBackend(SquareGrid(1, 1); beta = 0)
-  @test_throws ArgumentError PEPSBackend(SquareGrid(1, 1); bond_dim = 0)
-  @test_throws ArgumentError PEPSBackend(SquareGrid(1, 1); max_states = 0)
-  @test_throws ArgumentError PEPSBackend(SquareGrid(1, 1); contraction = :unknown)
+  @test_throws ArgumentError TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1); beta = 0)
+  @test_throws ArgumentError TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1); bond_dim = 0)
+  @test_throws ArgumentError TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1); max_states = 0)
+  @test_throws ArgumentError TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1); contraction = :unknown)
 
   Q = reshape([-1.0], 1, 1)
   peps_error = try
@@ -43,18 +48,41 @@
   @test energy ≈ -1.0
   @test sample(solution) == [1]
 
-  peps_solution = PEPSSolution{Float64}(
+  peps_solution = TenSolver.PEPSSolution{Float64}(
     [[1, 0], [0, 1]],
     [-2.0, -1.0],
-    [0.75, 0.25],
+    [0.0, 1.0],
     Dict{String, Any}("backend" => "SpinGlassPEPS"),
     nothing,
   )
-  @test sample(peps_solution) == [1, 0]
-  @test sample(peps_solution, 2) == [[1, 0], [1, 0]]
-  @test [1, 0] in peps_solution
+  @test sample(peps_solution) == [0, 1]
+  @test sample(peps_solution, 2) == [[0, 1], [0, 1]]
+  @test [0, 1] in peps_solution
+  @test !([1, 0] in peps_solution)
   @test !([0, 0] in peps_solution)
-  @test TenSolver.prob(peps_solution, [0, 1]) ≈ 0.25
+  @test TenSolver.prob(peps_solution, [0, 1]) ≈ 1.0
+
+  @test_throws ArgumentError sample(TenSolver.PEPSSolution{Float64}(
+    [[1, 0], [0, 1]],
+    [-2.0, -1.0],
+    [1.0],
+    Dict{String, Any}(),
+    nothing,
+  ))
+  @test_throws ArgumentError sample(TenSolver.PEPSSolution{Float64}(
+    [[1, 0], [0, 1]],
+    [-2.0, -1.0],
+    [1.0, -0.5],
+    Dict{String, Any}(),
+    nothing,
+  ))
+  @test_throws ArgumentError sample(TenSolver.PEPSSolution{Float64}(
+    [[1, 0], [0, 1]],
+    [-2.0, -1.0],
+    [0.0, 0.0],
+    Dict{String, Any}(),
+    nothing,
+  ))
 end
 
 @testset "Optional SpinGlassPEPS extension" begin
@@ -71,8 +99,8 @@ end
     import SpinGlassEngine
     import SpinGlassTensors
 
-    backend = PEPSBackend(
-      SquareGrid(2, 2);
+    backend = TenSolver.PEPSBackend(
+      TenSolver.SquareGrid(2, 2);
       beta = 2.0,
       bond_dim = 4,
       max_states = 4,

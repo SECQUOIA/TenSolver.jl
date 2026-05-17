@@ -26,15 +26,13 @@ struct Solution{T <: Real}
     elapsed_times :: Vector{Float64}
 end
 
-"""
-    PEPSSolution
-
-Result returned by the optional SpinGlassPEPS backend.
-
-The states are decoded to TenSolver Boolean vectors, and `energies` are
-objective values in the original TenSolver convention. Backend-specific
-diagnostics live in `metadata` and the raw extension result is stored in `raw`.
-"""
+# Internal result scaffold for the optional SpinGlassPEPS extension.
+#
+# This type is not exported while the optional SpinGlassPEPS component stack is
+# not covered by CI. The states are decoded to TenSolver Boolean vectors, and
+# `energies` are objective values in the original TenSolver convention.
+# Backend-specific diagnostics live in `metadata` and the raw extension result
+# is stored in `raw`.
 struct PEPSSolution{T <: Real}
     states        :: Vector{Vector{Int}}
     energies      :: Vector{T}
@@ -55,8 +53,27 @@ sample(psi::Solution, n :: Integer) = [sample(psi) for _ in 1:n]
 
 function sample(psi::PEPSSolution)
   isempty(psi.states) && throw(ArgumentError("Cannot sample an empty PEPS solution."))
-  idx = isempty(psi.probabilities) ? firstindex(psi.states) : argmax(psi.probabilities)
-  return copy(psi.states[idx])
+  if isempty(psi.probabilities)
+    return copy(first(psi.states))
+  end
+  length(psi.probabilities) == length(psi.states) ||
+    throw(ArgumentError("PEPS solution probabilities must match the number of retained states."))
+  any(probability -> probability < 0, psi.probabilities) &&
+    throw(ArgumentError("PEPS solution probabilities must be nonnegative."))
+
+  total = sum(psi.probabilities)
+  total > 0 || throw(ArgumentError("PEPS solution probabilities must have positive total weight."))
+
+  threshold = rand() * total
+  cumulative = zero(total)
+  for (state, probability) in zip(psi.states, psi.probabilities)
+    cumulative += probability
+    if threshold <= cumulative
+      return copy(state)
+    end
+  end
+
+  return copy(last(psi.states))
 end
 
 sample(psi::PEPSSolution, n :: Integer) = [sample(psi) for _ in 1:n]
@@ -71,11 +88,7 @@ function Base.in(bs::AbstractVector, psi::Solution; cutoff = 1e-8)
   return prob(psi, bs) > cutoff
 end
 
-"""
-    in(xs, psi::PEPSSolution [; cutoff])
-
-Whether `xs` is one of the decoded Boolean states retained by the PEPS backend.
-"""
+# Whether `xs` is one of the decoded Boolean states retained by the PEPS backend.
 function Base.in(bs::AbstractVector, psi::PEPSSolution; cutoff = 1e-8)
   return prob(psi, bs) > cutoff
 end

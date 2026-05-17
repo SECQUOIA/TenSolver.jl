@@ -51,14 +51,10 @@ struct DMRGBackend <: AbstractTenSolverBackend end
 
 abstract type AbstractStructuredTopology end
 
-"""
-    SquareGrid(m, n[, spins_per_site])
-
-Structured square-grid topology for optional PEPS solves.
-
-Variables are assumed to be ordered according to SpinGlassNetworks'
-`super_square_lattice((m, n, spins_per_site))` convention.
-"""
+# Structured square-grid topology for optional PEPS solves.
+#
+# Variables are assumed to be ordered according to SpinGlassNetworks'
+# `super_square_lattice((m, n, spins_per_site))` convention.
 struct SquareGrid <: AbstractStructuredTopology
   m :: Int
   n :: Int
@@ -72,13 +68,9 @@ struct SquareGrid <: AbstractStructuredTopology
   end
 end
 
-"""
-    KingGrid(m, n[, spins_per_site])
-
-Structured king-grid topology for optional PEPS solves. It uses the same
-variable ordering as [`SquareGrid`](@ref), but the PEPS compatibility graph
-also allows diagonal interactions between neighboring grid cells.
-"""
+# Structured king-grid topology for optional PEPS solves. It uses the same
+# variable ordering as `SquareGrid`, but the PEPS compatibility graph also
+# allows diagonal interactions between neighboring grid cells.
 struct KingGrid <: AbstractStructuredTopology
   m :: Int
   n :: Int
@@ -97,32 +89,16 @@ _topology_tuple(topology::AbstractStructuredTopology) = (topology.m, topology.n,
 _topology_name(::SquareGrid) = "square"
 _topology_name(::KingGrid) = "king"
 
-"""
-    PEPSBackend(topology; kwargs...)
-
-Select the optional SpinGlassPEPS structured backend.
-
-The backend is implemented by the `TenSolverSpinGlassPEPSExt` package extension,
-which loads only when `SpinGlassNetworks`, `SpinGlassEngine`, and
-`SpinGlassTensors` are available. Without those packages this backend errors
-clearly and the default DMRG backend remains unchanged.
-
-The extension is experimental because the current registered SpinGlass
-component dependency stack may not resolve in the same environment as
-TenSolver's ITensors/QUBOTools stack.
-
-Supported core options are:
-
-- `topology`: a [`SquareGrid`](@ref) or [`KingGrid`](@ref).
-- `beta`: inverse temperature used by the PEPS contractor.
-- `bond_dim`: boundary MPS bond dimension.
-- `max_states`: branch-and-bound state width.
-- `cutoff_prob`: branch-and-bound probability cutoff.
-- `onGPU`: whether SpinGlassPEPS should use GPU execution.
-- `contraction`: `:auto`, `:svd`, `:svd_truncate`, or `:zipper`.
-- `transformations`: `:all`, `:identity`, a single transformation, or a
-  collection of SpinGlassEngine lattice transformations.
-"""
+# Internal scaffold for the optional SpinGlassPEPS structured backend.
+#
+# The backend is implemented by the `TenSolverSpinGlassPEPSExt` package
+# extension, which loads only when `SpinGlassNetworks`, `SpinGlassEngine`, and
+# `SpinGlassTensors` are available. Without those packages this backend errors
+# clearly and the default DMRG backend remains unchanged.
+#
+# This constructor is intentionally not exported while the current registered
+# SpinGlass component dependency stack does not resolve in the same environment
+# as TenSolver's ITensors/QUBOTools stack and CI cannot exercise the extension.
 struct PEPSBackend{T <: AbstractStructuredTopology, S} <: AbstractTenSolverBackend
   topology :: T
   beta :: Float64
@@ -190,7 +166,7 @@ _normalize_backend(::Val{:dmrg}) = default_backend
 function _normalize_backend(::Val{backend}) where {backend}
   throw(_backend_error(backend))
 end
-_normalize_backend(backend) = throw(ArgumentError("Unsupported backend $(repr(backend)). Use backend = :dmrg, backend = DMRGBackend(), or backend = PEPSBackend(topology)."))
+_normalize_backend(backend) = throw(ArgumentError("Unsupported backend $(repr(backend)). Use backend = :dmrg or backend = DMRGBackend()."))
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -362,8 +338,8 @@ Solve an Ising model with spins `s_i in {-1, +1}`.
 
 The returned solution still samples TenSolver Boolean vectors using
 `x_i = (s_i + 1) / 2`. The default DMRG path converts the Ising model back to a
-QUBO and calls [`minimize`](@ref). Optional structured backends, such as
-[`PEPSBackend`](@ref), implement this boundary directly.
+QUBO and calls [`minimize`](@ref). Optional structured backends can implement
+this boundary directly.
 """
 function solve_ising end
 
