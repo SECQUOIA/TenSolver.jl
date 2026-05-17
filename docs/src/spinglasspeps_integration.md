@@ -184,11 +184,12 @@ learn the SpinGlassPEPS API. The current behavior is:
   behavior.
 
 This stack step keeps the direct PEPS path as non-public scaffolding. The core
-package contains internal backend, topology, `solve_ising`, and result
-boundaries, while `TenSolverSpinGlassPEPSExt` owns the SpinGlass component
-imports and calls. This keeps ordinary TenSolver installs on the existing
-dependency footprint and avoids documenting an activation path that cannot be
-tested from registered packages.
+package contains internal backend, topology, and result boundaries, while the
+exported `solve_ising` function is the public Ising boundary that optional
+structured backends may implement. `TenSolverSpinGlassPEPSExt` owns the
+SpinGlass component imports and calls. This keeps ordinary TenSolver installs
+on the existing dependency footprint and avoids documenting an activation path
+that cannot be tested from registered packages.
 
 The extension remains gated while the upstream dependency stack settles. In
 local checks against SpinGlassNetworks 1.4, SpinGlassEngine 1.6, and
