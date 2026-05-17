@@ -23,7 +23,6 @@ TenSolver.PEPSBackend
 
 ```@docs
 TenSolver.Solution
-TenSolver.PEPSSolution
 ```
 
 ## Sampling Functions
@@ -57,7 +56,6 @@ TenSolver.constraint_sites
 
 ```@docs
 Base.in(::AbstractVector, ::TenSolver.Solution)
-Base.in(::AbstractVector, ::TenSolver.PEPSSolution)
 ```
 
 ## Internal Functions

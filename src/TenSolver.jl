@@ -21,14 +21,14 @@ include("projection_mpo.jl")
 
 include("solution.jl")
 export sample
-export Solution, PEPSSolution
+export Solution
 
 include("ising.jl")
 export IsingModel, bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo, ising_energy
 
 include("solver.jl")
 export minimize, maximize, solve_ising
-export AbstractTenSolverBackend, DMRGBackend, PEPSBackend, SquareGrid, KingGrid
+export AbstractTenSolverBackend, DMRGBackend
 
 # Convergence logging
 include("log.jl")
