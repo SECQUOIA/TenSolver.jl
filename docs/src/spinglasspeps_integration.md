@@ -1,10 +1,10 @@
 # SpinGlassPEPS Integration Architecture
 
-This page records the planned boundary between TenSolver.jl and the
-SpinGlassPEPS.jl work described in
+This page records the boundary between TenSolver.jl and the SpinGlassPEPS.jl
+work described in
 [arXiv:2411.16431](https://arxiv.org/abs/2411.16431). It is a design note for
-the implementation stack, not a description of behavior available in the
-current TenSolver release.
+the implementation stack. For user-facing PEPS installation, examples,
+limitations, and benchmark scripts, see [PEPS Backend](@ref).
 
 The central decision is that SpinGlassPEPS should be integrated as an optional
 structured-graph backend. It should not replace TenSolver's current
@@ -240,7 +240,7 @@ install/load the optional PEPS bridge.
 
 ## Stacked PR Plan
 
-The integration should be implemented as a sequence of stacked PRs:
+The integration was organized as a sequence of stacked PRs:
 
 1. Add this design document and link it from the documentation navigation.
 2. Add QUBO/Ising conversion utilities with exact energy-preservation tests.

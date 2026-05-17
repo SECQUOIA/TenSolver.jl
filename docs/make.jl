@@ -14,6 +14,7 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Examples" => "examples.md",
+        "PEPS Backend" => "peps_backend.md",
         "SpinGlassPEPS Integration" => "spinglasspeps_integration.md",
         "API Reference" => "api.md",
     ],

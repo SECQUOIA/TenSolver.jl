@@ -146,7 +146,8 @@ selected = assets[findall(>(0.5), value.(x))]
 The optional SpinGlassPEPS backend is selected explicitly and requires
 structured topology metadata. It is experimental and intended for structured
 quasi-two-dimensional QUBOs; arbitrary dense QUBOs should remain on the default
-DMRG backend.
+DMRG backend. See [PEPS Backend](@ref) for installation notes, direct API usage,
+metadata fields, limitations, and benchmark scripts.
 
 ```julia
 using JuMP, TenSolver
