@@ -32,6 +32,36 @@ maybe(f::Function, mx; default=nothing) = f(mx)
 expectation(H, x) = inner(x', H, x)
 variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
 
+"""
+    AbstractTenSolverBackend
+
+Abstract solver backend marker for TenSolver implementations.
+
+The default implementation is [`DMRGBackend`](@ref). Other backends must provide
+backend-specific methods for the normalized optimization inputs they support.
+"""
+abstract type AbstractTenSolverBackend end
+
+"""
+    DMRGBackend()
+
+Select TenSolver's default ITensorMPS DMRG backend.
+"""
+struct DMRGBackend <: AbstractTenSolverBackend end
+
+const default_backend = DMRGBackend()
+
+_backend_error(backend) = ArgumentError("backend $(repr(backend)) is not available. Install/load the PEPS extension or use backend = :dmrg.")
+
+_normalize_backend(backend::DMRGBackend) = backend
+_normalize_backend(backend::AbstractTenSolverBackend) = backend
+_normalize_backend(backend::Symbol) = _normalize_backend(Val(backend))
+_normalize_backend(::Val{:dmrg}) = default_backend
+function _normalize_backend(::Val{backend}) where {backend}
+  throw(_backend_error(backend))
+end
+_normalize_backend(backend) = throw(ArgumentError("Unsupported backend $(repr(backend)). Use backend = :dmrg or backend = DMRGBackend()."))
+
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
 # This looks like type piracy,
@@ -148,6 +178,10 @@ Keyword arguments:
   `psi` is the MPS for that iteration.
   Default: `nothing` (no callback).
 - `callback_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
+- `backend` - Solver backend. Defaults to the current DMRG implementation.
+  Use `backend = :dmrg` or `backend = DMRGBackend()` to select it explicitly.
+  Other backends are reserved for optional extensions and error clearly when
+  unavailable.
 
 The returned `Solution` carries per-iteration stats in `.energies`, `.bond_dims`, and `.elapsed_times`.
 
@@ -170,18 +204,30 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, kwargs...) where T
+function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); backend=default_backend, cutoff=1e-8, kwargs...) where T
+  return _minimize(_normalize_backend(backend), Q, l, c; cutoff, kwargs...)
+end
+
+function minimize(p::AbstractPolynomial{T}; backend=default_backend, cutoff=1e-8, kwargs...) where T
+  return _minimize(_normalize_backend(backend), p; cutoff, kwargs...)
+end
+
+function _minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
+  throw(_backend_error(backend))
+end
+
+function _minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); cutoff=1e-8, kwargs...) where T
   H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
 
-  return _minimize(H, c, obj; cutoff, kwargs...)
+  return _minimize_mpo(H, c, obj; cutoff, kwargs...)
 end
 
-function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
+function _minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
   H   = tensorize(p)
   cte = constant(p)
   vs = variables(p)
-  return _minimize(H, cte, a -> p(vs => a); cutoff, kwargs...)
+  return _minimize_mpo(H, cte, a -> p(vs => a); cutoff, kwargs...)
 end
 
 function _single_variable_minimize(::Type{T}, sites, obj, initial_time; device, verbosity, on_iteration, callback_every) where {T}
@@ -215,29 +261,29 @@ function _single_variable_minimize(::Type{T}, sites, obj, initial_time; device, 
   return energy, dist
 end
 
-function _minimize( H :: MPO
-                  , c :: T
-                  , obj
-                  ; device     :: Function = cpu
-                  , cutoff     = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
-                  , verbosity  = 1
-                  # Stopping criteria
-                  , iterations :: Union{Nothing, Int} = nothing
-                  , time_limit = +Inf
-                  , vtol       = cutoff
-                  , check_variance_every_iteration = 10
-                  # DMRG keywords
-                  , inidim     = 40
-                  , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
-                  , mindim     = 1
-                  , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
-                  , eigsolve_krylovdim :: Int     = 3
-                  , eigsolve_maxiter   :: Int     = 2
-                  , eigsolve_tol       :: Float64 = 1e-14
-                  # Iteration callback
-                  , on_iteration :: Union{Nothing, Function} = nothing
-                  , callback_every   :: Int = 1
-                  ) where {T}
+function _minimize_mpo( H :: MPO
+                      , c :: T
+                      , obj
+                      ; device     :: Function = cpu
+                      , cutoff     = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
+                      , verbosity  = 1
+                      # Stopping criteria
+                      , iterations :: Union{Nothing, Int} = nothing
+                      , time_limit = +Inf
+                      , vtol       = cutoff
+                      , check_variance_every_iteration = 10
+                      # DMRG keywords
+                      , inidim     = 40
+                      , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
+                      , mindim     = 1
+                      , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
+                      , eigsolve_krylovdim :: Int     = 3
+                      , eigsolve_maxiter   :: Int     = 2
+                      , eigsolve_tol       :: Float64 = 1e-14
+                      # Iteration callback
+                      , on_iteration :: Union{Nothing, Function} = nothing
+                      , callback_every   :: Int = 1
+                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
   initial_time      = time()
   energies_log      = T[]

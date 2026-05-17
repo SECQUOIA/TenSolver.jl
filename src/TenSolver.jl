@@ -13,6 +13,7 @@ export IsingModel, bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo, isi
 
 include("solver.jl")
 export minimize, maximize
+export AbstractTenSolverBackend, DMRGBackend
 
 # Convergence logging
 include("log.jl")
