@@ -167,7 +167,7 @@ end
   end
 
   @testset "PEPS SampleSet adaptation" begin
-    peps = PEPSSolution{Float64}(
+    peps = TenSolver.PEPSSolution{Float64}(
       [[1, 0], [0, 1]],
       [-2.0, -1.0],
       [0.75, 0.25],
