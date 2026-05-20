@@ -18,24 +18,27 @@ instances. TenSolver therefore keeps PEPS opt-in and topology-aware.
 ## Installation
 
 The default TenSolver installation does not install the SpinGlassPEPS component
-stack. The optional bridge loads only when the component packages are available:
+stack. The optional bridge is currently scaffolding: in clean registered-package
+environments, the current SpinGlass component compat bounds do not resolve with
+TenSolver's QUBOTools/InlineStrings dependency stack. Until those upstream
+compat bounds are released in a resolver-compatible form, the DMRG backend is
+the supported TenSolver path and PEPS examples should be treated as integration
+templates.
+
+When working in a source or development environment where the component stack
+does resolve, the Julia package extension is activated only after all trigger
+packages are loaded in the session:
 
 ```julia
-using Pkg
-
-Pkg.add([
-    "SpinGlassNetworks",
-    "SpinGlassEngine",
-    "SpinGlassTensors",
-])
+import SpinGlassNetworks
+import SpinGlassEngine
+import SpinGlassTensors
 ```
 
 The registered SpinGlassPEPS umbrella package has historically required newer
 Julia versions than TenSolver's core support window. TenSolver's bridge uses the
-component packages as weak dependencies, but if the package resolver cannot find
-a compatible environment, try a Julia 1.11+ project dedicated to PEPS
-experiments. GPU packages are optional; the examples and small benchmarks use
-CPU execution by default.
+component packages as weak dependencies. GPU packages are optional; the examples
+and small benchmarks use CPU execution by default.
 
 If the optional packages are not installed, constructing a `TenSolver.PEPSBackend`
 is still allowed, but solving with it fails early with an error explaining which
@@ -59,10 +62,16 @@ energy, solution = minimize(Q; backend = DMRGBackend(), verbosity = 0)
 ```
 
 Use PEPS only when the variable order matches a supported structured topology.
-The direct PEPS constructors are experimental and not exported, so use the
-`TenSolver.` prefix when calling them:
+In a PEPS-capable session, first import the extension trigger packages shown
+above. The direct PEPS constructors are experimental and not exported, so use
+the `TenSolver.` prefix when calling them:
 
 ```julia
+using TenSolver
+import SpinGlassNetworks
+import SpinGlassEngine
+import SpinGlassTensors
+
 backend = TenSolver.PEPSBackend(
     TenSolver.SquareGrid(2, 2);
     beta = 2.0,
@@ -106,6 +115,9 @@ a square grid, so the four binary variables are ordered as:
 
 ```julia
 using TenSolver
+import SpinGlassNetworks
+import SpinGlassEngine
+import SpinGlassTensors
 
 Q = [
     -1.0  0.5  0.0  0.0
@@ -152,6 +164,9 @@ attributes and provide topology metadata explicitly:
 
 ```julia
 using JuMP, TenSolver
+import SpinGlassNetworks
+import SpinGlassEngine
+import SpinGlassTensors
 
 m, n = 2, 2
 model = Model(TenSolver.Optimizer)
@@ -207,6 +222,9 @@ portable interface for ordinary modeling workflows.
 - Randomized or truncated contraction strategies can introduce run-to-run
   variability.
 - Large hardware-style instances can be limited by memory, especially on GPU.
+- The current registered SpinGlass component stack may not resolve with a clean
+  TenSolver environment; the PEPS bridge remains scaffolding until CI can test a
+  real optional-stack solve.
 - The default DMRG backend remains the general-purpose TenSolver backend.
 
 ## Benchmarks
@@ -219,11 +237,12 @@ julia --project=. benchmarks/peps_king.jl
 ```
 
 Each script sets a random seed, uses CPU defaults, compares DMRG and PEPS when
-the optional PEPS packages are available, and includes brute force for the tiny
-instances used by the script. If the optional PEPS stack is not installed, the
-PEPS row is reported as skipped while the DMRG and brute-force rows still run.
-The default instances should finish in seconds to a few minutes on a laptop,
-depending on Julia precompilation and whether PEPS is installed.
+the optional PEPS packages are available and importable, and includes brute
+force for the tiny instances used by the script. In ordinary registered-package
+environments today, the PEPS row should be expected to skip while the DMRG and
+brute-force rows still run. The default instances should finish in seconds to a
+few minutes on a laptop, depending on Julia precompilation and whether the PEPS
+component stack is active.
 
 The scripts report best objective value, gap from brute force when available,
 runtime, retained-state count, selected transformation, and largest discarded

@@ -147,10 +147,14 @@ The optional SpinGlassPEPS backend is selected explicitly and requires
 structured topology metadata. It is experimental and intended for structured
 quasi-two-dimensional QUBOs; arbitrary dense QUBOs should remain on the default
 DMRG backend. See [PEPS Backend](@ref) for installation notes, direct API usage,
-metadata fields, limitations, and benchmark scripts.
+metadata fields, limitations, and benchmark scripts. A real PEPS session must
+load the extension trigger packages before solving.
 
 ```julia
 using JuMP, TenSolver
+import SpinGlassNetworks
+import SpinGlassEngine
+import SpinGlassTensors
 
 m, n = 2, 2
 model = Model(TenSolver.Optimizer)
@@ -170,9 +174,10 @@ set_attribute(model, "peps_transformations", :identity)
 optimize!(model)
 ```
 
-If the optional SpinGlass component packages are not available, this backend
-errors clearly. If `"backend"` is left unset, or set to `:dmrg`, TenSolver uses
-the existing DMRG path.
+If the optional SpinGlass component packages are not available, or if they are
+installed but not imported in the session, this backend errors clearly. If
+`"backend"` is left unset, or set to `:dmrg`, TenSolver uses the existing DMRG
+path.
 
 ## Controlling Solver Parameters
 

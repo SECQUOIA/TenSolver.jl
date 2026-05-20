@@ -220,7 +220,7 @@ function _peps_result(problem, exact; kwargs...)
       missing,
       missing,
       missing,
-      "install SpinGlassNetworks, SpinGlassEngine, and SpinGlassTensors",
+      "SpinGlassPEPS component stack unavailable or not importable",
     )
   end
 

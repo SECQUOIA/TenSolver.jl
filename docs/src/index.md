@@ -8,7 +8,8 @@ TenSolver.jl provides tensor network solvers for QUBO problems. The default
 backend uses the Density Matrix Renormalization Group (DMRG) algorithm for
 general QUBO/PUBO inputs. An optional experimental PEPS backend is available for
 structured quasi-two-dimensional Ising/QUBO layouts when the SpinGlassPEPS
-component packages are installed.
+component packages resolve in the active environment and are imported to trigger
+TenSolver's package extension.
 
 The package is particularly useful for:
 
@@ -65,7 +66,7 @@ x = TenSolver.sample(psi)
 ## Features
 
 - **Tensor Network Optimization**: Uses advanced tensor network methods (DMRG) for efficient optimization
-- **Optional Structured PEPS Backend**: Exposes an experimental SpinGlassPEPS-based path for square and king-grid instances
+- **Optional Structured PEPS Backend**: Provides experimental SpinGlassPEPS bridge scaffolding for square and king-grid instances
 - **Probability Distribution**: Returns a probability distribution over optimal solutions
 - **JuMP Integration**: Works seamlessly with the JuMP modeling language
 - **GPU Support**: Supports GPU acceleration via CUDA.jl, Metal.jl, and other accelerators

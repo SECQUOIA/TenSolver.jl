@@ -1,7 +1,10 @@
 # PEPS Benchmarks
 
 These scripts provide small, reproducible local comparisons between TenSolver's
-default DMRG backend and the optional structured PEPS backend.
+default DMRG backend and the optional structured PEPS backend. The PEPS rows are
+currently scaffolding for source/development environments where the SpinGlass
+component stack resolves; in ordinary registered-package environments today,
+expect the PEPS rows to be skipped.
 
 Run from the repository root:
 
@@ -18,7 +21,8 @@ The instances are intentionally tiny:
 - each script should finish in seconds to a few minutes on a laptop, depending
   on Julia precompilation and whether PEPS is installed;
 - PEPS is skipped unless `SpinGlassNetworks`, `SpinGlassEngine`, and
-  `SpinGlassTensors` are available in the active Julia environment.
+  `SpinGlassTensors` are available and importable in the active Julia
+  environment.
 
 The scripts are not part of normal CI and are not intended to reproduce the full
 SpinGlassPEPS arXiv benchmark suite.
