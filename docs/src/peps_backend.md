@@ -37,8 +37,8 @@ a compatible environment, try a Julia 1.11+ project dedicated to PEPS
 experiments. GPU packages are optional; the examples and small benchmarks use
 CPU execution by default.
 
-If the optional packages are not installed, constructing a `PEPSBackend` is
-still allowed, but solving with it fails early with an error explaining which
+If the optional packages are not installed, constructing a `TenSolver.PEPSBackend`
+is still allowed, but solving with it fails early with an error explaining which
 packages are needed. DMRG remains available.
 
 ## Backend Selection
@@ -58,11 +58,13 @@ energy, solution = minimize(Q; backend = :dmrg, verbosity = 0)
 energy, solution = minimize(Q; backend = DMRGBackend(), verbosity = 0)
 ```
 
-Use PEPS only when the variable order matches a supported structured topology:
+Use PEPS only when the variable order matches a supported structured topology.
+The direct PEPS constructors are experimental and not exported, so use the
+`TenSolver.` prefix when calling them:
 
 ```julia
-backend = PEPSBackend(
-    SquareGrid(2, 2);
+backend = TenSolver.PEPSBackend(
+    TenSolver.SquareGrid(2, 2);
     beta = 2.0,
     bond_dim = 4,
     max_states = 16,
@@ -74,16 +76,17 @@ backend = PEPSBackend(
 energy, solution = minimize(Q, l, c; backend, verbosity = 0)
 ```
 
-`SquareGrid(m, n)` assumes variables are ordered row by row across the `m` by
-`n` grid. `KingGrid(m, n)` uses the same variable order but permits diagonal
-neighbor interactions in addition to horizontal and vertical ones.
+`TenSolver.SquareGrid(m, n)` assumes variables are ordered row by row across the
+`m` by `n` grid. `TenSolver.KingGrid(m, n)` uses the same variable order but
+permits diagonal neighbor interactions in addition to horizontal and vertical
+ones.
 
 ## Supported Topologies
 
 | Layout | TenSolver API | Status |
 | --- | --- | --- |
-| Square grid | `SquareGrid(m, n[, spins_per_site])` | Implemented |
-| King grid | `KingGrid(m, n[, spins_per_site])` | Implemented |
+| Square grid | `TenSolver.SquareGrid(m, n[, spins_per_site])` | Implemented |
+| King grid | `TenSolver.KingGrid(m, n[, spins_per_site])` | Implemented |
 | Pegasus | Not exposed yet | Planned only |
 | Zephyr | Not exposed yet | Planned only |
 
@@ -113,8 +116,8 @@ Q = [
 l = [0.0, 0.25, -0.25, 0.0]
 c = 0.125
 
-backend = PEPSBackend(
-    SquareGrid(2, 2);
+backend = TenSolver.PEPSBackend(
+    TenSolver.SquareGrid(2, 2);
     beta = 2.0,
     bond_dim = 4,
     max_states = 4,
@@ -127,8 +130,9 @@ energy, solution = minimize(Q, l, c; backend, verbosity = 0)
 state = sample(solution)
 ```
 
-For PEPS runs, `solution` is a [`PEPSSolution`](@ref). It stores retained Boolean
-states, objective values, probabilities, and backend metadata:
+For direct PEPS runs, `solution` is currently a `TenSolver.PEPSSolution`
+internal result object. It stores retained Boolean states, objective values,
+probabilities, and backend metadata:
 
 ```julia
 solution.states

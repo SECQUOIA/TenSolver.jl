@@ -4,8 +4,8 @@
   square = PEPSBenchmarks.square_problem(2, 2; seed = 11)
   king = PEPSBenchmarks.king_problem(2, 2; seed = 12)
 
-  @test square.topology == SquareGrid(2, 2)
-  @test king.topology == KingGrid(2, 2)
+  @test square.topology == TenSolver.SquareGrid(2, 2)
+  @test king.topology == TenSolver.KingGrid(2, 2)
   @test size(square.Q) == (4, 4)
   @test length(square.l) == 4
 
