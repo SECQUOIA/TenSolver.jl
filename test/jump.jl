@@ -1,4 +1,34 @@
 import JuMP
+import QUBOTools
+
+struct FakePEPSTopology <: TenSolver.AbstractStructuredTopology
+  variables::Int
+end
+
+function TenSolver._solve_ising(backend::TenSolver.PEPSBackend{FakePEPSTopology}, model::TenSolver.IsingModel; kwargs...)
+  @test backend.topology.variables == length(model.h)
+  @test backend.beta == 1.75
+  @test backend.bond_dim == 3
+  @test backend.max_states == 4
+  @test backend.cutoff_prob == 0.0
+  @test !backend.onGPU
+  @test backend.contraction == :svd
+  @test backend.num_sweeps == 1
+  @test backend.transformations == :identity
+  @test backend.local_dimension == 2
+
+  states = [[1, 1], [1, 0]]
+  energies = [-3.0, -1.0]
+  probabilities = [0.8, 0.2]
+  metadata = Dict{String, Any}(
+    "backend" => "FakePEPS",
+    "topology" => "fake",
+    "selected_transformation" => "identity",
+    "largest_discarded_probability" => 0.0,
+  )
+
+  return first(energies), TenSolver.PEPSSolution{Float64}(states, energies, probabilities, metadata, nothing)
+end
 
 @testset "JuMP interface" begin
   dim = 5
@@ -166,6 +196,39 @@ end
     end
   end
 
+  @testset "Fake PEPS optimizer solve" begin
+    model = JuMP.Model(TenSolver.Optimizer)
+    JuMP.set_silent(model)
+    JuMP.set_attribute(model, "backend", :peps)
+    JuMP.set_attribute(model, "peps_topology", FakePEPSTopology(2))
+    JuMP.set_attribute(model, "peps_beta", 1.75)
+    JuMP.set_attribute(model, "peps_bond_dim", 3)
+    JuMP.set_attribute(model, "peps_max_states", 4)
+    JuMP.set_attribute(model, "peps_cutoff_prob", 0.0)
+    JuMP.set_attribute(model, "peps_strategy", :svd)
+    JuMP.set_attribute(model, "peps_transformations", :identity)
+    JuMP.set_attribute(model, "peps_truncation", 2)
+    JuMP.set_attribute(model, "num_reads", 5)
+    @JuMP.variable(model, x[1:2], Bin)
+    @JuMP.objective(model, Min, -x[1] - 2x[2])
+
+    JuMP.optimize!(model)
+
+    solution = QUBOTools.solution(JuMP.unsafe_backend(model))
+    metadata = QUBOTools.metadata(solution)
+
+    @test JuMP.objective_value(model) ≈ -3.0
+    @test round.(Int, JuMP.value.(x)) == [1, 1]
+    @test QUBOTools.reads(solution) == 5
+    @test QUBOTools.state(solution, 1) == [1, 1]
+    @test QUBOTools.reads(solution, 1) == 4
+    @test QUBOTools.state(solution, 2) == [1, 0]
+    @test QUBOTools.reads(solution, 2) == 1
+    @test metadata["backend"] == "FakePEPS"
+    @test metadata["peps"]["topology"] == "fake"
+    @test metadata["peps"]["candidate_states"] == 2
+  end
+
   @testset "PEPS SampleSet adaptation" begin
     peps = TenSolver.PEPSSolution{Float64}(
       [[1, 0], [0, 1]],
@@ -183,8 +246,9 @@ end
     l = [0.0, -0.5]
     samples = TenSolver._qubo_samples(Float64, peps, l, Q, 1.0, 0.0, 3)
 
-    @test getfield.(samples, :state) == [[1, 0], [0, 1], [1, 0]]
-    @test getfield.(samples, :value) == [0.0, -0.5, 0.0]
+    @test getfield.(samples, :state) == [[1, 0], [0, 1]]
+    @test getfield.(samples, :value) == [0.0, -0.5]
+    @test getfield.(samples, :reads) == [2, 1]
 
     metadata = Dict{String, Any}(
       "origin" => "TenSolver",

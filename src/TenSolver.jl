@@ -96,8 +96,7 @@ function _peps_topology_tuple(topology)
 end
 
 function _peps_topology(layout, topology)
-  topology isa SquareGrid && return topology
-  topology isa KingGrid && return topology
+  topology isa AbstractStructuredTopology && return topology
 
   dims = _peps_topology_tuple(topology)
   if !(length(dims) in (2, 3))
@@ -143,16 +142,52 @@ function _qubo_samples(::Type{T}, psi::Solution, l, Q, a, b, num_reads::Integer)
   return samples
 end
 
-function _qubo_samples(::Type{T}, psi::PEPSSolution, l, Q, a, b, num_reads::Integer) where {T}
+function _peps_read_counts(psi::PEPSSolution, num_reads::Integer)
+  num_reads >= 0 || throw(ArgumentError("num_reads must be nonnegative. Got $num_reads."))
+
   states = psi.states
   isempty(states) && throw(ArgumentError("Cannot build QUBOTools samples from an empty PEPS solution."))
 
-  samples = Vector{QUBOTools.Sample{T,Int}}(undef, num_reads)
-  for i in 1:num_reads
-    x = states[mod1(i, length(states))]
-    E = QUBOTools.value(x, l, Q, a, b)
+  counts = zeros(Int, length(states))
+  num_reads == 0 && return counts
 
-    samples[i] = QUBOTools.Sample{T,Int}(x, E)
+  probabilities = psi.probabilities
+  if isempty(probabilities)
+    counts[begin] = Int(num_reads)
+    return counts
+  end
+
+  length(probabilities) == length(states) ||
+    throw(ArgumentError("PEPS probabilities length must match states length. Got $(length(probabilities)) probabilities for $(length(states)) states."))
+  any(p -> p < 0, probabilities) &&
+    throw(ArgumentError("PEPS probabilities must be nonnegative. Got $(repr(probabilities))."))
+
+  total = sum(probabilities)
+  total > 0 || throw(ArgumentError("PEPS probabilities must have positive total weight. Got $(repr(probabilities))."))
+
+  weights = (Float64.(probabilities) ./ Float64(total)) .* Int(num_reads)
+  counts .= floor.(Int, weights)
+  remaining = Int(num_reads) - sum(counts)
+
+  if remaining > 0
+    order = sortperm(collect(eachindex(weights)); by = i -> (weights[i] - counts[i], -i), rev = true)
+    for i in Iterators.take(order, remaining)
+      counts[i] += 1
+    end
+  end
+
+  return counts
+end
+
+function _qubo_samples(::Type{T}, psi::PEPSSolution, l, Q, a, b, num_reads::Integer) where {T}
+  counts = _peps_read_counts(psi, num_reads)
+  samples = QUBOTools.Sample{T,Int}[]
+  sizehint!(samples, count(>(0), counts))
+
+  for (x, reads) in zip(psi.states, counts)
+    reads == 0 && continue
+    E = QUBOTools.value(x, l, Q, a, b)
+    push!(samples, QUBOTools.Sample{T,Int}(copy(x), E, reads))
   end
 
   return samples
