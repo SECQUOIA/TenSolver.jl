@@ -24,12 +24,10 @@ TenSolver.sample
 ## Boolean/Spin Conversions
 
 ```@docs
-TenSolver.IsingModel
 TenSolver.bool_to_spin
 TenSolver.spin_to_bool
 TenSolver.qubo_to_ising
 TenSolver.ising_to_qubo
-TenSolver.ising_energy
 ```
 
 ## Utility Functions
