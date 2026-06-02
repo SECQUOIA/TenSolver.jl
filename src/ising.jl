@@ -42,16 +42,28 @@ function check_qubo_dimensions(Q::AbstractMatrix, l)
   end
 end
 
+<<<<<<< HEAD
 function check_ising_dimensions(J::AbstractMatrix, h::AbstractVector)
+=======
+function _check_ising_dimensions(J::AbstractMatrix, h::AbstractVector)
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
   issquare(J) || throw(DimensionMismatch("The Ising coupling matrix must be square. Encountered dimensions $(size(J))."))
   size(J, 1) == length(h) || throw(DimensionMismatch("The Ising field vector length must match the coupling matrix size. Encountered dimensions $(size(J)) and length $(length(h))."))
 end
 
+<<<<<<< HEAD
 function check_spin_convention(convention)
   convention === :spin || throw(ArgumentError("Only the `:spin` convention is supported. Use x = (s + 1) / 2 and s = 2x - 1."))
 end
 
 function checked_bool_state(x::AbstractVector)
+=======
+function _check_spin_convention(convention)
+  convention === :spin || throw(ArgumentError("Only the `:spin` convention is supported. Use x = (s + 1) / 2 and s = 2x - 1."))
+end
+
+function _checked_bool_state(x::AbstractVector)
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
   return map(x) do xi
     if iszero(xi)
       0
@@ -63,7 +75,11 @@ function checked_bool_state(x::AbstractVector)
   end
 end
 
+<<<<<<< HEAD
 function checked_spin_state(s::AbstractVector)
+=======
+function _checked_spin_state(s::AbstractVector)
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
   return map(s) do si
     if si == -1
       -1
@@ -75,13 +91,18 @@ function checked_spin_state(s::AbstractVector)
   end
 end
 
+<<<<<<< HEAD
 function drop_form_zeros!(form::QUBOTools.AbstractForm)
+=======
+function _drop_form_zeros!(form::QUBOTools.AbstractForm)
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
   _, l, Q, _, _, _, _ = form
   dropzeros!(l)
   dropzeros!(Q)
   return form
 end
 
+<<<<<<< HEAD
 function qubo_form(Q::AbstractMatrix, l::Union{Nothing, AbstractVector}, c::Real)
   check_qubo_dimensions(Q, l)
 
@@ -90,10 +111,21 @@ function qubo_form(Q::AbstractMatrix, l::Union{Nothing, AbstractVector}, c::Real
   L = isnothing(l) ? zeros(T, n) : collect(T, l)
 
   return drop_form_zeros!(
+=======
+function _qubo_form(Q::AbstractMatrix, l::Union{Nothing, AbstractVector}, c::Real)
+  _check_qubo_dimensions(Q, l)
+
+  n = size(Q, 1)
+  T = _conversion_type(Q, l, c)
+  L = isnothing(l) ? zeros(T, n) : collect(T, l)
+
+  return _drop_form_zeros!(
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
     QUBOTools.SparseForm{T}(n, L, sparse(T.(Q)), one(T), T(c); sense = :min, domain = :bool),
   )
 end
 
+<<<<<<< HEAD
 function ising_form(J::AbstractMatrix, h::AbstractVector, offset::Real)
   check_ising_dimensions(J, h)
 
@@ -101,11 +133,24 @@ function ising_form(J::AbstractMatrix, h::AbstractVector, offset::Real)
   T = conversion_type(J, h, offset)
 
   return drop_form_zeros!(
+=======
+function _ising_form(J::AbstractMatrix, h::AbstractVector, offset::Real)
+  _check_ising_dimensions(J, h)
+
+  n = size(J, 1)
+  T = _conversion_type(J, h, offset)
+
+  return _drop_form_zeros!(
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
     QUBOTools.SparseForm{T}(n, collect(T, h), sparse(T.(J)), one(T), T(offset); sense = :min, domain = :spin),
   )
 end
 
+<<<<<<< HEAD
 function check_form_domain(form::QUBOTools.AbstractForm, domain, label::AbstractString)
+=======
+function _check_form_domain(form::QUBOTools.AbstractForm, domain, label::AbstractString)
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
   QUBOTools.domain(form) === domain || throw(ArgumentError("$label conversion expected a QUBOTools form in domain $domain. Encountered $(QUBOTools.domain(form))."))
 end
 
@@ -116,7 +161,11 @@ Convert a Boolean bit vector `x_i in {0, 1}` to Ising spins
 `s_i in {-1, +1}` using QUBOTools' `BoolDomain => SpinDomain` cast.
 """
 function bool_to_spin(x::AbstractVector)
+<<<<<<< HEAD
   return QUBOTools.cast(QUBOTools.BoolDomain => QUBOTools.SpinDomain, checked_bool_state(x))
+=======
+  return QUBOTools.cast(QUBOTools.BoolDomain => QUBOTools.SpinDomain, _checked_bool_state(x))
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
 end
 
 """
@@ -126,7 +175,11 @@ Convert an Ising spin vector `s_i in {-1, +1}` to Boolean bits
 `x_i in {0, 1}` using QUBOTools' `SpinDomain => BoolDomain` cast.
 """
 function spin_to_bool(s::AbstractVector)
+<<<<<<< HEAD
   return QUBOTools.cast(QUBOTools.SpinDomain => QUBOTools.BoolDomain, checked_spin_state(s))
+=======
+  return QUBOTools.cast(QUBOTools.SpinDomain => QUBOTools.BoolDomain, _checked_spin_state(s))
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
 end
 
 """
@@ -144,10 +197,13 @@ For non-symmetric matrices, the QUBOTools form constructor preserves
 TenSolver's `dot(x, Q, x)` convention by storing the effective pair
 coefficient `Q[i, j] + Q[j, i]` once in the upper triangle.
 
+<<<<<<< HEAD
 The Boolean-to-spin conversion introduces halves and quarters. Integer
 coefficient inputs therefore return floating-point forms, while rational inputs
 preserve exact rational arithmetic.
 
+=======
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
 The returned form includes the constant offset, so
 
 ```julia
@@ -157,6 +213,7 @@ dot(x, Q, x) + dot(l, x) + c == QUBOTools.value(bool_to_spin(x), qubo_to_ising(Q
 for every Boolean vector `x`.
 """
 function qubo_to_ising(Q::AbstractMatrix, l::Union{Nothing, AbstractVector}=nothing, c::Real=0; convention::Symbol=:spin)
+<<<<<<< HEAD
   check_spin_convention(convention)
   return qubo_to_ising(qubo_form(Q, l, c); convention)
 end
@@ -165,6 +222,16 @@ function qubo_to_ising(form::QUBOTools.AbstractForm; convention::Symbol=:spin)
   check_spin_convention(convention)
   check_form_domain(form, QUBOTools.BoolDomain, "QUBO-to-Ising")
   return drop_form_zeros!(QUBOTools.cast(QUBOTools.SpinDomain, form))
+=======
+  _check_spin_convention(convention)
+  return qubo_to_ising(_qubo_form(Q, l, c); convention)
+end
+
+function qubo_to_ising(form::QUBOTools.AbstractForm; convention::Symbol=:spin)
+  _check_spin_convention(convention)
+  _check_form_domain(form, QUBOTools.BoolDomain, "QUBO-to-Ising")
+  return _drop_form_zeros!(QUBOTools.cast(QUBOTools.SpinDomain, form))
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
 end
 
 """
@@ -182,6 +249,7 @@ dot(s, J, s) + dot(h, s) + offset
 with `s_i in {-1, +1}`. QUBOTools folds diagonal quadratic spin terms into the
 constant offset and stores each off-diagonal unordered pair once in the upper
 triangle.
+<<<<<<< HEAD
 
 As with [`qubo_to_ising`](@ref), integer coefficient inputs return
 floating-point forms when the conversion introduces fractional coefficients,
@@ -222,4 +290,14 @@ function ising_energy(J::AbstractMatrix, h::AbstractVector, s::AbstractVector, o
   end
 
   return energy
+=======
+"""
+function ising_to_qubo(form::QUBOTools.AbstractForm)
+  _check_form_domain(form, QUBOTools.SpinDomain, "Ising-to-QUBO")
+  return _drop_form_zeros!(QUBOTools.cast(QUBOTools.BoolDomain, form))
+end
+
+function ising_to_qubo(J::AbstractMatrix, h::AbstractVector, offset::Real=0)
+  return ising_to_qubo(_ising_form(J, h, offset))
+>>>>>>> a9f4c02 (Use QUBOTools forms for Ising conversions)
 end

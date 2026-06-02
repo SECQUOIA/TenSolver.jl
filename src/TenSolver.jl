@@ -24,7 +24,7 @@ export sample
 export Solution
 
 include("ising.jl")
-export IsingModel, bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo, ising_energy
+export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
 
 include("solver.jl")
 export minimize, maximize, solve_ising

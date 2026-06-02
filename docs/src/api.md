@@ -7,7 +7,6 @@ This page documents the public API of TenSolver.jl.
 ```@docs
 TenSolver.minimize
 TenSolver.maximize
-TenSolver.solve_ising
 ```
 
 ## Solver Backends
@@ -97,6 +96,7 @@ TenSolver.project_state
 ```@docs
 TenSolver.SquareGrid
 TenSolver.KingGrid
+TenSolver.solve_ising
 ```
 
 ## Index
