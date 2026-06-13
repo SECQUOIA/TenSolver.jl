@@ -1,9 +1,72 @@
 import JuMP: MOI
+import TOML
+
+function _qubodrivers_test_model()
+  model = MOI.instantiate(TenSolver.Optimizer; with_bridge_type = Float64)
+  x, _ = MOI.add_constrained_variables(model, fill(MOI.ZeroOne(), 2))
+  f = MOI.ScalarQuadraticFunction{Float64}(
+    MOI.ScalarQuadraticTerm{Float64}[
+      MOI.ScalarQuadraticTerm{Float64}(2.0, x[1], x[1]),
+      MOI.ScalarQuadraticTerm{Float64}(-4.0, x[1], x[2]),
+      MOI.ScalarQuadraticTerm{Float64}(2.0, x[2], x[2]),
+    ],
+    MOI.ScalarAffineTerm{Float64}[],
+    0.0,
+  )
+
+  MOI.set(model, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+  MOI.set(model, MOI.ObjectiveFunction{typeof(f)}(), f)
+  MOI.set(model, MOI.RawOptimizerAttribute("iterations"), 1)
+  MOI.set(model, MOI.RawOptimizerAttribute("verbosity"), 0)
+
+  return model
+end
+
+function _solution(model)
+  raw = MOI.get(model, MOI.RawSolver())
+
+  return TenSolver.QUBOTools.solution(raw)
+end
 
 @testset "QUBODrivers.jl" begin
   import QUBODrivers
 
-  QUBODrivers.test(TenSolver.Optimizer)
+  @test !QUBODrivers.supports_seed(TenSolver.Optimizer)
+  @test QUBODrivers.honors_final_reads(TenSolver.Optimizer)
+  @test QUBODrivers.enforces_time_limit(TenSolver.Optimizer)
+
+  model = _qubodrivers_test_model()
+  MOI.set(model, QUBODrivers.FinalNumberOfReads(), 3)
+  MOI.optimize!(model)
+
+  sampleset = _solution(model)
+  metadata = TenSolver.QUBOTools.metadata(sampleset)
+
+  @test isempty(QUBODrivers.validate_metadata(sampleset))
+  @test length(sampleset) <= 3
+  @test sum(TenSolver.QUBOTools.reads(sample) for sample in sampleset) == 3
+  @test metadata["origin"] == "TenSolver.jl"
+  @test metadata["algorithm"]["name"] == "DMRG"
+  @test metadata["backend"]["name"] == "TenSolver"
+  @test metadata["backend"]["version"] == TenSolver.__VERSION__
+  @test metadata["reads"]["number_of_reads"] == 1_000
+  @test metadata["reads"]["final_number_of_reads"] == 3
+  @test metadata["time"]["effective"] > 0.0
+  @test metadata["tensolver"]["dmrg"]["sweep_elapsed"] isa Vector{Float64}
+  @test metadata["tensolver"]["dmrg"]["sweep_times"] isa Vector{Float64}
+  @test metadata["tensolver"]["parameters"]["maxdim"] == [10, 20, 50, 100, 100, 200]
+
+  QUBODrivers.test(TenSolver.Optimizer; benchmark_conformance = true) do model
+    MOI.set(model, MOI.RawOptimizerAttribute("iterations"), 1)
+    MOI.set(model, MOI.RawOptimizerAttribute("verbosity"), 0)
+  end
+end
+
+@testset "QUBO ecosystem compat" begin
+  compat = TOML.parsefile(joinpath(dirname(@__DIR__), "Project.toml"))["compat"]
+
+  @test compat["QUBODrivers"] == "0.6.1"
+  @test compat["QUBOTools"] == "0.13"
 end
 
 @testset "Aqua.jl" begin
