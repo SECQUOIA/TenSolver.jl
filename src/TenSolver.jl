@@ -5,7 +5,7 @@ using QUBODrivers: QUBODrivers, QUBOTools, MOI
 
 using LinearAlgebra
 
-const __VERSION__ = v"0.1.0"
+const __VERSION__ = pkgversion(@__MODULE__)
 
 include("solution.jl")
 export sample
@@ -64,10 +64,6 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     error("Number of reads must be a non-negative integer")
   end
 
-  if final_num_reads < 0
-    error("Final number of reads must be a non-negative integer")
-  end
-
   # ~ Solve ~ #
   n, l, Q, a, b = QUBOTools.qubo(sampler, :sparse; sense = :min)
   # min_x a*(x'Qx + l'x + b)
@@ -86,7 +82,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     eigsolve_tol       =  get("eigsolve_tol"),
     eigsolve_maxiter   =  get("eigsolve_maxiter"),
   )
-  energy, psi = results.value
+  _, psi = results.value
 
   # ~ Samples and Output ~ #
   samples = Vector{QUBOTools.Sample{T,Int}}(undef, final_num_reads)
@@ -137,7 +133,7 @@ function _tensolver_metadata(
     backend_version       = __VERSION__,
     execution_mode        = "tensor_network_dmrg",
     optimizer_iterations  = optimizer_iterations,
-    optimizer_evaluations = final_num_reads,
+    optimizer_evaluations = nothing,
     number_of_reads       = num_reads,
     final_number_of_reads = final_num_reads,
     status                = status,
@@ -163,10 +159,10 @@ end
 
 function _tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
   elapsed_time = isempty(solution.elapsed_times) ? 0.0 : last(solution.elapsed_times)
-  if isfinite(time_limit) && elapsed_time > time_limit
-    return MOI.TIME_LIMIT, "time_limit"
-  elseif length(solution.energies) >= iterations
+  if length(solution.energies) >= iterations
     return MOI.ITERATION_LIMIT, "iteration_limit"
+  elseif isfinite(time_limit) && elapsed_time > time_limit
+    return MOI.TIME_LIMIT, "time_limit"
   else
     return MOI.LOCALLY_SOLVED, "locally_solved"
   end
