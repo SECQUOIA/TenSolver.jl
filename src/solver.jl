@@ -280,8 +280,8 @@ function _solve_ising(backend::AbstractTenSolverBackend, model::IsingModel; kwar
 end
 
 function _solve_ising(::DMRGBackend, model::IsingModel; kwargs...)
-  qubo = ising_to_qubo(model)
-  return _minimize(default_backend, qubo.Q, qubo.l, qubo.c; kwargs...)
+  Q, l, c = _scaled_form_parts(ising_to_qubo(model))
+  return _minimize(default_backend, Q, l, c; kwargs...)
 end
 
 

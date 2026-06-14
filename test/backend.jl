@@ -34,7 +34,7 @@ end
     J = [0.0 0.5; 1.0 0.0]
     h = [-0.25, 0.75]
     offset = 2.0
-    model = IsingModel(J, h, offset)
+    model = TenSolver.IsingModel(J, h, offset)
     spin_states = [[s1, s2] for s1 in (-1, 1) for s2 in (-1, 1)]
     energies = [TenSolver.ising_energy(model, spin) for spin in spin_states]
     expected_energy, expected_index = findmin(energies)

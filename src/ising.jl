@@ -167,6 +167,23 @@ function qubo_to_ising(form::QUBOTools.AbstractForm; convention::Symbol=:spin)
   return drop_form_zeros!(QUBOTools.cast(QUBOTools.SpinDomain, form))
 end
 
+function ising_energy(model::IsingModel{T}, s::AbstractVector) where {T}
+  length(s) == length(model.h) || throw(DimensionMismatch("Spin vector length must match the Ising model size. Encountered length $(length(s)) and model size $(length(model.h))."))
+  spin_to_bool(s)
+
+  energy = model.offset + sum(model.h[i] * T(s[i]) for i in eachindex(model.h))
+  rows, cols, vals = findnz(model.J)
+  for k in eachindex(vals)
+    i = rows[k]
+    j = cols[k]
+    if i < j
+      energy += vals[k] * T(s[i]) * T(s[j])
+    end
+  end
+
+  return energy
+end
+
 """
     ising_to_qubo(form)
     ising_to_qubo(J, h[, offset])
@@ -191,6 +208,8 @@ function ising_to_qubo(form::QUBOTools.AbstractForm)
   check_form_domain(form, QUBOTools.SpinDomain, "Ising-to-QUBO")
   return drop_form_zeros!(QUBOTools.cast(QUBOTools.BoolDomain, form))
 end
+
+ising_to_qubo(model::IsingModel) = ising_to_qubo(_ising_form(model.J, model.h, model.offset))
 
 function ising_to_qubo(J::AbstractMatrix, h::AbstractVector, offset::Real=0)
   return ising_to_qubo(ising_form(J, h, offset))
