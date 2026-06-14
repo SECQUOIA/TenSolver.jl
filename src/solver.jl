@@ -186,11 +186,33 @@ function minimize(model::PseudoBooleanModel; backend=DMRGBackend(), cutoff=1e-8,
   return _solve_backend(selected_backend, model; cutoff, kwargs...)
 end
 
-function _solve_backend(::DMRGBackend, model::PseudoBooleanModel{T}; cutoff=1e-8, kwargs...) where {T}
-  if length(model) == 1
-    return _minimize_single_variable(model; cutoff, kwargs...)
-  end
+const _DMRG_SOLVER_KEYWORDS = Set([
+  :device,
+  :verbosity,
+  :iterations,
+  :time_limit,
+  :vtol,
+  :check_variance_every_iteration,
+  :inidim,
+  :maxdim,
+  :mindim,
+  :noise,
+  :eigsolve_krylovdim,
+  :eigsolve_maxiter,
+  :eigsolve_tol,
+  :on_iteration,
+  :callback_every,
+])
 
+function _check_dmrg_backend_kwargs(kwargs)
+  unknown = filter(key -> !(key in _DMRG_SOLVER_KEYWORDS), keys(kwargs))
+  isempty(unknown) && return
+  names = join(("`$key`" for key in unknown), ", ")
+  throw(ArgumentError("Unsupported solver keyword(s): $names"))
+end
+
+function _solve_backend(::DMRGBackend, model::PseudoBooleanModel{T}; cutoff=1e-8, kwargs...) where {T}
+  _check_dmrg_backend_kwargs(kwargs)
   H = tensorize(model; cutoff)
   return _minimize(H, model.constant, x -> evaluate(model, x); cutoff, kwargs...)
 end
@@ -205,64 +227,35 @@ function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, backend=DMRGBackend(), 
   return minimize(model; backend, cutoff, kwargs...)
 end
 
-function _check_no_unknown_solver_kwargs(kwargs)
-  if !isempty(kwargs)
-    unknown = join(("`$key`" for key in keys(kwargs)), ", ")
-    throw(ArgumentError("Unsupported solver keyword(s): $unknown"))
-  end
-end
+function _single_variable_minimize(::Type{T}, sites, obj, initial_time; device, verbosity, on_iteration, callback_every) where {T}
+  x0 = [0]
+  x1 = [1]
+  e0 = obj(x0)
+  e1 = obj(x1)
 
-function _minimize_single_variable(
-  model::PseudoBooleanModel{T};
-  cutoff = 1e-8,
-  device :: Function = cpu,
-  verbosity = 1,
-  on_iteration :: Union{Nothing, Function} = nothing,
-  callback_every :: Int = 1,
-  # Accepted for API compatibility with the DMRG path. This exact path does not iterate.
-  iterations :: Union{Nothing, Int} = nothing,
-  time_limit = +Inf,
-  vtol = cutoff,
-  check_variance_every_iteration = 10,
-  inidim = 40,
-  maxdim = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000],
-  mindim = 1,
-  noise = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0],
-  eigsolve_krylovdim :: Int = 3,
-  eigsolve_maxiter :: Int = 2,
-  eigsolve_tol :: Float64 = 1e-14,
-  kwargs...
-) where {T}
-  callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  _check_no_unknown_solver_kwargs(kwargs)
-
-  initial_time = time()
-  objective_zero = evaluate(model, [0])
-  objective_one = evaluate(model, [1])
-  optimal = min(objective_zero, objective_one)
-
-  state = if abs(objective_zero - objective_one) <= cutoff
-    "full"
-  elseif objective_zero < objective_one
-    "0"
+  energy, state = if e0 == e1
+    (T(e0), ["full"])
+  elseif e0 < e1
+    (T(e0), string.(x0))
   else
-    "1"
+    (T(e1), string.(x1))
   end
 
-  sites = ITensors.siteinds("Qudit", 1; dim = 2)
-  psi = MPS(sites, [state]) |> device
+  psi = ITensorMPS.MPS(sites, state) |> device
   elapsed_time = time() - initial_time
-  solution = Solution{T}(psi, T[optimal], Int[1], Float64[elapsed_time])
+  bond_dim = ITensorMPS.maxlinkdim(psi)
 
   iterlog_header(verbosity)
-  iterlog_iteration(verbosity, 1, optimal, 1, nothing, elapsed_time)
-  iterlog_footer(verbosity, optimal, elapsed_time)
+  iterlog_iteration(verbosity, 1, energy, bond_dim, 0.0, elapsed_time)
 
-  if !isnothing(on_iteration)
-    on_iteration(psi; iteration=1, objective=optimal, bond_dim=1, elapsed_time)
+  dist = Solution{T}(psi, T[energy], Int[bond_dim], Float64[elapsed_time])
+  if !isnothing(on_iteration) && 1 % callback_every == 0
+    on_iteration(psi; iteration=1, objective=energy, bond_dim, elapsed_time)
   end
 
-  return optimal, solution
+  iterlog_footer(verbosity, energy, elapsed_time)
+
+  return energy, dist
 end
 
 function _minimize( H :: MPO
@@ -296,6 +289,10 @@ function _minimize( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+  if length(sites) == 1
+    return _single_variable_minimize(T, sites, obj, initial_time; device, verbosity, on_iteration, callback_every)
+  end
+
   H     = device(H)
   psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
 

@@ -23,6 +23,12 @@ import DynamicPolynomials
       @test TenSolver.sample(sol) in optimum_configs
       @test sol.objective ≈ E
 
+      Q_active = [0.0 -5.0; 0.0 0.0]
+      l_active = [2.0, 2.0]
+      E_active, active_sol = TenSolver.minimize(Q_active, l_active; backend=TenSolver.GTNBackend())
+      @test E_active ≈ -1.0
+      @test TenSolver.sample(active_sol) == [1, 1]
+
       Emax, max_sol = TenSolver.maximize(Q, l, c; backend=TenSolver.GTNBackend())
       @test Emax ≈ 3.0
       @test TenSolver.sample(max_sol) in [[0, 0], [1, 1]]

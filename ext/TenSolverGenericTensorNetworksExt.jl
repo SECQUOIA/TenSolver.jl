@@ -163,8 +163,13 @@ function TenSolver._solve_backend(backend::TenSolver.GTNBackend, model::TenSolve
     "quadratic" => TenSolver.isquadratic(model),
     "size" => _numbers(size),
     "count" => count,
-    "contraction_complexity" => GenericTensorNetworks.contraction_complexity(gtn),
   )
+
+  try
+    metadata["contraction_complexity"] = GenericTensorNetworks.contraction_complexity(gtn)
+  catch err
+    metadata["contraction_complexity_error"] = sprint(showerror, err)
+  end
 
   try
     metadata["estimated_memory"] = GenericTensorNetworks.estimate_memory(gtn, gtn_property; T=backend.T)

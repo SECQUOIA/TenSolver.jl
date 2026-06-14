@@ -44,19 +44,39 @@
     end
 
     @testset "Single variable" begin
-      E, psi = minimize([0.0;;], [-2.0], 3.0; verbosity=0)
+      Q = reshape([-2.0], 1, 1)
+      E, psi = minimize(Q)
 
-      @test E ≈ 1.0
+      @test E ≈ -2.0
       @test TenSolver.sample(psi) == [1]
-      @test [1] in psi
+      @test psi.energies == [-2.0]
+      @test psi.bond_dims == [1]
+      @test length(psi.elapsed_times) == 1
     end
 
-    @testset "Single variable tie" begin
-      E, psi = minimize([0.0;;]; verbosity=0)
+    @testset "Single variable with linear and constant terms" begin
+      Q = reshape([0.0], 1, 1)
+      E, psi = minimize(Q, [-3.0], 2.0)
+
+      @test E ≈ -1.0
+      @test TenSolver.sample(psi) == [1]
+    end
+
+    @testset "Single variable degeneracy" begin
+      Q = reshape([0.0], 1, 1)
+      E, psi = minimize(Q)
 
       @test E ≈ 0.0
       @test [0] in psi
       @test [1] in psi
+    end
+
+    @testset "Max: Single variable" begin
+      Q = reshape([2.0], 1, 1)
+      E, psi = maximize(Q)
+
+      @test E ≈ 2.0
+      @test TenSolver.sample(psi) == [1]
     end
 
     @testset "Identity" begin
