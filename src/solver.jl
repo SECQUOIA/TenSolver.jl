@@ -38,7 +38,12 @@ variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
 Abstract solver backend marker for TenSolver implementations.
 
 The default implementation is [`DMRGBackend`](@ref). Other backends must provide
-backend-specific methods for the normalized optimization inputs they support.
+backend-specific `_minimize` methods for the normalized optimization inputs they
+support. Matrix backends implement
+`_minimize(::MyBackend, Q::AbstractMatrix, l, c; kwargs...)`; polynomial
+backends implement `_minimize(::MyBackend, p::AbstractPolynomial; kwargs...)`.
+Extensions that support symbolic selection can also define
+`_normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
 """
 abstract type AbstractTenSolverBackend end
 
@@ -51,7 +56,13 @@ struct DMRGBackend <: AbstractTenSolverBackend end
 
 const default_backend = DMRGBackend()
 
-_backend_error(backend) = ArgumentError("backend $(repr(backend)) is not available. Install/load the PEPS extension or use backend = :dmrg.")
+function _backend_error(backend)
+  if backend === :peps
+    return ArgumentError("backend :peps is not available. Install/load the PEPS extension or use backend = :dmrg.")
+  end
+
+  return ArgumentError("No `_minimize` method is available for backend $(repr(backend)). Use backend = :dmrg or provide a backend-specific `_minimize` method.")
+end
 
 _normalize_backend(backend::DMRGBackend) = backend
 _normalize_backend(backend::AbstractTenSolverBackend) = backend
@@ -60,7 +71,7 @@ _normalize_backend(::Val{:dmrg}) = default_backend
 function _normalize_backend(::Val{backend}) where {backend}
   throw(_backend_error(backend))
 end
-_normalize_backend(backend) = throw(ArgumentError("Unsupported backend $(repr(backend)). Use backend = :dmrg or backend = DMRGBackend()."))
+_normalize_backend(backend) = throw(_backend_error(backend))
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
