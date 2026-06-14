@@ -1,9 +1,25 @@
 using SparseArrays
 
 @testset "Ising conversion" begin
+  QT = TenSolver.QUBOTools
+
   bitstrings(n) = [collect(bits) for bits in Iterators.product(ntuple(_ -> 0:1, n)...)]
 
   qubo_value(Q, l, c, x) = dot(x, Q, x) + dot(l, x) + c
+  spin_value(J, h, offset, s) = dot(s, J, s) + dot(h, s) + offset
+
+  function form_parts(form)
+    n, l, Q, scale, offset, sense, domain = form
+    @test n == length(l) == size(Q, 1) == size(Q, 2)
+    @test scale == one(scale)
+    @test sense === QT.Min
+    return (; n, l, Q, scale, offset, sense, domain)
+  end
+
+  function assert_upper_triangular(Q)
+    rows, cols, _ = findnz(Q)
+    @test all(rows[i] < cols[i] for i in eachindex(rows))
+  end
 
   function argmin_set(xs, values; atol=0)
     best = minimum(values)
@@ -15,23 +31,29 @@ using SparseArrays
   end
 
   function assert_conversion(Q, l=zeros(eltype(Q), size(Q, 1)), c=zero(eltype(Q)); exact=true)
-    model = TenSolver.qubo_to_ising(Q, l, c)
-    qubo = TenSolver.ising_to_qubo(model)
+    ising = TenSolver.qubo_to_ising(Q, l, c)
+    qubo = TenSolver.ising_to_qubo(ising)
     xs = bitstrings(size(Q, 1))
 
-    rows, cols, _ = findnz(model.J)
-    @test all(rows[i] < cols[i] for i in eachindex(rows))
-    @test qubo.Q isa SparseMatrixCSC
+    ising_parts = form_parts(ising)
+    qubo_parts = form_parts(qubo)
+    @test ising isa QT.AbstractForm
+    @test qubo isa QT.AbstractForm
+    @test ising_parts.domain === QT.SpinDomain
+    @test qubo_parts.domain === QT.BoolDomain
+    @test qubo_parts.Q isa SparseMatrixCSC
+    assert_upper_triangular(ising_parts.Q)
+    assert_upper_triangular(qubo_parts.Q)
 
     bool_values = map(x -> qubo_value(Q, l, c, x), xs)
-    ising_values = map(x -> TenSolver.ising_energy(model, TenSolver.bool_to_spin(x)), xs)
+    ising_values = map(x -> QT.value(TenSolver.bool_to_spin(x), ising), xs)
 
     for (x, bool_energy, ising_energy) in zip(xs, bool_values, ising_values)
       s = TenSolver.bool_to_spin(x)
       @test TenSolver.spin_to_bool(s) == x
       @test TenSolver.bool_to_spin(TenSolver.spin_to_bool(s)) == s
 
-      qubo_roundtrip_energy = qubo_value(qubo.Q, qubo.l, qubo.c, x)
+      qubo_roundtrip_energy = QT.value(x, qubo)
       if exact
         @test bool_energy == ising_energy
         @test bool_energy == qubo_roundtrip_energy
@@ -53,6 +75,14 @@ using SparseArrays
       Q = randn(rng, n, n)
       assert_conversion(Q, zeros(n), 0.0; exact=false)
     end
+
+    Q = [
+      0//1   -3//4   2//5
+      1//6    0//1  -5//7
+      0//1    3//8   1//9
+    ]
+    l = [2//3, -1//5, 4//7]
+    assert_conversion(Q, l, -11//13)
   end
 
   @testset "Dense non-symmetric rational QUBO" begin
@@ -100,43 +130,39 @@ using SparseArrays
     assert_conversion(Q, l, 7 // 3)
   end
 
-  @testset "IsingModel canonicalizes unordered couplings" begin
-    function assert_model_roundtrip(J, h=zeros(eltype(J), size(J, 1)), offset=zero(eltype(J)), expected=J)
-      model = TenSolver.IsingModel(J, h, offset)
-      qubo = TenSolver.ising_to_qubo(model)
+  @testset "QUBOTools normalizes Ising inputs" begin
+    function assert_ising_roundtrip(J, h=zeros(eltype(J), size(J, 1)), offset=zero(eltype(J)))
+      qubo = TenSolver.ising_to_qubo(J, h, offset)
+      qubo_parts = form_parts(qubo)
       xs = bitstrings(size(J, 1))
 
-      rows, cols, _ = findnz(model.J)
-      @test all(rows[i] < cols[i] for i in eachindex(rows))
-      @test Matrix(model.J) == expected
+      @test qubo_parts.domain === QT.BoolDomain
+      assert_upper_triangular(qubo_parts.Q)
 
       for x in xs
         spin = TenSolver.bool_to_spin(x)
-        @test TenSolver.ising_energy(model, spin) == qubo_value(qubo.Q, qubo.l, qubo.c, x)
+        @test spin_value(J, h, offset, spin) == QT.value(x, qubo)
       end
     end
 
-    assert_model_roundtrip(
+    assert_ising_roundtrip(
       [0 0; 2 0],
       zeros(Int, 2),
       0,
-      [0 2; 0 0],
     )
-    assert_model_roundtrip(
+    assert_ising_roundtrip(
       [0 2; 2 0],
       [1, -1],
       3,
-      [0 4; 0 0],
     )
-    assert_model_roundtrip(
+    assert_ising_roundtrip(
       [5 3; -3 7],
       zeros(Int, 2),
       0,
-      [0 0; 0 0],
     )
 
-    lower = TenSolver.IsingModel([0 0; 2 0], zeros(Int, 2))
-    @test TenSolver.ising_energy(lower, [1, 1]) == 2
+    qubo = TenSolver.ising_to_qubo([5 0; 0 7], zeros(Int, 2), 0)
+    @test QT.value([0, 0], qubo) == 12
   end
 
   @testset "Input validation" begin
@@ -147,5 +173,10 @@ using SparseArrays
     @test_throws ArgumentError TenSolver.qubo_to_ising(reshape([1.0], 1, 1); convention=:binary)
     @test_throws ArgumentError TenSolver.bool_to_spin([0, 2])
     @test_throws ArgumentError TenSolver.spin_to_bool([-1, 0])
+
+    spin_form = TenSolver.qubo_to_ising(reshape([1.0], 1, 1))
+    bool_form = TenSolver.ising_to_qubo(spin_form)
+    @test_throws ArgumentError TenSolver.qubo_to_ising(spin_form)
+    @test_throws ArgumentError TenSolver.ising_to_qubo(bool_form)
   end
 end
