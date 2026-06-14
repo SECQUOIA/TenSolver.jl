@@ -5,12 +5,13 @@ using QUBODrivers: QUBODrivers, QUBOTools, MOI
 
 using LinearAlgebra
 
+const __VERSION__ = pkgversion(@__MODULE__)
+
 include("solution.jl")
 export sample
-export Solution
 
 include("ising.jl")
-export IsingModel, bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo, ising_energy
+export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
 
 include("solver.jl")
 export minimize, maximize, solve_ising
@@ -28,24 +29,24 @@ cpu = identity
 
 QUBODrivers.@setup Optimizer begin
   name    = "TenSolver"
-  version = v"0.1.0"
+  version = __VERSION__
   attributes = begin
     # JuMP-specific
-    NumberOfReads["num_reads"]::Integer = 1_000
+    NumberOfReads["num_reads"] :: Integer = 1_000
     # Solver keywords
-    "cutoff"               :: Float64                         = 1e-8
-    "device"               :: Function                        = cpu
-    "vtol"                 :: Float64                         = 0.0
-    "iterations"           :: Int                             = 10
-    "time_limit"           :: Float64                         = +Inf
-    "maxdim"               :: Union{Int, Vector{Int}}         = [10, 20, 50, 100, 100, 200]
-    "mindim"               :: Union{Int, Vector{Int}}         = 1
-    "noise"                :: Union{Float64, Vector{Float64}} = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0]
-    "eigsolve_krylovdim"   :: Int                             = 3
-    "eigsolve_maxiter"     :: Int                             = 1
-    "eigsolve_tol"         :: Float64                         = 1e-14
-    "preprocess"           :: Bool                            = false
-    "verbosity"            :: Int                             = 1
+    Cutoff["cutoff"]                         :: Float64                         = 1e-8
+    Device["device"]                         :: Function                        = cpu
+    Vtol["vtol"]                             :: Float64                         = 0.0
+    Iterations["iterations"]                 :: Int                             = 10
+    TimeLimit["time_limit"]                  :: Float64                         = +Inf
+    MaxDim["maxdim"]                         :: Union{Int, Vector{Int}}         = [10, 20, 50, 100, 100, 200]
+    MinDim["mindim"]                         :: Union{Int, Vector{Int}}         = 1
+    Noise["noise"]                           :: Union{Float64, Vector{Float64}} = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0]
+    EigsolveKrylovDim["eigsolve_krylovdim"]  :: Int                             = 3
+    EigsolveMaxiter["eigsolve_maxiter"]      :: Int                             = 1
+    EigsolveTol["eigsolve_tol"]              :: Float64                         = 1e-14
+    Preprocess["preprocess"]                 :: Bool                            = false
+    Verbosity["verbosity"]                   :: Int                             = 1
     # Backend selection
     "backend"              :: Union{Symbol, String}           = :dmrg
     # PEPS backend keywords
@@ -62,6 +63,9 @@ QUBODrivers.@setup Optimizer begin
     "peps_truncation"      :: Any                             = nothing
   end
 end
+
+QUBODrivers.honors_final_reads(::Type{<:Optimizer}) = true
+QUBODrivers.enforces_time_limit(::Type{<:Optimizer}) = true
 
 function _optimizer_symbol(value::Symbol, attr::AbstractString)
   return Symbol(lowercase(String(value)))
@@ -197,8 +201,8 @@ function _add_backend_metadata!(metadata::Dict{String,Any}, psi::PEPSSolution)
   peps = copy(psi.metadata)
   peps["candidate_states"] = length(psi.states)
   peps["effective_time"] = metadata["time"]["effective"]
-  metadata["backend"] = get(peps, "backend", "SpinGlassPEPS")
-  metadata["peps"] = peps
+  tensolver = get!(metadata, "tensolver", Dict{String,Any}())
+  tensolver["peps"] = peps
   return metadata
 end
 
@@ -208,15 +212,16 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   # ~ Manage Attributes ~ #
   get(attr) = MOI.get(sampler, MOI.RawOptimizerAttribute(attr))
 
-  if MOI.get(sampler, MOI.TimeLimitSec()) !== nothing
-    MOI.set(sampler, MOI.RawOptimizerAttribute("time_limit"), MOI.get(sampler, MOI.TimeLimitSec()))
-  end
-
-  if MOI.get(sampler, MOI.Silent())
-    MOI.set(sampler, MOI.RawOptimizerAttribute("verbosity"), 0)
-  end
+  moi_time_limit = MOI.get(sampler, MOI.TimeLimitSec())
+  time_limit = isnothing(moi_time_limit) ? get("time_limit") : moi_time_limit
+  verbosity = MOI.get(sampler, MOI.Silent()) ? 0 : get("verbosity")
 
   num_reads = MOI.get(sampler, NumberOfReads())
+  final_num_reads = MOI.get(sampler, QUBODrivers.FinalNumberOfReads())
+
+  if num_reads < 0
+    error("Number of reads must be a non-negative integer")
+  end
 
   # ~ Solve ~ #
   n, l, Q, a, b = QUBOTools.qubo(sampler, :sparse; sense = :min)
@@ -227,7 +232,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     @timed minimize(Q, l, b;
       backend,
       cutoff = get("cutoff"),
-      verbosity = get("verbosity"),
+      verbosity,
     )
   else
     @timed minimize(Q, l, b;
@@ -235,33 +240,141 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
       cutoff      = get("cutoff"),
       vtol        = get("vtol"),
       iterations  = get("iterations"),
-      time_limit  = get("time_limit"),
+      time_limit,
       maxdim      = get("maxdim"),
       mindim      = get("mindim"),
       noise       = get("noise"),
       device      = get("device"),
-      verbosity   = get("verbosity"),
+      verbosity,
       eigsolve_krylovdim =  get("eigsolve_krylovdim"),
       eigsolve_tol       =  get("eigsolve_tol"),
       eigsolve_maxiter   =  get("eigsolve_maxiter"),
     )
   end
-  energy, psi = results.value
-  obj = a * energy
+  _, psi = results.value
 
   # ~ Samples and Output ~ #
-  samples = _qubo_samples(T, psi, l, Q, a, b, num_reads)
+  samples = _qubo_samples(T, psi, l, Q, a, b, final_num_reads)
 
   # ~ Metadata ~ #
-  metadata = Dict{String,Any}(
-      "origin" => "TenSolver",
-      "time"   => Dict{String,Any}(
-          "effective" => results.time,
-      ),
+  metadata = _tensolver_metadata(
+    psi;
+    effective_time  = results.time,
+    num_reads,
+    final_num_reads,
+    time_limit,
+    iterations      = get("iterations"),
+    cutoff          = get("cutoff"),
+    vtol            = get("vtol"),
+    maxdim          = get("maxdim"),
   )
   _add_backend_metadata!(metadata, psi)
 
-  return QUBOTools.SampleSet{T,Int}(samples, metadata; sense = :min, domain = :bool)
+  return QUBOTools.SampleSet{T}(samples, metadata; sense = :min, domain = :bool)
+end
+
+function _tensolver_metadata(
+  solution::Solution;
+  effective_time::Real,
+  num_reads::Integer,
+  final_num_reads::Integer,
+  time_limit::Real,
+  iterations::Integer,
+  cutoff::Real,
+  vtol::Real,
+  maxdim,
+)
+  optimizer_iterations = length(solution.energies)
+  termination_status, status = _tensolver_status(
+    solution;
+    iterations,
+    time_limit,
+  )
+  metadata = QUBODrivers._sampler_metadata(
+    origin                = "TenSolver.jl",
+    algorithm_name        = "DMRG",
+    backend_name          = "TenSolver",
+    backend_version       = __VERSION__,
+    execution_mode        = "tensor_network_dmrg",
+    optimizer_iterations  = optimizer_iterations,
+    optimizer_evaluations = nothing,
+    number_of_reads       = num_reads,
+    final_number_of_reads = final_num_reads,
+    status                = status,
+    termination_status    = termination_status,
+  )
+  metadata["time"] = Dict{String,Any}("effective" => effective_time)
+  metadata["tensolver"] = Dict{String,Any}(
+    "dmrg" => Dict{String,Any}(
+      "sweep_elapsed" => copy(solution.elapsed_times),
+      "sweep_times"   => _sweep_times(solution.elapsed_times),
+    ),
+    "parameters" => Dict{String,Any}(
+      "cutoff"     => cutoff,
+      "vtol"       => vtol,
+      "maxdim"     => maxdim isa AbstractVector ? copy(maxdim) : maxdim,
+      "iterations" => iterations,
+      "time_limit" => time_limit,
+    ),
+  )
+
+  return metadata
+end
+
+function _tensolver_metadata(
+  solution::PEPSSolution;
+  effective_time::Real,
+  num_reads::Integer,
+  final_num_reads::Integer,
+  time_limit::Real,
+  iterations::Integer,
+  cutoff::Real,
+  vtol::Real,
+  maxdim,
+)
+  algorithm_name = get(solution.metadata, "backend", "SpinGlassPEPS")
+  metadata = QUBODrivers._sampler_metadata(
+    origin                = "TenSolver.jl",
+    algorithm_name,
+    backend_name          = "TenSolver",
+    backend_version       = __VERSION__,
+    execution_mode        = "tensor_network_peps",
+    optimizer_iterations  = 1,
+    optimizer_evaluations = length(solution.states),
+    number_of_reads       = num_reads,
+    final_number_of_reads = final_num_reads,
+    status                = "locally_solved",
+    termination_status    = MOI.LOCALLY_SOLVED,
+  )
+  metadata["time"] = Dict{String,Any}("effective" => effective_time)
+  metadata["tensolver"] = Dict{String,Any}(
+    "parameters" => Dict{String,Any}(
+      "cutoff"     => cutoff,
+      "vtol"       => vtol,
+      "maxdim"     => maxdim isa AbstractVector ? copy(maxdim) : maxdim,
+      "iterations" => iterations,
+      "time_limit" => time_limit,
+    ),
+  )
+
+  return metadata
+end
+
+function _tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
+  elapsed_time = isempty(solution.elapsed_times) ? 0.0 : last(solution.elapsed_times)
+  if length(solution.energies) >= iterations
+    return MOI.ITERATION_LIMIT, "iteration_limit"
+  elseif isfinite(time_limit) && elapsed_time > time_limit
+    return MOI.TIME_LIMIT, "time_limit"
+  else
+    return MOI.LOCALLY_SOLVED, "locally_solved"
+  end
+end
+
+function _sweep_times(elapsed_times::Vector{Float64})
+  isempty(elapsed_times) && return Float64[]
+
+  return diff(vcat(0.0, elapsed_times))
 end
 
 end # module TenSolver

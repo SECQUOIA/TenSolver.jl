@@ -128,11 +128,12 @@ offset conventions visible because mistakes there can silently return plausible
 but wrong energies.
 
 TenSolver uses the Boolean/spin convention `x_i = (s_i + 1) / 2` and
-`s_i = 2x_i - 1`. The conversion utilities preserve TenSolver's current QUBO
-truth objective, `dot(x, Q, x) + dot(l, x) + c`; for non-symmetric matrices the
-effective pair coefficient is therefore `Q[i, j] + Q[j, i]`. The Ising model
-stores one coupling per unordered pair plus an explicit constant offset, so
-`ising_energy(qubo_to_ising(Q, l, c), bool_to_spin(x))` matches the Boolean
+`s_i = 2x_i - 1`. The conversion utilities are adapters into QUBOTools forms,
+not a separate conversion implementation. They preserve TenSolver's current
+QUBO truth objective, `dot(x, Q, x) + dot(l, x) + c`; for non-symmetric
+matrices the effective pair coefficient is therefore `Q[i, j] + Q[j, i]`.
+`qubo_to_ising(Q, l, c)` returns a sparse QUBOTools form in `SpinDomain`, so
+`QUBOTools.value(bool_to_spin(x), qubo_to_ising(Q, l, c))` matches the Boolean
 objective for every bitstring `x`.
 
 Layout metadata should also be explicit. A PEPS backend call should know whether
@@ -241,7 +242,8 @@ install/load the optional PEPS bridge.
 The integration should be implemented as a sequence of stacked PRs:
 
 1. Add this design document and link it from the documentation navigation.
-2. Add QUBO/Ising conversion utilities with exact energy-preservation tests.
+2. Add QUBOTools-backed QUBO/Ising conversion adapters with exact
+   energy-preservation tests.
 3. Introduce a backend interface while keeping the current DMRG backend as the
    default implementation.
 4. Add an optional SpinGlassPEPS-backed structured solver path for direct

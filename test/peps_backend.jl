@@ -1,4 +1,5 @@
 @testset "PEPS backend core" begin
+  @test !(:Solution in names(TenSolver))
   @test !(:PEPSBackend in names(TenSolver))
   @test !(:SquareGrid in names(TenSolver))
   @test !(:KingGrid in names(TenSolver))
@@ -43,7 +44,7 @@
   @test occursin("PEPSBackend is not available", sprint(showerror, peps_error))
   @test occursin("SpinGlassNetworks", sprint(showerror, peps_error))
 
-  model = IsingModel(zeros(1, 1), [-1.0])
+  model = TenSolver.IsingModel(zeros(1, 1), [-1.0])
   energy, solution = solve_ising(model; backend = :dmrg, verbosity = 0)
   @test energy ≈ -1.0
   @test sample(solution) == [1]
@@ -61,6 +62,16 @@
   @test !([1, 0] in peps_solution)
   @test !([0, 0] in peps_solution)
   @test TenSolver.prob(peps_solution, [0, 1]) ≈ 1.0
+
+  duplicate_state_solution = TenSolver.PEPSSolution{Float64}(
+    [[1, 0], [0, 1], [1, 0]],
+    [-2.0, -1.0, -2.0],
+    [0.2, 0.3, 0.4],
+    Dict{String, Any}("backend" => "SpinGlassPEPS"),
+    nothing,
+  )
+  @test TenSolver.prob(duplicate_state_solution, [1, 0]) ≈ 0.6
+  @test TenSolver.prob(duplicate_state_solution, [0, 1]) ≈ 0.3
 
   @test_throws ArgumentError sample(TenSolver.PEPSSolution{Float64}(
     [[1, 0], [0, 1]],

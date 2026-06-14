@@ -1,4 +1,5 @@
 struct TestSymbolBackend <: TenSolver.AbstractTenSolverBackend end
+struct MissingMethodBackend <: TenSolver.AbstractTenSolverBackend end
 
 TenSolver._normalize_backend(::Val{:test_symbol_backend}) = TestSymbolBackend()
 function TenSolver._minimize(::TestSymbolBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); kwargs...) where {T}
@@ -33,7 +34,7 @@ end
     J = [0.0 0.5; 1.0 0.0]
     h = [-0.25, 0.75]
     offset = 2.0
-    model = IsingModel(J, h, offset)
+    model = TenSolver.IsingModel(J, h, offset)
     spin_states = [[s1, s2] for s1 in (-1, 1) for s2 in (-1, 1)]
     energies = [TenSolver.ising_energy(model, spin) for spin in spin_states]
     expected_energy, expected_index = findmin(energies)
@@ -75,7 +76,17 @@ end
     end
     @test peps_error isa ArgumentError
     @test occursin("backend :peps is not available", sprint(showerror, peps_error))
+    @test occursin("PEPS extension", sprint(showerror, peps_error))
     @test occursin("backend = :dmrg", sprint(showerror, peps_error))
+
+    unknown_symbol_error = try
+      minimize(Q; backend=:foo, verbosity=0)
+    catch err
+      err
+    end
+    @test unknown_symbol_error isa ArgumentError
+    @test occursin("No `_minimize` method is available for backend :foo", sprint(showerror, unknown_symbol_error))
+    @test !occursin("PEPS extension", sprint(showerror, unknown_symbol_error))
 
     unsupported_error = try
       minimize(Q; backend="dmrg", verbosity=0)
@@ -83,6 +94,15 @@ end
       err
     end
     @test unsupported_error isa ArgumentError
-    @test occursin("Unsupported backend", sprint(showerror, unsupported_error))
+    @test occursin("No `_minimize` method is available for backend \"dmrg\"", sprint(showerror, unsupported_error))
+
+    missing_method_error = try
+      minimize(Q; backend=MissingMethodBackend(), verbosity=0)
+    catch err
+      err
+    end
+    @test missing_method_error isa ArgumentError
+    @test occursin("No `_minimize` method is available for backend", sprint(showerror, missing_method_error))
+    @test occursin("MissingMethodBackend", sprint(showerror, missing_method_error))
   end
 end
