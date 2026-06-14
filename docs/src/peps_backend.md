@@ -85,6 +85,10 @@ backend = TenSolver.PEPSBackend(
 energy, solution = minimize(Q, l, c; backend, verbosity = 0)
 ```
 
+In the JuMP interface, the same PEPS setting is exposed as the raw optimizer
+attribute `"peps_strategy"`; for example, `"peps_strategy" => :svd` maps to
+`PEPSBackend(...; contraction = :svd)`.
+
 `TenSolver.SquareGrid(m, n)` assumes variables are ordered row by row across the
 `m` by `n` grid. `TenSolver.KingGrid(m, n)` uses the same variable order but
 permits diagonal neighbor interactions in addition to horizontal and vertical
@@ -188,10 +192,11 @@ optimize!(model)
 ```
 
 When PEPS is used through QUBODrivers, the returned QUBOTools `SampleSet`
-contains PEPS metadata under the `"peps"` key, including topology, search
-parameters, selected transformation, candidate-state count, and effective time.
-Standard JuMP calls such as `objective_value(model)` and `value.(x)` remain the
-portable interface for ordinary modeling workflows.
+follows the standard QUBODrivers metadata schema and stores PEPS details under
+`metadata["tensolver"]["peps"]`, including topology, search parameters, selected
+transformation, candidate-state count, and effective time. Standard JuMP calls
+such as `objective_value(model)` and `value.(x)` remain the portable interface
+for ordinary modeling workflows.
 
 ## Parameter Guide
 
@@ -206,8 +211,8 @@ portable interface for ordinary modeling workflows.
   and may discard useful low-energy candidates.
 - `transformations`: lattice transformations to try. `:identity` is fastest;
   `:all` can improve robustness by trying rotations/reflections.
-- `contraction`: contraction strategy, currently `:auto`, `:svd`,
-  `:svd_truncate`, or `:zipper`.
+- `contraction`: contraction strategy. Currently `:auto`, `:svd`, and
+  `:svd_truncate` all use SVD truncation; `:zipper` selects zipper contraction.
 - `local_dimension`: optional local dimension reduction. It can reduce cost but
   may remove globally optimal configurations if set too aggressively.
 - `onGPU`: requests SpinGlassPEPS GPU execution. GPU memory can limit feasible
