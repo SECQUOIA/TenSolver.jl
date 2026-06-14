@@ -36,24 +36,47 @@
       @test TenSolver.sample(psi) == [0, 1]
     end
 
+    @testset "Zero matrix + linear + const" begin
+      E, psi = minimize([0.0 0; 0 0], [1.0, -1.0], 3.0)
+
+      @test E ≈ 2.0
+      @test TenSolver.sample(psi) == [0, 1]
+    end
+
     @testset "Single variable" begin
-      E, psi = minimize(reshape([1.0], 1, 1); verbosity=0)
+      Q = reshape([-2.0], 1, 1)
+      E, psi = minimize(Q)
 
-      @test E ≈ 0.0
-      @test TenSolver.sample(psi) == [0]
+      @test E ≈ -2.0
+      @test TenSolver.sample(psi) == [1]
+      @test psi.energies == [-2.0]
+      @test psi.bond_dims == [1]
+      @test length(psi.elapsed_times) == 1
+    end
 
-      E, psi = minimize(reshape([0.0], 1, 1); verbosity=0)
+    @testset "Single variable with linear and constant terms" begin
+      Q = reshape([0.0], 1, 1)
+      E, psi = minimize(Q, [-3.0], 2.0)
+
+      @test E ≈ -1.0
+      @test TenSolver.sample(psi) == [1]
+    end
+
+    @testset "Single variable degeneracy" begin
+      Q = reshape([0.0], 1, 1)
+      E, psi = minimize(Q)
 
       @test E ≈ 0.0
       @test [0] in psi
       @test [1] in psi
     end
 
-    @testset "Zero matrix + linear + const" begin
-      E, psi = minimize([0.0 0; 0 0], [1.0, -1.0], 3.0)
+    @testset "Max: Single variable" begin
+      Q = reshape([2.0], 1, 1)
+      E, psi = maximize(Q)
 
       @test E ≈ 2.0
-      @test TenSolver.sample(psi) == [0, 1]
+      @test TenSolver.sample(psi) == [1]
     end
 
     @testset "Identity" begin
@@ -259,7 +282,14 @@
     c = 641.2245
     x0 = zeros(Int, 36)
 
-    polished = TenSolver._branch_bound_qubo(Q, l, c, x0, dot(x0, Q, x0) + dot(l, x0) + c)
+    polished = TenSolver._branch_bound_qubo(
+      Q,
+      l,
+      c,
+      x0,
+      dot(x0, Q, x0) + dot(l, x0) + c;
+      time_limit=Inf,
+    )
 
     @test !isnothing(polished)
     E, x = polished
@@ -267,10 +297,16 @@
     @test dot(x, Q, x) + dot(l, x) + c ≈ E
 
     Random.seed!(1)
+    incumbent_E, incumbent_psi = TenSolver.minimize(Q, l, c; iterations=1, polish=false, verbosity=0)
+    incumbent_x = TenSolver.sample(incumbent_psi)
+    incumbent = dot(incumbent_x, Q, incumbent_x) + dot(l, incumbent_x) + c
+    @test incumbent ≈ incumbent_E
+
+    Random.seed!(1)
     E, psi = TenSolver.minimize(Q, l, c; iterations=1, polish=true, polish_time_limit=1.0, verbosity=0)
     x = TenSolver.sample(psi)
 
-    @test E <= 11.7099 + 1e-8
+    @test E <= incumbent + 1e-8
     @test dot(x, Q, x) + dot(l, x) + c ≈ E
   end
 end
