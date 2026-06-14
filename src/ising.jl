@@ -115,6 +115,10 @@ For non-symmetric matrices, the QUBOTools form constructor preserves
 TenSolver's `dot(x, Q, x)` convention by storing the effective pair
 coefficient `Q[i, j] + Q[j, i]` once in the upper triangle.
 
+The Boolean-to-spin conversion introduces halves and quarters. Integer
+coefficient inputs therefore return floating-point forms, while rational inputs
+preserve exact rational arithmetic.
+
 The returned form includes the constant offset, so
 
 ```julia
@@ -149,6 +153,10 @@ dot(s, J, s) + dot(h, s) + offset
 with `s_i in {-1, +1}`. QUBOTools folds diagonal quadratic spin terms into the
 constant offset and stores each off-diagonal unordered pair once in the upper
 triangle.
+
+As with [`qubo_to_ising`](@ref), integer coefficient inputs return
+floating-point forms when the conversion introduces fractional coefficients,
+while rational inputs preserve exact rational arithmetic.
 """
 function ising_to_qubo(form::QUBOTools.AbstractForm)
   _check_form_domain(form, QUBOTools.SpinDomain, "Ising-to-QUBO")

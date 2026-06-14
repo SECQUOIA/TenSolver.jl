@@ -75,6 +75,14 @@ using SparseArrays
       Q = randn(rng, n, n)
       assert_conversion(Q, zeros(n), 0.0; exact=false)
     end
+
+    Q = [
+      0//1   -3//4   2//5
+      1//6    0//1  -5//7
+      0//1    3//8   1//9
+    ]
+    l = [2//3, -1//5, 4//7]
+    assert_conversion(Q, l, -11//13)
   end
 
   @testset "Dense non-symmetric rational QUBO" begin
