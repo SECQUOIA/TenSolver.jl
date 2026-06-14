@@ -1,4 +1,5 @@
 import JuMP
+import QUBODrivers
 import QUBOTools
 
 struct FakePEPSTopology <: TenSolver.AbstractStructuredTopology
@@ -207,8 +208,8 @@ end
     JuMP.set_attribute(model, "peps_cutoff_prob", 0.0)
     JuMP.set_attribute(model, "peps_strategy", :svd)
     JuMP.set_attribute(model, "peps_transformations", :identity)
-    JuMP.set_attribute(model, "peps_truncation", 2)
-    JuMP.set_attribute(model, "num_reads", 5)
+    JuMP.set_attribute(model, "peps_local_dimension", 2)
+    JuMP.set_attribute(model, QUBODrivers.FinalNumberOfReads(), 5)
     @JuMP.variable(model, x[1:2], Bin)
     @JuMP.objective(model, Min, -x[1] - 2x[2])
 
@@ -224,9 +225,14 @@ end
     @test QUBOTools.reads(solution, 1) == 4
     @test QUBOTools.state(solution, 2) == [1, 0]
     @test QUBOTools.reads(solution, 2) == 1
-    @test metadata["backend"] == "FakePEPS"
-    @test metadata["peps"]["topology"] == "fake"
-    @test metadata["peps"]["candidate_states"] == 2
+    @test isempty(QUBODrivers.validate_metadata(solution))
+    @test metadata["algorithm"]["name"] == "FakePEPS"
+    @test metadata["backend"]["name"] == "TenSolver"
+    @test metadata["backend"]["version"] == TenSolver.__VERSION__
+    @test metadata["optimizer"]["evaluations"] == 2
+    @test metadata["reads"]["final_number_of_reads"] == 5
+    @test metadata["tensolver"]["peps"]["topology"] == "fake"
+    @test metadata["tensolver"]["peps"]["candidate_states"] == 2
   end
 
   @testset "PEPS SampleSet adaptation" begin
@@ -256,10 +262,10 @@ end
     )
     TenSolver._add_backend_metadata!(metadata, peps)
 
-    @test metadata["backend"] == "SpinGlassPEPS"
-    @test metadata["peps"]["topology"] == "square"
-    @test metadata["peps"]["candidate_states"] == 2
-    @test metadata["peps"]["effective_time"] == 1.25
-    @test metadata["peps"]["largest_discarded_probability"] == 0.01
+    @test metadata["tensolver"]["peps"]["backend"] == "SpinGlassPEPS"
+    @test metadata["tensolver"]["peps"]["topology"] == "square"
+    @test metadata["tensolver"]["peps"]["candidate_states"] == 2
+    @test metadata["tensolver"]["peps"]["effective_time"] == 1.25
+    @test metadata["tensolver"]["peps"]["largest_discarded_probability"] == 0.01
   end
 end
