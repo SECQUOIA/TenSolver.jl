@@ -9,7 +9,6 @@ const __VERSION__ = pkgversion(@__MODULE__)
 
 include("solution.jl")
 export sample
-export Solution
 
 include("ising.jl")
 export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo

@@ -335,7 +335,7 @@ function _minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
 end
 
 function _minimize(backend::PEPSBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); kwargs...) where T
-  return _solve_ising(backend, qubo_to_ising(Q, l, c); kwargs...)
+  return _solve_ising(backend, IsingModel(qubo_to_ising(Q, l, c)); kwargs...)
 end
 
 function _minimize(backend::PEPSBackend, p::AbstractPolynomial; kwargs...)
@@ -368,8 +368,8 @@ function _solve_ising(backend::AbstractTenSolverBackend, model::IsingModel; kwar
 end
 
 function _solve_ising(::DMRGBackend, model::IsingModel; kwargs...)
-  qubo = ising_to_qubo(model)
-  return _minimize(default_backend, qubo.Q, qubo.l, qubo.c; kwargs...)
+  Q, l, c = _scaled_form_parts(ising_to_qubo(model))
+  return _minimize(default_backend, Q, l, c; kwargs...)
 end
 
 function _minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); cutoff=1e-8, kwargs...) where T

@@ -140,19 +140,23 @@ function _deduplicated_records(records)
   sort!(records; by = r -> (r.energy, -r.probability))
 
   deduped = NamedTuple[]
-  seen = Set{Any}()
+  positions = Dict{Any, Int}()
   for record in records
     key = Tuple(record.state)
-    if !(key in seen)
+    index = get(positions, key, nothing)
+    if isnothing(index)
       push!(deduped, record)
-      push!(seen, key)
+      positions[key] = lastindex(deduped)
+    else
+      existing = deduped[index]
+      deduped[index] = (; existing..., probability = existing.probability + record.probability)
     end
   end
 
   return deduped
 end
 
-function _metadata(backend::PEPSBackend, records, raw_results)
+function _metadata(backend::PEPSBackend, records, raw_results, failures)
   best = first(records)
   raw = raw_results[best.transformation]
   return Dict{String, Any}(
@@ -169,6 +173,7 @@ function _metadata(backend::PEPSBackend, records, raw_results)
     "graduate_truncation" => backend.graduate_truncation,
     "local_dimension" => backend.local_dimension,
     "transformations_tried" => collect(string.(keys(raw_results))),
+    "transformations_failed" => [string(failure.transformation) for failure in failures],
     "selected_transformation" => string(best.transformation),
     "spin_glass_energies" => collect(raw.solution.energies),
     "spin_glass_probabilities" => collect(raw.solution.probabilities),
@@ -202,6 +207,7 @@ function TenSolver._solve_ising(backend::PEPSBackend, model::IsingModel; cutoff 
 
   records = NamedTuple[]
   raw_results = Dict{Any, Any}()
+  failures = NamedTuple[]
   for transform in _transformations(backend.transformations)
     try
       net = _network(backend.topology, potts_h, transform, S)
@@ -223,18 +229,31 @@ function TenSolver._solve_ising(backend::PEPSBackend, model::IsingModel; cutoff 
 
       raw_results[transform] = (; solution = sol, info)
       append!(records, _decoded_records(model, potts_h, sol, transform))
+    catch err
+      push!(failures, (;
+        transformation = transform,
+        error = sprint(showerror, err),
+      ))
+      verbosity > 0 && @warn "SpinGlassPEPS transformation failed" transformation = transform exception = (err, catch_backtrace())
     finally
       SpinGlassEngine.clear_memoize_cache()
     end
   end
 
-  isempty(records) && throw(ArgumentError("SpinGlassPEPS did not return any states."))
+  if isempty(records)
+    if isempty(failures)
+      throw(ArgumentError("SpinGlassPEPS did not return any states."))
+    end
+
+    failure_summary = join(("$(failure.transformation): $(failure.error)" for failure in failures), "; ")
+    throw(ArgumentError("SpinGlassPEPS did not return any states. Failed transformations: $failure_summary"))
+  end
   records = _deduplicated_records(records)
   states = [record.state for record in records]
   energies = S[record.energy for record in records]
   probabilities = S[record.probability for record in records]
-  metadata = _metadata(backend, records, raw_results)
-  raw = (; results = raw_results)
+  metadata = _metadata(backend, records, raw_results, failures)
+  raw = (; results = raw_results, failures)
 
   verbosity > 0 && @info "SpinGlassPEPS backend finished" energy = first(energies) states = length(states)
 
