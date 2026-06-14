@@ -52,15 +52,15 @@ QUBODrivers.@setup Optimizer begin
     # PEPS backend keywords
     "peps_topology"        :: Any                             = nothing
     "peps_layout"          :: Union{Symbol, String}           = :square
-    "peps_beta"            :: Float64                         = 1.0
+    "peps_beta"            :: Float64                         = 2.0
     "peps_bond_dim"        :: Int                             = 8
     "peps_max_states"      :: Int                             = 256
     "peps_cutoff_prob"     :: Float64                         = 0.0
     "peps_onGPU"           :: Bool                            = false
-    "peps_strategy"        :: Union{Symbol, String}           = :svd
+    "peps_strategy"        :: Union{Symbol, String}           = :auto
     "peps_num_sweeps"      :: Int                             = 1
     "peps_transformations" :: Any                             = :all
-    "peps_truncation"      :: Any                             = nothing
+    "peps_local_dimension" :: Any                             = nothing
   end
 end
 
@@ -113,10 +113,10 @@ function _peps_topology(layout, topology)
   throw(ArgumentError("Unsupported `peps_layout` $(repr(layout)). Use :square or :king."))
 end
 
-function _peps_truncation(truncation)
-  truncation === nothing && return nothing
-  truncation isa Integer && return Int(truncation)
-  throw(ArgumentError("Only integer `peps_truncation` values are currently supported as local dimension limits. Got $(repr(truncation))."))
+function _peps_local_dimension(local_dimension)
+  local_dimension === nothing && return nothing
+  local_dimension isa Integer && return Int(local_dimension)
+  throw(ArgumentError("Only integer `peps_local_dimension` values are currently supported as local dimension limits. Got $(repr(local_dimension))."))
 end
 
 function _optimizer_peps_backend(get)
@@ -130,7 +130,7 @@ function _optimizer_peps_backend(get)
     contraction = _optimizer_symbol(get("peps_strategy"), "peps_strategy"),
     num_sweeps = get("peps_num_sweeps"),
     transformations = get("peps_transformations"),
-    local_dimension = _peps_truncation(get("peps_truncation")),
+    local_dimension = _peps_local_dimension(get("peps_local_dimension")),
   )
 end
 
@@ -335,7 +335,7 @@ function _tensolver_metadata(
   algorithm_name = get(solution.metadata, "backend", "SpinGlassPEPS")
   metadata = QUBODrivers._sampler_metadata(
     origin                = "TenSolver.jl",
-    algorithm_name,
+    algorithm_name        = algorithm_name,
     backend_name          = "TenSolver",
     backend_version       = __VERSION__,
     execution_mode        = "tensor_network_peps",

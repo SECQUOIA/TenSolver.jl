@@ -208,7 +208,7 @@ end
     JuMP.set_attribute(model, "peps_cutoff_prob", 0.0)
     JuMP.set_attribute(model, "peps_strategy", :svd)
     JuMP.set_attribute(model, "peps_transformations", :identity)
-    JuMP.set_attribute(model, "peps_truncation", 2)
+    JuMP.set_attribute(model, "peps_local_dimension", 2)
     JuMP.set_attribute(model, QUBODrivers.FinalNumberOfReads(), 5)
     @JuMP.variable(model, x[1:2], Bin)
     @JuMP.objective(model, Min, -x[1] - 2x[2])
