@@ -20,9 +20,10 @@ backends implement `minimize(::MyBackend, p::AbstractPolynomial; kwargs...)`.
 Extensions that support symbolic selection must also define
 `normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
 
-# See also
+The default implementation is [`DMRGBackend`](@ref).
 
-[`DMRGBackend`](@ref), [`normalize_backend`](@ref)
+# See also
+[`DMRGBackend`](@ref), [`normalize_backend`](@ref).
 """
 abstract type AbstractTenSolverBackend end
 
