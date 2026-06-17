@@ -54,6 +54,30 @@
       @test length(psi.elapsed_times) == 1
     end
 
+    @testset "Single variable callback" begin
+      Q = reshape([-2.0], 1, 1)
+      callback = Dict{Symbol,Any}()
+      E, psi = minimize(
+        Q;
+        verbosity = 0,
+        on_iteration = (mps; iteration, objective, bond_dim, elapsed_time) -> begin
+          callback[:iteration] = iteration
+          callback[:objective] = objective
+          callback[:bond_dim] = bond_dim
+          callback[:elapsed_time] = elapsed_time
+          callback[:mps_objectid] = objectid(mps)
+        end,
+      )
+
+      @test E ≈ -2.0
+      @test TenSolver.sample(psi) == [1]
+      @test callback[:iteration] == 1
+      @test callback[:objective] ≈ -2.0
+      @test callback[:bond_dim] == 1
+      @test callback[:elapsed_time] isa Float64
+      @test callback[:mps_objectid] isa UInt
+    end
+
     @testset "Single variable with linear and constant terms" begin
       Q = reshape([0.0], 1, 1)
       E, psi = minimize(Q, [-3.0], 2.0)

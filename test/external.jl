@@ -99,6 +99,19 @@ end
   @test local_solve_metadata["status"] == "locally_solved"
   @test local_solve_metadata["termination_status"] == MOI.LOCALLY_SOLVED
 
+  negative_reads_model = _qubodrivers_test_model()
+  MOI.set(negative_reads_model, TenSolver.NumberOfReads(), -1)
+  negative_reads_error = try
+    MOI.optimize!(negative_reads_model)
+  catch err
+    err
+  end
+  @test negative_reads_error isa ErrorException
+  @test occursin(
+    "Number of reads must be a non-negative integer",
+    sprint(showerror, negative_reads_error),
+  )
+
   QUBODrivers.test(TenSolver.Optimizer; benchmark_conformance = true) do model
     MOI.set(model, MOI.RawOptimizerAttribute("iterations"), 1)
     MOI.set(model, MOI.RawOptimizerAttribute("verbosity"), 0)
