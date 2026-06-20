@@ -24,8 +24,11 @@ include(filepath("utils.jl"))
 end
 
 # Traditional interface
+include(filepath("objective.jl"))
+include(filepath("backends.jl"))
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
+include(filepath("gtn.jl"))
 # Iteration Log utilities
 include(filepath("log.jl"))
 # JuMP interface

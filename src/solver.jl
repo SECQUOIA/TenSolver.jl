@@ -8,10 +8,6 @@ import ITensors, ITensorMPS
 
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, isconstant
 
-function issquare(a :: AbstractArray)
-  return allequal(size(a))
-end
-
 # Strict upper triangular part of an array
 function upper_indices(a)
   return (Tuple(ci)
@@ -51,6 +47,21 @@ for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
     ∑ Q_ij x_i x_j + ∑ l_i x_i --> H = Σ Q_ij D_i D_j + ∑ l_i D_i
 """
 function tensorize end
+
+function tensorize(model::PseudoBooleanModel{T}; cutoff = zero(T)) where T
+  N = length(model)
+  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  os = OpSum{T}()
+
+  for (vars, coeff) in model.terms
+    if abs(coeff) > cutoff
+      op = Iterators.flatmap(v -> ("D", v), vars)
+      os .+= (coeff, op...)
+    end
+  end
+
+  return isempty(os) ? MPO(T, sites) : MPO(T, os, sites)
+end
 
 function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T)) where T
   Qs = [Q, rest...]
@@ -170,18 +181,50 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, kwargs...) where T
-  H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
-  obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
-
-  return _minimize(H, c, obj; cutoff, kwargs...)
+function minimize(model::PseudoBooleanModel; backend=DMRGBackend(), cutoff=1e-8, kwargs...)
+  selected_backend = backend isa AbstractBackend ? backend : backend_from_attribute(backend)
+  return _solve_backend(selected_backend, model; cutoff, kwargs...)
 end
 
-function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
-  H   = tensorize(p)
-  cte = constant(p)
-  vs = variables(p)
-  return _minimize(H, cte, a -> p(vs => a); cutoff, kwargs...)
+const _DMRG_SOLVER_KEYWORDS = Set([
+  :device,
+  :verbosity,
+  :iterations,
+  :time_limit,
+  :vtol,
+  :check_variance_every_iteration,
+  :inidim,
+  :maxdim,
+  :mindim,
+  :noise,
+  :eigsolve_krylovdim,
+  :eigsolve_maxiter,
+  :eigsolve_tol,
+  :on_iteration,
+  :callback_every,
+])
+
+function _check_dmrg_backend_kwargs(kwargs)
+  unknown = filter(key -> !(key in _DMRG_SOLVER_KEYWORDS), keys(kwargs))
+  isempty(unknown) && return
+  names = join(("`$key`" for key in unknown), ", ")
+  throw(ArgumentError("Unsupported solver keyword(s): $names"))
+end
+
+function _solve_backend(::DMRGBackend, model::PseudoBooleanModel{T}; cutoff=1e-8, kwargs...) where {T}
+  _check_dmrg_backend_kwargs(kwargs)
+  H = tensorize(model; cutoff)
+  return _minimize(H, model.constant, x -> evaluate(model, x); cutoff, kwargs...)
+end
+
+function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, backend=DMRGBackend(), kwargs...) where T
+  model = pseudoboolean(Q, l, c; cutoff=zero(T))
+  return minimize(model; backend, cutoff, kwargs...)
+end
+
+function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, backend=DMRGBackend(), kwargs...) where T
+  model = pseudoboolean(p; cutoff=zero(T))
+  return minimize(model; backend, cutoff, kwargs...)
 end
 
 function _single_variable_minimize(::Type{T}, sites, obj, initial_time; device, verbosity, on_iteration, callback_every) where {T}
@@ -362,5 +405,5 @@ function maximize(qs... ; kwargs...)
   mqs = map(q -> maybe(-, q), qs)
   E, psi = minimize(mqs...; kwargs...)
 
-  return -E, psi
+  return -E, _with_objective(psi, -E)
 end

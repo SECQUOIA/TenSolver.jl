@@ -7,8 +7,13 @@ using LinearAlgebra
 
 const __VERSION__ = pkgversion(@__MODULE__)
 
+include("objective.jl")
+
+include("backends.jl")
+export AbstractBackend, DMRGBackend, GTNBackend, solution_space
+
 include("solution.jl")
-export sample
+export Solution, GTNSolution, sample
 
 include("solver.jl")
 export minimize, maximize
@@ -30,6 +35,11 @@ QUBODrivers.@setup Optimizer begin
     # JuMP-specific
     NumberOfReads["num_reads"] :: Integer = 1_000
     # Solver keywords
+    Backend["backend"]                       :: Union{AbstractBackend, String, Symbol} = DMRGBackend()
+    GTNProperty["gtn_property"]              :: Symbol                          = :single
+    GTNK["gtn_k"]                            :: Int                             = 1
+    GTNUseCUDA["gtn_usecuda"]                :: Bool                            = false
+    GTNElementType["gtn_T"]                  :: Type                            = Float64
     Cutoff["cutoff"]                         :: Float64                         = 1e-8
     Device["device"]                         :: Function                        = cpu
     Vtol["vtol"]                             :: Float64                         = 0.0
@@ -64,6 +74,14 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     error("Number of reads must be a non-negative integer")
   end
 
+  backend = backend_from_attribute(
+    get("backend");
+    property = get("gtn_property"),
+    k = get("gtn_k"),
+    usecuda = get("gtn_usecuda"),
+    T = get("gtn_T"),
+  )
+
   # ~ Solve ~ #
   n, l, Q, a, b = QUBOTools.qubo(sampler, :sparse; sense = :min)
   # min_x a*(x'Qx + l'x + b)
@@ -81,6 +99,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     eigsolve_krylovdim =  get("eigsolve_krylovdim"),
     eigsolve_tol       =  get("eigsolve_tol"),
     eigsolve_maxiter   =  get("eigsolve_maxiter"),
+    backend     = backend,
   )
   _, psi = results.value
 
