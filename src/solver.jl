@@ -127,7 +127,7 @@ Keyword arguments:
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
-- `mindim` - The minimum allowed bond dimension, if possible.
+- `mindim` - The minimum allowed bond dimension, if possible.  Defaults to `1`.
   Integer or array of integer specifying the bond dimension per iteration.
 - `time_limit :: Float64` - If specified, determines the maximum running time in seconds.
   It only determines whether a new iteration should start or not, thus the solver may run for longer if the threshold happens during an iteration.
