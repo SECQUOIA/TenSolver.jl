@@ -8,14 +8,6 @@ import ITensors, ITensorMPS
 
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, isconstant
 
-function issquare(a :: AbstractArray)
-  return allequal(size(a))
-end
-
-function edge_key(i::Integer, j::Integer)
-  return i < j ? (Int(i), Int(j)) : (Int(j), Int(i))
-end
-
 # Strict upper triangular part of an array
 function upper_indices(a)
   return (Tuple(ci)
@@ -236,9 +228,9 @@ Keyword arguments:
 - `vtol :: Float64` - If specified, determines the variance tolerance before the algorithm stops.
   The variance test determines whether DMRG converged to an eigenstate (not necessarily the ground state),
   but is expensive to calculate.
-- `preprocess :: Bool` - If `true`, permute QUBO variables before constructing the MPS Hamiltonian
+- `preprocess :: Bool` - Defaults to `false`. If `true`, permute QUBO variables before constructing the MPS Hamiltonian
   so coupled variables are closer in the one-dimensional tensor order. Samples are returned in the
-  caller's original variable order.
+  caller's original variable order. This is an experimental feature and may be subject to changes.
 - `noise` - A float or array of floats (per iteration) specifying the noise term added to the system to help with convergence.
   It is recommended to use a large noise (~ 1e-5) on the initial iterations and let it go to zero on later iterations.
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
@@ -274,7 +266,7 @@ See also [`maximize`](@ref).
 function minimize end
 
 function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, preprocess::Bool=false, kwargs...) where T
-  Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, nothing)
+  Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
   H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
 
@@ -341,7 +333,7 @@ function _minimize( H :: MPO
                   # Iteration callback
                   , on_iteration :: Union{Nothing, Function} = nothing
                   , callback_every   :: Int = 1
-                  , permutation :: Union{Nothing, Vector{Int}} = nothing
+                  , permutation :: Vector{Int} = Int[]
                   ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
   initial_time      = time()
@@ -351,6 +343,7 @@ function _minimize( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+  solution_permutation = isempty(permutation) ? collect(1:length(sites)) : permutation
 
   if length(sites) == 1
     return _single_variable_minimize(T, sites, obj, initial_time; device, verbosity, on_iteration, callback_every)
@@ -429,7 +422,7 @@ function _minimize( H :: MPO
 
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation)
+  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, solution_permutation)
   x    = sample(dist)
   optimal = obj(x)
   elapsed_time = time() - initial_time

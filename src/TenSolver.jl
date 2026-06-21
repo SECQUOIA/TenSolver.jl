@@ -10,6 +10,8 @@ const __VERSION__ = pkgversion(@__MODULE__)
 include("solution.jl")
 export sample
 
+include("preprocess.jl")
+
 include("solver.jl")
 export minimize, maximize
 
