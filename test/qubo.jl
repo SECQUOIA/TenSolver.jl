@@ -182,21 +182,40 @@
       scramble = [1, 3, 5, 2, 4]
       Q = path[scramble, scramble]
       permutation = TenSolver.qmatrix_permutation(Q)
+      original_bandwidth = qubo_bandwidth(Q)
+      permuted_bandwidth = qubo_bandwidth(Q[permutation, permutation])
 
       @test sort(permutation) == collect(1:5)
-      @test qubo_bandwidth(Q[permutation, permutation]) < qubo_bandwidth(Q)
+      @test original_bandwidth == 3
+      @test permuted_bandwidth == 1
     end
 
-    @testset "Samples are returned in original variable order" begin
+    @testset "Permutation cutoff" begin
+      Q = zeros(3, 3)
+      Q[3, 1] = 1e-9
+
+      @test TenSolver.qmatrix_permutation(Q; cutoff=0) == [3, 1, 2]
+      @test TenSolver.qmatrix_permutation(Q; cutoff=1e-8) == [1, 2, 3]
+    end
+
+    @testset "Preprocessing preserves solution and original variable order" begin
       Q = [0.0 0.0 -2.0;
            0.0 0.0  0.0;
           -2.0 0.0  0.0]
       l = [0.5, 1.0, 0.5]
 
-      E, psi = minimize(Q, l; preprocess=true, iterations=3, verbosity=0)
+      Random.seed!(1)
+      E0, psi0 = minimize(Q, l; preprocess=false, iterations=3, verbosity=0)
+      x0 = TenSolver.sample(psi0)
 
+      Random.seed!(1)
+      E, psi = minimize(Q, l; preprocess=true, iterations=3, verbosity=0)
+      x = TenSolver.sample(psi)
+
+      @test E0 ≈ -3.0
       @test E ≈ -3.0
-      @test TenSolver.sample(psi) == [1, 0, 1]
+      @test x0 == [1, 0, 1]
+      @test x == [1, 0, 1]
       @test [1, 0, 1] in psi
     end
   end
