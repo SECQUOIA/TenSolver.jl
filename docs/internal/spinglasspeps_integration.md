@@ -1,16 +1,16 @@
-# SpinGlassPEPS Integration Architecture
+# Internal SpinGlassPEPS Integration Architecture
 
-This page records the planned boundary between TenSolver.jl and the
+This internal developer note records the planned boundary between TenSolver.jl and the
 SpinGlassPEPS.jl work described in
 [arXiv:2411.16431](https://arxiv.org/abs/2411.16431). It is a design note for
 the implementation stack, not a description of behavior available in the
-current TenSolver release.
+current TenSolver release, and it is intentionally kept out of the generated
+user documentation.
 
 The central decision is that SpinGlassPEPS should be integrated as an optional
 structured-graph backend. It should not replace TenSolver's current
 ITensor-based DMRG backend, become a hard runtime dependency, or change the
-default behavior of [`minimize`](@ref), [`maximize`](@ref), or the JuMP
-optimizer.
+default behavior of `minimize`, `maximize`, or the JuMP optimizer.
 
 ## Current TenSolver Boundary
 
@@ -25,7 +25,7 @@ Boolean variables represented as two-dimensional qudit sites. It then applies
 DMRG through ITensorMPS.jl and returns:
 
 - the best sampled objective value; and
-- a [`Solution`](@ref), which wraps the MPS and per-iteration convergence
+- a `Solution`, which wraps the MPS and per-iteration convergence
   traces.
 
 This backend is general with respect to the variable ordering and QUBO/PUBO
@@ -184,7 +184,7 @@ install/load the optional PEPS bridge.
 
 The integration should be implemented as a sequence of stacked PRs:
 
-1. Add this design document and link it from the documentation navigation.
+1. Add this internal design document.
 2. Add QUBO/Ising conversion utilities with exact energy-preservation tests.
 3. Introduce a backend interface while keeping the current DMRG backend as the
    default implementation.

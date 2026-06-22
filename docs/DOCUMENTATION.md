@@ -8,8 +8,11 @@ The documentation is built using [Documenter.jl](https://github.com/JuliaDocs/Do
 
 - **Home** (`docs/src/index.md`): Overview, installation, quick start, and features
 - **Examples** (`docs/src/examples.md`): Practical examples showing how to use TenSolver.jl
-- **SpinGlassPEPS Integration** (`docs/src/spinglasspeps_integration.md`): Planned architecture for the optional structured PEPS backend
 - **API Reference** (`docs/src/api.md`): Complete API documentation with docstrings
+
+Internal developer notes live outside the generated user documentation:
+
+- **SpinGlassPEPS Integration** (`docs/internal/spinglasspeps_integration.md`): Planned architecture for the optional structured PEPS backend
 
 ## Building Documentation Locally
 
@@ -77,6 +80,13 @@ end
 1. Create a new `.md` file in `docs/src/`
 2. Add the page to the `pages` array in `docs/make.jl`
 3. Update the table of contents in `docs/src/index.md` if needed
+
+### Adding Internal Design Notes
+
+Use `docs/internal/` for implementation plans, architecture notes, and staged PR
+coordination that are useful to maintainers but should not appear in the
+published user documentation. Promote an internal note to `docs/src/` only when
+it describes behavior that is available to users.
 
 ## Deployment Configuration
 
