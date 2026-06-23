@@ -10,6 +10,8 @@ const __VERSION__ = pkgversion(@__MODULE__)
 include("solution.jl")
 export sample
 
+include("preprocess.jl")
+
 include("ising.jl")
 export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
 
@@ -232,6 +234,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     @timed minimize(Q, l, b;
       backend,
       cutoff = get("cutoff"),
+      preprocess = get("preprocess"),
       verbosity,
     )
   else
@@ -245,6 +248,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
       mindim      = get("mindim"),
       noise       = get("noise"),
       device      = get("device"),
+      preprocess  = get("preprocess"),
       verbosity,
       eigsolve_krylovdim =  get("eigsolve_krylovdim"),
       eigsolve_tol       =  get("eigsolve_tol"),

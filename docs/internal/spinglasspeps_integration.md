@@ -1,16 +1,16 @@
-# SpinGlassPEPS Integration Architecture
+# Internal SpinGlassPEPS Integration Architecture
 
-This page records the planned boundary between TenSolver.jl and the
+This internal developer note records the planned boundary between TenSolver.jl and the
 SpinGlassPEPS.jl work described in
 [arXiv:2411.16431](https://arxiv.org/abs/2411.16431). It is a design note for
 the implementation stack, not a description of behavior available in the
-current TenSolver release.
+current TenSolver release, and it is intentionally kept out of the generated
+user documentation.
 
 The central decision is that SpinGlassPEPS should be integrated as an optional
 structured-graph backend. It should not replace TenSolver's current
 ITensor-based DMRG backend, become a hard runtime dependency, or change the
-default behavior of [`minimize`](@ref), [`maximize`](@ref), or the JuMP
-optimizer.
+default behavior of `minimize`, `maximize`, or the JuMP optimizer.
 
 ## Current TenSolver Boundary
 
@@ -25,7 +25,7 @@ Boolean variables represented as two-dimensional qudit sites. It then applies
 DMRG through ITensorMPS.jl and returns:
 
 - the best sampled objective value; and
-- a [`Solution`](@ref), which wraps the MPS and per-iteration convergence
+- a `Solution`, which wraps the MPS and per-iteration convergence
   traces.
 
 This backend is general with respect to the variable ordering and QUBO/PUBO
@@ -174,68 +174,15 @@ The first bridge should preserve at least:
 
 The default backend must remain the current DMRG implementation.
 
-TenSolver exposes a small backend-selection interface without forcing users to
-learn the SpinGlassPEPS API. The current behavior is:
+Later PRs should add a small backend-selection interface without forcing users
+to learn the SpinGlassPEPS API. The intended behavior is:
 
 - no backend argument means current DMRG behavior;
 - `backend = :dmrg` selects the current path explicitly;
-- `backend = DMRGBackend()` selects the current path explicitly through the
-  backend-object interface; and
-- unavailable backend symbols error clearly without changing default DMRG
-  behavior.
-
-This stack step keeps the direct PEPS path as non-public scaffolding. The core
-package contains internal backend, topology, and result boundaries, while the
-exported `solve_ising` function is the public Ising boundary that optional
-structured backends may implement. `TenSolverSpinGlassPEPSExt` owns the
-SpinGlass component imports and calls. This keeps ordinary TenSolver installs
-on the existing dependency footprint and avoids documenting an activation path
-that cannot be tested from registered packages.
-
-The extension remains gated while the upstream dependency stack settles. In
-local checks against SpinGlassNetworks 1.4, SpinGlassEngine 1.6, and
-SpinGlassTensors 1.3, the current registered component compat bounds do not
-resolve with TenSolver's ITensors/QUBOTools environment. The source bridge and
-gated tests are kept in this stack step so the TenSolver boundary is concrete,
-but the PEPS backend types are not exported or listed in the public API until
-CI can exercise the SpinGlass component stack.
-
-Until that activation path is exercised, this stack step is scaffolding rather
-than the final completion of the PEPS backend issue. The closing PR should
-include a passing small structured-grid CPU solve through the optional
-SpinGlass component stack.
-
-The initial internal structured topology scaffolding covers one-spin-per-site
-and multi-spin-per-site square/king grids. QUBO inputs are converted through
-[`qubo_to_ising`](@ref) before the PEPS extension builds a SpinGlassNetworks
-Ising graph, clusters it with `super_square_lattice`, constructs the Potts
-Hamiltonian, runs `MpsContractor` plus `low_energy_spectrum`, and decodes
-retained states back to TenSolver Boolean vectors.
-
-The QUBODrivers/JuMP optimizer interface can also select the backend through
-raw optimizer attributes. DMRG remains the default:
-
-```julia
-set_attribute(model, "backend", :dmrg)
-```
-
-The PEPS path is selected explicitly and requires topology metadata:
-
-```julia
-set_attribute(model, "backend", :peps)
-set_attribute(model, "peps_layout", :square)
-set_attribute(model, "peps_topology", (m, n))
-set_attribute(model, "peps_beta", 2.0)
-set_attribute(model, "peps_bond_dim", 8)
-set_attribute(model, "peps_max_states", 256)
-set_attribute(model, "peps_cutoff_prob", 0.0)
-set_attribute(model, "peps_strategy", :svd)
-```
-
-PEPS runs add namespaced data under the returned QUBOTools `SampleSet`
-metadata, including the selected backend, topology/layout, contraction/search
-parameters, candidate-state count, effective time, selected transformation, and
-largest discarded probability when available.
+- `backend = :peps` selects the optional structured backend and errors clearly
+  if the bridge package or extension is not loaded; and
+- QUBODrivers/JuMP receives equivalent raw optimizer attributes for backend and
+  PEPS parameters.
 
 Any PEPS selection API must validate that the problem includes enough topology
 metadata for the structured backend. If the topology is missing or unsupported,
@@ -246,14 +193,13 @@ install/load the optional PEPS bridge.
 
 The integration should be implemented as a sequence of stacked PRs:
 
-1. Add this design document and link it from the documentation navigation.
+1. Add this internal design document.
 2. Add QUBOTools-backed QUBO/Ising conversion adapters with exact
    energy-preservation tests.
 3. Introduce a backend interface while keeping the current DMRG backend as the
    default implementation.
-4. Add internal optional SpinGlassPEPS-backed structured solver scaffolding for
-   direct structured inputs, without closing the issue until the real extension
-   path is exercised.
+4. Add an optional SpinGlassPEPS-backed structured solver path for direct
+   structured inputs.
 5. Expose the PEPS backend through QUBODrivers/JuMP attributes, including
    layout and contraction/search parameters.
 6. Add user documentation, examples, and benchmark scripts that compare the DMRG
