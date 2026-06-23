@@ -8,10 +8,6 @@ import ITensors, ITensorMPS
 
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, isconstant
 
-function issquare(a :: AbstractArray)
-  return allequal(size(a))
-end
-
 # Strict upper triangular part of an array
 function upper_indices(a)
   return (Tuple(ci)
@@ -275,7 +271,7 @@ Keyword arguments:
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
-- `mindim` - The minimum allowed bond dimension, if possible.
+- `mindim` - The minimum allowed bond dimension, if possible.  Defaults to `1`.
   Integer or array of integer specifying the bond dimension per iteration.
 - `time_limit :: Float64` - If specified, determines the maximum running time in seconds.
   It only determines whether a new iteration should start or not, thus the solver may run for longer if the threshold happens during an iteration.
@@ -284,6 +280,9 @@ Keyword arguments:
 - `vtol :: Float64` - If specified, determines the variance tolerance before the algorithm stops.
   The variance test determines whether DMRG converged to an eigenstate (not necessarily the ground state),
   but is expensive to calculate.
+- `preprocess :: Bool` - Defaults to `false`. If `true`, permute QUBO variables before constructing the MPS Hamiltonian
+  so coupled variables are closer in the one-dimensional tensor order. Samples are returned in the
+  caller's original variable order. This is an experimental feature and may be subject to changes.
 - `noise` - A float or array of floats (per iteration) specifying the noise term added to the system to help with convergence.
   It is recommended to use a large noise (~ 1e-5) on the initial iterations and let it go to zero on later iterations.
 - `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
@@ -322,8 +321,8 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); backend=default_backend, cutoff=1e-8, kwargs...) where T
-  return _minimize(_normalize_backend(backend), Q, l, c; cutoff, kwargs...)
+function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); backend=default_backend, cutoff=1e-8, preprocess::Bool=false, kwargs...) where T
+  return _minimize(_normalize_backend(backend), Q, l, c; cutoff, preprocess, kwargs...)
 end
 
 function minimize(p::AbstractPolynomial{T}; backend=default_backend, cutoff=1e-8, kwargs...) where T
@@ -334,8 +333,9 @@ function _minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
   throw(_backend_error(backend))
 end
 
-function _minimize(backend::PEPSBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); kwargs...) where T
-  return _solve_ising(backend, IsingModel(qubo_to_ising(Q, l, c)); kwargs...)
+function _minimize(backend::PEPSBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); cutoff=1e-8, preprocess::Bool=false, kwargs...) where T
+  preprocess && throw(ArgumentError("PEPSBackend does not support preprocess=true because the topology fixes the variable order. Use backend = :dmrg for preprocessed QUBO solves."))
+  return _solve_ising(backend, IsingModel(qubo_to_ising(Q, l, c)); cutoff, kwargs...)
 end
 
 function _minimize(backend::PEPSBackend, p::AbstractPolynomial; kwargs...)
@@ -372,11 +372,12 @@ function _solve_ising(::DMRGBackend, model::IsingModel; kwargs...)
   return _minimize(default_backend, Q, l, c; kwargs...)
 end
 
-function _minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); cutoff=1e-8, kwargs...) where T
-  H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
+function _minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); cutoff=1e-8, preprocess::Bool=false, kwargs...) where T
+  Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
+  H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
 
-  return _minimize_mpo(H, c, obj; cutoff, kwargs...)
+  return _minimize_mpo(H, c, obj; cutoff, permutation, kwargs...)
 end
 
 function _minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
@@ -439,6 +440,7 @@ function _minimize_mpo( H :: MPO
                       # Iteration callback
                       , on_iteration :: Union{Nothing, Function} = nothing
                       , callback_every   :: Int = 1
+                      , permutation :: Vector{Int} = Int[]
                       ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
   initial_time      = time()
@@ -448,6 +450,8 @@ function _minimize_mpo( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
+  solution_permutation = isempty(permutation) ? collect(1:length(sites)) : permutation
+
   if length(sites) == 1
     return _single_variable_minimize(T, sites, obj, initial_time; device, verbosity, on_iteration, callback_every)
   end
@@ -525,7 +529,7 @@ function _minimize_mpo( H :: MPO
 
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log)
+  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, solution_permutation)
   x    = sample(dist)
   optimal = obj(x)
   elapsed_time = time() - initial_time

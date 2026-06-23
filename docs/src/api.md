@@ -51,6 +51,8 @@ They are documented here for advanced users who may need to understand the inter
 
 ```@docs
 TenSolver.tensorize
+TenSolver.qmatrix_permutation
+TenSolver.preprocess_qubo
 ```
 
 ## Index

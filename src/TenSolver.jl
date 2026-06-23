@@ -10,6 +10,8 @@ const __VERSION__ = pkgversion(@__MODULE__)
 include("solution.jl")
 export sample
 
+include("preprocess.jl")
+
 include("ising.jl")
 export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
 
@@ -73,15 +75,16 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   # min_x a*(x'Qx + l'x + b)
   #  s.t. x in {0, 1}^n
   results = @timed minimize(Q, l, b;
+    time_limit,
+    verbosity,
     cutoff      = get("cutoff"),
     vtol        = get("vtol"),
     iterations  = get("iterations"),
-    time_limit,
     maxdim      = get("maxdim"),
     mindim      = get("mindim"),
     noise       = get("noise"),
     device      = get("device"),
-    verbosity,
+    preprocess  = get("preprocess"),
     eigsolve_krylovdim =  get("eigsolve_krylovdim"),
     eigsolve_tol       =  get("eigsolve_tol"),
     eigsolve_maxiter   =  get("eigsolve_maxiter"),

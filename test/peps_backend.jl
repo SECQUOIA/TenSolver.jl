@@ -43,6 +43,7 @@
   @test peps_error isa ArgumentError
   @test occursin("PEPSBackend is not available", sprint(showerror, peps_error))
   @test occursin("SpinGlassNetworks", sprint(showerror, peps_error))
+  @test_throws ArgumentError minimize(Q; backend, preprocess = true, verbosity = 0)
 
   model = TenSolver.IsingModel(zeros(1, 1), [-1.0])
   energy, solution = solve_ising(model; backend = :dmrg, verbosity = 0)
