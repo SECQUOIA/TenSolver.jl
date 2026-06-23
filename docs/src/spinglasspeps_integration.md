@@ -200,6 +200,11 @@ gated tests are kept in this stack step so the TenSolver boundary is concrete,
 but the PEPS backend types are not exported or listed in the public API until
 CI can exercise the SpinGlass component stack.
 
+Until that activation path is exercised, this stack step is scaffolding rather
+than the final completion of the PEPS backend issue. The closing PR should
+include a passing small structured-grid CPU solve through the optional
+SpinGlass component stack.
+
 The initial internal structured topology scaffolding covers one-spin-per-site
 and multi-spin-per-site square/king grids. QUBO inputs are converted through
 [`qubo_to_ising`](@ref) before the PEPS extension builds a SpinGlassNetworks
@@ -224,8 +229,9 @@ The integration should be implemented as a sequence of stacked PRs:
    energy-preservation tests.
 3. Introduce a backend interface while keeping the current DMRG backend as the
    default implementation.
-4. Add an optional SpinGlassPEPS-backed structured solver path for direct
-   structured inputs.
+4. Add internal optional SpinGlassPEPS-backed structured solver scaffolding for
+   direct structured inputs, without closing the issue until the real extension
+   path is exercised.
 5. Expose the PEPS backend through QUBODrivers/JuMP attributes, including
    layout and contraction/search parameters.
 6. Add user documentation, examples, and benchmark scripts that compare the DMRG
