@@ -99,6 +99,8 @@ end
   @test local_solve_metadata["status"] == "locally_solved"
   @test local_solve_metadata["termination_status"] == MOI.LOCALLY_SOLVED
 
+  # QUBODrivers accepts raw attribute values, so TenSolver validates that read
+  # counts are non-negative before generating the final SampleSet.
   negative_reads_model = _qubodrivers_test_model()
   MOI.set(negative_reads_model, TenSolver.NumberOfReads(), -1)
   negative_reads_error = try

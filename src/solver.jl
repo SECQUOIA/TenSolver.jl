@@ -34,40 +34,39 @@ variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
 Abstract solver backend marker for TenSolver implementations.
 
 The default implementation is [`DMRGBackend`](@ref). Other backends must provide
-backend-specific `_minimize` methods for the normalized optimization inputs they
+backend-specific `minimize` methods for the normalized optimization inputs they
 support. Matrix backends implement
-`_minimize(::MyBackend, Q::AbstractMatrix, l, c; kwargs...)`; polynomial
-backends implement `_minimize(::MyBackend, p::AbstractPolynomial; kwargs...)`.
+`minimize(::MyBackend, Q::AbstractMatrix, l, c; kwargs...)`; polynomial
+backends implement `minimize(::MyBackend, p::AbstractPolynomial; kwargs...)`.
 Extensions that support symbolic selection can also define
-`_normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
+`normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
 """
 abstract type AbstractTenSolverBackend end
 
 """
-    DMRGBackend()
+    normalize_backend(backend)
 
-Select TenSolver's default ITensorMPS DMRG backend.
+Normalize a user-facing backend selector into a backend object.
+
+Backends can support `backend = :my_backend` by defining
+`normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
 """
-struct DMRGBackend <: AbstractTenSolverBackend end
+function normalize_backend end
 
-const default_backend = DMRGBackend()
-
-function _backend_error(backend)
+function backend_error(backend)
   if backend === :peps
     return ArgumentError("backend :peps is not available. Install/load the PEPS extension or use backend = :dmrg.")
   end
 
-  return ArgumentError("No `_minimize` method is available for backend $(repr(backend)). Use backend = :dmrg or provide a backend-specific `_minimize` method.")
+  return ArgumentError("No backend-specific `minimize` method is available for backend $(repr(backend)). Use backend = :dmrg or provide a backend-specific `minimize` method.")
 end
 
-_normalize_backend(backend::DMRGBackend) = backend
-_normalize_backend(backend::AbstractTenSolverBackend) = backend
-_normalize_backend(backend::Symbol) = _normalize_backend(Val(backend))
-_normalize_backend(::Val{:dmrg}) = default_backend
-function _normalize_backend(::Val{backend}) where {backend}
-  throw(_backend_error(backend))
+normalize_backend(backend::AbstractTenSolverBackend) = backend
+normalize_backend(backend::Symbol) = normalize_backend(Val(backend))
+function normalize_backend(::Val{backend}) where {backend}
+  throw(backend_error(backend))
 end
-_normalize_backend(backend) = throw(_backend_error(backend))
+normalize_backend(backend) = throw(backend_error(backend))
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -190,8 +189,7 @@ Keyword arguments:
 - `callback_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
 - `backend` - Solver backend. Defaults to the current DMRG implementation.
   Use `backend = :dmrg` or `backend = DMRGBackend()` to select it explicitly.
-  Other backends are reserved for optional extensions and error clearly when
-  unavailable.
+  Other backends are reserved for optional extensions.
 
 The returned `Solution` carries per-iteration stats in `.energies`, `.bond_dims`, and `.elapsed_times`.
 
@@ -214,30 +212,18 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); backend=default_backend, cutoff=1e-8, kwargs...) where T
-  return _minimize(_normalize_backend(backend), Q, l, c; cutoff, kwargs...)
+include("backends/dmrg.jl")
+
+function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); backend=default_backend, kwargs...) where T
+  return minimize(normalize_backend(backend), Q, l, c; kwargs...)
 end
 
-function minimize(p::AbstractPolynomial{T}; backend=default_backend, cutoff=1e-8, kwargs...) where T
-  return _minimize(_normalize_backend(backend), p; cutoff, kwargs...)
+function minimize(p::AbstractPolynomial{T}; backend=default_backend, kwargs...) where T
+  return minimize(normalize_backend(backend), p; kwargs...)
 end
 
-function _minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
-  throw(_backend_error(backend))
-end
-
-function _minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); cutoff=1e-8, kwargs...) where T
-  H      = tensorize(Q, isnothing(l) ? diag(Q) : diag(Q) + l; cutoff)
-  obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
-
-  return _minimize_mpo(H, c, obj; cutoff, kwargs...)
-end
-
-function _minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
-  H   = tensorize(p)
-  cte = constant(p)
-  vs = variables(p)
-  return _minimize_mpo(H, cte, a -> p(vs => a); cutoff, kwargs...)
+function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
+  throw(backend_error(backend))
 end
 
 function _single_variable_minimize(::Type{T}, sites, obj, initial_time; device, verbosity, on_iteration, callback_every) where {T}
