@@ -14,7 +14,6 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Examples" => "examples.md",
-        "SpinGlassPEPS Integration" => "spinglasspeps_integration.md",
         "API Reference" => "api.md",
     ],
     repo = Documenter.Remotes.GitHub("SECQUOIA", "TenSolver.jl"),
