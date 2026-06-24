@@ -14,6 +14,7 @@ TenSolver.maximize
 ```@docs
 TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
+TenSolver.normalize_backend
 ```
 
 ## Solution
