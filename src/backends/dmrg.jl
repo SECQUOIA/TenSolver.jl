@@ -1,3 +1,24 @@
+import ITensors: inner
+import ITensorMPS: MPS, MPO, dmrg, OpSum, @OpName_str, @SiteType_str, @StateName_str, dim
+
+import ITensors, ITensorMPS
+
+# Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
+# For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
+# This looks like type piracy,
+# but is, in fact, ITensors' way to extend the OpSum mechanism.
+ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
+
+ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index) = (d = dim(s); fill(1/sqrt(d), d))
+
+expectation(H, x) = inner(x', H, x)
+variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
+
+#----------------------------------------------------------#
+# Interface                                                #
+#----------------------------------------------------------#
+
+
 """
     DMRGBackend()
 
@@ -7,7 +28,43 @@ struct DMRGBackend <: AbstractTenSolverBackend end
 
 normalize_backend(::Val{:dmrg}) = default_backend
 
-function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); cutoff=1e-8, preprocess::Bool=false, kwargs...) where T
+"""
+    minimize(::DRMGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
+
+This function uses DMRG with tensor networks to calculate the optimal solution,
+by finding the ground state (least eigenspace) of the Hamiltonian
+
+    H = Σ Q_ij D_iD_j + Σ l_i D_i
+
+where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |1>.
+
+
+Backend-specific keyword arguments:
+
+- `maxdim` - The maximum allowed bond dimension.
+  Integer or array of integer specifying the bond dimension per iteration.
+  You can use this keyword to control the solver's accuracy vs resources trade-off.
+- `mindim` - The minimum allowed bond dimension, if possible.  Defaults to `1`.
+  Integer or array of integer specifying the bond dimension per iteration.
+- `vtol :: Float64` - If specified, determines the variance tolerance before the algorithm stops.
+  The variance test determines whether DMRG converged to an eigenstate (not necessarily the ground state),
+  but is expensive to calculate.
+- `noise` - A float or array of floats (per iteration) specifying the noise term added to the system to help with convergence.
+  It is recommended to use a large noise (~ 1e-5) on the initial iterations and let it go to zero on later iterations.
+- `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
+- `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
+- `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
+"""
+function minimize(
+  ::DMRGBackend,
+  Q::AbstractMatrix{T},
+  l::Union{AbstractVector{T}, Nothing}=nothing,
+  c::T=zero(T)
+  ;
+  cutoff=1e-8,
+  preprocess::Bool=false,
+  kwargs...,
+) where T
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
   H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
@@ -15,12 +72,104 @@ function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T
   return minimize_mpo(H, c, obj; cutoff, permutation, kwargs...)
 end
 
+"""
+    minimize(p::AbstractPolynomial ; kwargs...)
+
+Solve the Polynomial Unconstrained Binary Optimization problem
+
+    min p(b)
+    s.t. b_i in {0, 1}
+
+See also [`maximize`](@ref).
+"""
 function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
   H   = tensorize(p)
   cte = constant(p)
   vs = variables(p)
   return minimize_mpo(H, cte, a -> p(vs => a); cutoff, kwargs...)
 end
+
+
+#----------------------------------------------------------#
+# The actual computations                                  #
+#----------------------------------------------------------#
+
+
+# Strict upper triangular part of an array
+function upper_indices(a)
+  return (Tuple(ci)
+            for ci in CartesianIndices(size(a))
+            if issorted(Tuple(ci); lt = (<=)))
+end
+
+function constant(p::AbstractPolynomial{T}) where T
+  ts  = terms(p)
+  idx = findfirst(isconstant, ts)
+
+  return isnothing(idx) ? zero(T) : coefficient(ts[idx])
+end
+
+
+"""
+    tensorize(p)
+
+Turn a polynomial function action on bitstrings
+into an equivalent MPO Hamiltonian acting on Qudit sites.
+The conversion consists of exchanging each integer variable `x_i`
+for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
+
+    ∑ Q_ij x_i x_j + ∑ l_i x_i --> H = Σ Q_ij D_i D_j + ∑ l_i D_i
+"""
+function tensorize end
+
+function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T)) where T
+  Qs = [Q, rest...]
+  if !allequal(Iterators.flatmap(size, Qs))
+    throw(DimensionMismatch("All arrays should act on the same number of variables.\nEncountered dimensions $(collect(map(size, Qs)))."))
+  end
+
+  N = size(Q, 1)
+  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  os = OpSum{T}()
+
+  for t in Qs
+    for idx in upper_indices(t)
+      # Due to commutativity, we can group all terms that have the same indices.
+      # This speeds up the calculations.
+      # e.g., Q_ij x_i x_j + Q_ji x_j x_i = (Q_ij + Q_ji) x_i x_j
+      coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
+
+      if abs(coeff) > cutoff
+        op   = Iterators.flatmap(v -> ("D", v), idx)
+        os .+= (coeff, op...)
+      end
+    end
+  end
+
+  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
+end
+
+function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
+  N = length(effective_variables(p))
+  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  os = OpSum{T}()
+
+  # Map: var name => index
+  indices = Dict(v => i for (i, v) in enumerate(effective_variables(p)))
+
+  for t in terms(p)
+    coeff = coefficient(t)
+
+    if abs(coeff) > cutoff && ! isconstant(t)
+      vars = effective_variables(t)
+      op   = Iterators.flatmap(v -> ("D", indices[v]), vars)
+      os .+= (coeff, op...)
+    end
+  end
+
+  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
+end
+
 
 function single_variable_minimize(::Type{T}, sites, obj, initial_time; device, verbosity, on_iteration, callback_every) where {T}
   x0 = [0]
