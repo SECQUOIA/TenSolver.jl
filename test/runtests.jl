@@ -31,6 +31,7 @@ include(filepath("log.jl"))
 
 # Cases from papers
 @testset "Real Models" begin
+  include(filepath("cases/pharma.jl"))
   include(filepath("cases/vrp.jl"))
 end
 
