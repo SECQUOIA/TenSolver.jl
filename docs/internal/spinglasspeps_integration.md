@@ -1,16 +1,15 @@
-# Internal SpinGlassPEPS Integration Architecture
+# SpinGlassPEPS Integration Architecture
 
-This internal developer note records the planned boundary between TenSolver.jl and the
+This page records the planned boundary between TenSolver.jl and the
 SpinGlassPEPS.jl work described in
 [arXiv:2411.16431](https://arxiv.org/abs/2411.16431). It is a design note for
 the implementation stack, not a description of behavior available in the
-current TenSolver release, and it is intentionally kept out of the generated
-user documentation.
+current TenSolver release.
 
 The central decision is that SpinGlassPEPS should be integrated as an optional
 structured-graph backend. It should not replace TenSolver's current
 ITensor-based DMRG backend, become a hard runtime dependency, or change the
-default behavior of `minimize`, `maximize`, or the JuMP optimizer.
+default behavior of [`minimize`](@ref), [`maximize`](@ref), or the JuMP optimizer.
 
 ## Current TenSolver Boundary
 
@@ -25,7 +24,7 @@ Boolean variables represented as two-dimensional qudit sites. It then applies
 DMRG through ITensorMPS.jl and returns:
 
 - the best sampled objective value; and
-- a `Solution`, which wraps the MPS and per-iteration convergence
+- a [`Solution`](@ref), which wraps the MPS and per-iteration convergence
   traces.
 
 This backend is general with respect to the variable ordering and QUBO/PUBO
@@ -174,15 +173,18 @@ The first bridge should preserve at least:
 
 The default backend must remain the current DMRG implementation.
 
-Later PRs should add a small backend-selection interface without forcing users
-to learn the SpinGlassPEPS API. The intended behavior is:
+TenSolver exposes a small backend-selection interface without forcing users to
+learn the SpinGlassPEPS API. The current behavior is:
 
 - no backend argument means current DMRG behavior;
 - `backend = :dmrg` selects the current path explicitly;
-- `backend = :peps` selects the optional structured backend and errors clearly
-  if the bridge package or extension is not loaded; and
-- QUBODrivers/JuMP receives equivalent raw optimizer attributes for backend and
-  PEPS parameters.
+- `backend = DMRGBackend()` selects the current path explicitly through the
+  backend-object interface; and
+- `backend = :peps` errors clearly until a later optional bridge package or
+  extension provides the structured backend.
+
+Later PRs should add QUBODrivers/JuMP raw optimizer attributes for backend and
+PEPS parameters.
 
 Any PEPS selection API must validate that the problem includes enough topology
 metadata for the structured backend. If the topology is missing or unsupported,
@@ -193,7 +195,7 @@ install/load the optional PEPS bridge.
 
 The integration should be implemented as a sequence of stacked PRs:
 
-1. Add this internal design document.
+1. Add this design document and link it from the documentation navigation.
 2. Add QUBOTools-backed QUBO/Ising conversion adapters with exact
    energy-preservation tests.
 3. Introduce a backend interface while keeping the current DMRG backend as the
