@@ -18,7 +18,6 @@ export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
 include("constraints.jl")
 export AbstractConstraint
 export SumConstraint, NotEqualsConstraint, ExactlyOneConstraint, RelationConstraint
-export sum_constraint, not_equals_constraint, exactly_one_constraint, relation_constraint
 export is_feasible
 
 include("solver.jl")
