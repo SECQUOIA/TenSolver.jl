@@ -20,6 +20,8 @@ export AbstractConstraint
 export SumConstraint, NotEqualsConstraint, ExactlyOneConstraint, RelationConstraint
 export is_feasible
 
+include("projection_mpo.jl")
+
 include("solver.jl")
 export minimize, maximize
 export DMRGBackend
