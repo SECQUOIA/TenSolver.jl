@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Examples · TenSolver.jl</title><meta name="title" content="Examples · TenSolver.jl"/><meta property="og:title" content="Examples · TenSolver.jl"/><meta property="twitter:title" content="Examples · TenSolver.jl"/><meta name="description" content="Documentation for TenSolver.jl."/><meta property="og:description" content="Documentation for TenSolver.jl."/><meta property="twitter:description" content="Documentation for TenSolver.jl."/><meta property="og:url" content="https://SECQUOIA.github.io/TenSolver.jl/examples/"/><meta property="twitter:url" content="https://SECQUOIA.github.io/TenSolver.jl/examples/"/><link rel="canonical" href="https://SECQUOIA.github.io/TenSolver.jl/examples/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">TenSolver.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Examples</a><ul class="internal"><li><a class="tocitem" href="#Basic-QUBO-Problem"><span>Basic QUBO Problem</span></a></li><li><a class="tocitem" href="#QUBO-with-Linear-and-Constant-Terms"><span>QUBO with Linear and Constant Terms</span></a></li><li><a class="tocitem" href="#Using-with-JuMP"><span>Using with JuMP</span></a></li><li><a class="tocitem" href="#Controlling-Solver-Parameters"><span>Controlling Solver Parameters</span></a></li><li><a class="tocitem" href="#Tracking-Optimization-Progress"><span>Tracking Optimization Progress</span></a></li><li><a class="tocitem" href="#Running-on-GPU"><span>Running on GPU</span></a></li><li><a class="tocitem" href="#Maximization-Problems"><span>Maximization Problems</span></a></li><li><a class="tocitem" href="#Multiple-Samples"><span>Multiple Samples</span></a></li><li><a class="tocitem" href="#Using-MultivariatePolynomials.jl-Interface-(Experimental)"><span>Using MultivariatePolynomials.jl Interface (Experimental)</span></a></li></ul></li><li><a class="tocitem" href="../api/">API Reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Examples</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Examples</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/SECQUOIA/TenSolver.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/SECQUOIA/TenSolver.jl/blob/main/docs/src/examples.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Examples"><a class="docs-heading-anchor" href="#Examples">Examples</a><a id="Examples-1"></a><a class="docs-heading-anchor-permalink" href="#Examples" title="Permalink"></a></h1><p>This page provides practical examples of using TenSolver.jl for various optimization problems.</p><h2 id="Basic-QUBO-Problem"><a class="docs-heading-anchor" href="#Basic-QUBO-Problem">Basic QUBO Problem</a><a id="Basic-QUBO-Problem-1"></a><a class="docs-heading-anchor-permalink" href="#Basic-QUBO-Problem" title="Permalink"></a></h2><p>The most basic usage is solving a quadratic unconstrained binary optimization problem:</p><pre><code class="language-julia hljs">using TenSolver
+
+assets = [&quot;Wind&quot;, &quot;Solar&quot;, &quot;Battery&quot;]
+
+# Wind and solar overlap, while storage pairs well with either source.
+Q = [0.0 1.0 -1.5;
+     1.0 0.0 -0.5;
+     -1.5 -0.5 0.0]
+
+# Solve for minimum
+E, psi = TenSolver.minimize(Q; verbosity=0)
+
+# Sample a solution
+x = TenSolver.sample(psi)
+
+# Verify the solution achieves the minimum energy and inspect the chosen bundle
+(E ≈ -3.0, join(assets[findall(==(1), x)], &quot;, &quot;))
+
+# output
+
+(true, &quot;Wind, Battery&quot;)</code></pre><h2 id="QUBO-with-Linear-and-Constant-Terms"><a class="docs-heading-anchor" href="#QUBO-with-Linear-and-Constant-Terms">QUBO with Linear and Constant Terms</a><a id="QUBO-with-Linear-and-Constant-Terms-1"></a><a class="docs-heading-anchor-permalink" href="#QUBO-with-Linear-and-Constant-Terms" title="Permalink"></a></h2><p>You can also specify linear and constant terms:</p><pre><code class="language-julia hljs">using TenSolver
+
+assets = [&quot;Wind&quot;, &quot;Solar&quot;, &quot;Battery&quot;]
+
+# Linear terms encode stand-alone value, quadratic terms encode overlap penalties.
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
+c = 5.0
+
+# Solve: min b&#39;Qb + l&#39;b + c
+E, psi = TenSolver.minimize(Q, l, c; verbosity=0)
+x = TenSolver.sample(psi)
+
+# The best plan keeps wind and storage, but skips solar because of overlap penalties.
+(E ≈ 0.0, join(assets[findall(==(1), x)], &quot;, &quot;))
+
+# output
+
+(true, &quot;Wind, Battery&quot;)</code></pre><h2 id="Using-with-JuMP"><a class="docs-heading-anchor" href="#Using-with-JuMP">Using with JuMP</a><a id="Using-with-JuMP-1"></a><a class="docs-heading-anchor-permalink" href="#Using-with-JuMP" title="Permalink"></a></h2><p>TenSolver.jl provides an optimizer interface for JuMP models:</p><pre><code class="language-julia hljs">using JuMP, TenSolver
+
+assets = [&quot;Wind&quot;, &quot;Solar&quot;, &quot;Battery&quot;]
+
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
+c = 5.0
+
+# Create a JuMP model with TenSolver
+model = Model(TenSolver.Optimizer)
+set_silent(model)
+@variable(model, x[1:3], Bin)
+@objective(
+    model,
+    Min,
+    sum(Q[i, j] * x[i] * x[j] for i in 1:3, j in 1:3) +
+    sum(l[i] * x[i] for i in 1:3) + c
+)
+
+# Solve the optimization problem
+optimize!(model)
+selected = assets[findall(&gt;(0.5), value.(x))]
+
+# Verify the solution is optimal
+(objective_value(model) ≈ 0.0, join(selected, &quot;, &quot;))
+
+# output
+
+(true, &quot;Wind, Battery&quot;)</code></pre><h3 id="Passing-Solver-Parameters-to-JuMP"><a class="docs-heading-anchor" href="#Passing-Solver-Parameters-to-JuMP">Passing Solver Parameters to JuMP</a><a id="Passing-Solver-Parameters-to-JuMP-1"></a><a class="docs-heading-anchor-permalink" href="#Passing-Solver-Parameters-to-JuMP" title="Permalink"></a></h3><p>You can pass solver-specific parameters to the optimizer using <code>set_attribute</code>:</p><pre><code class="language-julia hljs">using JuMP, TenSolver
+
+assets = [&quot;Wind&quot;, &quot;Solar&quot;, &quot;Battery&quot;]
+
+Q = [0.0 2.0 0.0;
+     2.0 0.0 0.5;
+     0.0 0.5 0.0]
+l = [-3.0, -2.0, -2.0]
+c = 5.0
+
+model = Model(TenSolver.Optimizer)
+set_silent(model)
+@variable(model, x[1:3], Bin)
+@objective(
+    model,
+    Min,
+    sum(Q[i, j] * x[i] * x[j] for i in 1:3, j in 1:3) +
+    sum(l[i] * x[i] for i in 1:3) + c
+)
+
+# Set solver parameters
+set_attribute(model, &quot;iterations&quot;, 20)
+set_attribute(model, &quot;cutoff&quot;, 1e-10)
+set_attribute(model, &quot;maxdim&quot;, [10, 20, 50, 100, 200])
+set_attribute(model, &quot;noise&quot;, [1e-5, 1e-6, 1e-7, 0.0])
+set_attribute(model, &quot;time_limit&quot;, 60.0)
+set_attribute(model, &quot;verbosity&quot;, 0)
+
+# Solve with custom parameters
+optimize!(model)
+selected = assets[findall(&gt;(0.5), value.(x))]
+
+# Verify solution
+(objective_value(model) ≈ 0.0, join(selected, &quot;, &quot;))
+
+# output
+
+(true, &quot;Wind, Battery&quot;)</code></pre><h2 id="Controlling-Solver-Parameters"><a class="docs-heading-anchor" href="#Controlling-Solver-Parameters">Controlling Solver Parameters</a><a id="Controlling-Solver-Parameters-1"></a><a class="docs-heading-anchor-permalink" href="#Controlling-Solver-Parameters" title="Permalink"></a></h2><p>You can control various solver parameters for better performance:</p><pre><code class="language-julia hljs">using TenSolver
+
+assets = [&quot;Wind&quot;, &quot;Solar&quot;, &quot;Battery&quot;]
+
+Q = [0.0 1.0 -1.5;
+     1.0 0.0 -0.5;
+     -1.5 -0.5 0.0]
+
+# Solve with custom parameters
+E, psi = TenSolver.minimize(
+    Q;
+    iterations = 20,        # More iterations for better convergence
+    cutoff = 1e-10,         # Higher accuracy
+    maxdim = [10, 20, 50, 100, 200],  # Bond dimension schedule
+    noise = [1e-5, 1e-6, 1e-7, 0.0],  # Noise schedule for convergence
+    time_limit = 60.0,      # Stop after 60 seconds
+    verbosity = 0
+)
+x = TenSolver.sample(psi)
+
+# Verify we get the expected minimum
+(E ≈ -3.0, join(assets[findall(==(1), x)], &quot;, &quot;))
+
+# output
+
+(true, &quot;Wind, Battery&quot;)</code></pre><h2 id="Tracking-Optimization-Progress"><a class="docs-heading-anchor" href="#Tracking-Optimization-Progress">Tracking Optimization Progress</a><a id="Tracking-Optimization-Progress-1"></a><a class="docs-heading-anchor-permalink" href="#Tracking-Optimization-Progress" title="Permalink"></a></h2><p>The returned <code>Solution</code> always carries lightweight per-iteration stats:</p><pre><code class="language-julia hljs">using TenSolver
+
+Q = randn(40, 40)
+E, psi = TenSolver.minimize(Q; iterations=50)
+
+psi.energies       # objective value at each iteration
+psi.bond_dims      # MPS bond dimension at each iteration
+psi.elapsed_times  # wall-clock time at each iteration</code></pre><p>For per-iteration sampling, pass an <code>on_iteration</code> callback. The callback receives the MPS for that iteration alongside metadata as keyword arguments. In this example, 200 bitstrings are sampled at each recorded iteration and their objective values are stored in a dictionary, which is then serialized to disk:</p><pre><code class="language-julia hljs">using TenSolver, ITensorMPS, Serialization, Statistics
+
+Q = randn(40, 40)
+
+results = Dict{Int, Vector{Float64}}()
+function cb(mps; iteration, kw...)  # kw... absorbs unused kwargs (objective, bond_dim, elapsed_time)
+    xs = ITensorMPS.sample!(mps) .- 1
+    results[iteration] = [x&#39; * Q * x for x in xs]
+end
+
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
+
+# Persist derived statistics (not the MPS) for later post-processing
+serialize(&quot;results.jls&quot;, results)</code></pre><p>To save the full MPS at each recorded iteration, use HDF5 (ITensors&#39; native format, more stable across versions than <code>Serialization</code>). Each iteration is stored as a named group inside a single file:</p><pre><code class="language-julia hljs">using TenSolver, HDF5
+
+Q = randn(40, 40)
+
+function cb(mps; iteration, kw...)
+    h5open(&quot;snapshots.h5&quot;, &quot;cw&quot;) do f
+        g = create_group(f, &quot;iter_$iteration&quot;)
+        write(g, &quot;mps&quot;, mps)
+    end
+end
+
+E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)</code></pre><p>To load a snapshot in a later session:</p><pre><code class="language-julia hljs">using TenSolver, HDF5, ITensorMPS
+
+mps = h5open(&quot;snapshots.h5&quot;, &quot;r&quot;) do f
+    read(f[&quot;iter_25&quot;], &quot;mps&quot;, MPS)
+end
+
+xs = [ITensorMPS.sample!(mps) .- 1 for _ in 1:1000]</code></pre><h2 id="Running-on-GPU"><a class="docs-heading-anchor" href="#Running-on-GPU">Running on GPU</a><a id="Running-on-GPU-1"></a><a class="docs-heading-anchor-permalink" href="#Running-on-GPU" title="Permalink"></a></h2><p>TenSolver.jl supports GPU acceleration for faster computation:</p><pre><code class="language-julia hljs">using TenSolver
+import CUDA
+
+Q = randn(100, 100)
+
+# Solve on GPU using CUDA
+E, psi = TenSolver.minimize(Q; device = CUDA.cu)
+
+# Sample solutions
+x = TenSolver.sample(psi)</code></pre><p>For Apple Silicon GPUs:</p><pre><code class="language-julia hljs">using TenSolver
+import Metal
+
+Q = randn(100, 100)
+
+# Solve on GPU using Metal
+E, psi = TenSolver.minimize(Q; device = Metal.mtl)</code></pre><h2 id="Maximization-Problems"><a class="docs-heading-anchor" href="#Maximization-Problems">Maximization Problems</a><a id="Maximization-Problems-1"></a><a class="docs-heading-anchor-permalink" href="#Maximization-Problems" title="Permalink"></a></h2><p>To solve maximization problems instead of minimization:</p><pre><code class="language-julia hljs">using TenSolver
+
+campaigns = [&quot;Email&quot;, &quot;Webinar&quot;, &quot;Follow-up&quot;]
+
+Q = [0.0 0.5 0.0;
+     0.5 0.0 0.5;
+     0.0 0.5 0.0]
+
+# Solve for maximum instead of minimum
+E, psi = TenSolver.maximize(Q; verbosity=0)
+x = TenSolver.sample(psi)
+
+# Verify we get the expected maximum
+(E ≈ 2.0, join(campaigns[findall(==(1), x)], &quot;, &quot;))
+
+# output
+
+(true, &quot;Email, Webinar, Follow-up&quot;)</code></pre><h2 id="Multiple-Samples"><a class="docs-heading-anchor" href="#Multiple-Samples">Multiple Samples</a><a id="Multiple-Samples-1"></a><a class="docs-heading-anchor-permalink" href="#Multiple-Samples" title="Permalink"></a></h2><p>Generate multiple independent samples from the solution distribution:</p><pre><code class="language-julia hljs">using TenSolver
+
+# Two single-route plans are equally good, but taking both routes together is wasteful.
+Q = [0.0 1.0; 1.0 0.0]
+l = [-1.0, -1.0]
+E, psi = TenSolver.minimize(Q, l, 0.0; verbosity=0)
+
+# Generate multiple samples
+num_samples = 10
+samples = [TenSolver.sample(psi) for _ in 1:num_samples]
+optimal_plans = [[1, 0], [0, 1]]
+
+# All samples should be one of the optimal plans, and both plans are represented in psi
+([1, 0] in psi, [0, 1] in psi,
+ all(s -&gt; s in optimal_plans &amp;&amp; (s&#39; * Q * s + l&#39; * s) ≈ E, samples))
+
+# output
+
+(true, true, true)</code></pre><h2 id="Using-MultivariatePolynomials.jl-Interface-(Experimental)"><a class="docs-heading-anchor" href="#Using-MultivariatePolynomials.jl-Interface-(Experimental)">Using MultivariatePolynomials.jl Interface (Experimental)</a><a id="Using-MultivariatePolynomials.jl-Interface-(Experimental)-1"></a><a class="docs-heading-anchor-permalink" href="#Using-MultivariatePolynomials.jl-Interface-(Experimental)" title="Permalink"></a></h2><div class="admonition is-warning" id="Experimental-Feature-1ef1a2a54d707b78"><header class="admonition-header">Experimental Feature<a class="admonition-anchor" href="#Experimental-Feature-1ef1a2a54d707b78" title="Permalink"></a></header><div class="admonition-body"><p>The MultivariatePolynomials.jl interface is experimental and may change in future versions.</p></div></div><p>TenSolver.jl can directly optimize polynomial objective functions defined using the MultivariatePolynomials.jl interface. This is particularly useful for problems that naturally express themselves as polynomial optimization.</p><pre><code class="language-julia hljs">using TenSolver
+using DynamicPolynomials
+
+# Define polynomial variables
+@polyvar x[1:4]
+
+# Create a polynomial objective function
+# For example: x₁² + 2x₁x₂ + x₂² - x₃ + x₄
+polynomial = 1.0*x[1]^2 + 2.0*x[1]*x[2] + 1.0*x[2]^2 - 1.0*x[3] + 1.0*x[4]
+
+# Minimize the polynomial
+E, psi = TenSolver.minimize(polynomial; verbosity=0)
+
+# Sample a solution
+solution = TenSolver.sample(psi)
+
+# Evaluate the polynomial at the solution
+# Note: solutions are in {0, 1}, indexed from 1 in Julia
+objective_value = polynomial(x =&gt; solution)
+
+# Verify the sampled solution achieves the reported minimum
+objective_value ≈ E
+
+# output
+
+true</code></pre><p>This interface automatically handles the conversion of polynomial expressions into the tensor network representation used internally by the solver. The variables in the polynomial are treated as binary variables taking values in {0, 1}.</p><h3 id="Example:-Graph-Coloring"><a class="docs-heading-anchor" href="#Example:-Graph-Coloring">Example: Graph Coloring</a><a id="Example:-Graph-Coloring-1"></a><a class="docs-heading-anchor-permalink" href="#Example:-Graph-Coloring" title="Permalink"></a></h3><p>Here&#39;s an example of using the polynomial interface for a graph coloring problem:</p><pre><code class="language-julia hljs">using TenSolver
+using DynamicPolynomials
+
+# Define variables for a graph with 4 nodes
+@polyvar x[1:4]
+
+# Minimize the number of conflicts (edges with same color)
+# For a simple graph: edges (1,2), (2,3), (3,4), (4,1)
+polynomial = 1.0*x[1]*x[2] + 1.0*x[2]*x[3] + 1.0*x[3]*x[4] + 1.0*x[4]*x[1]
+
+# Solve
+E, psi = TenSolver.minimize(polynomial; verbosity=0)
+
+# Pick a deterministic representative from the two equivalent 2-colorings
+coloring = [0, 1, 0, 1] in psi ? [0, 1, 0, 1] : [1, 0, 1, 0]
+conflicts = polynomial(x =&gt; coloring)
+
+println(&quot;Graph coloring: &quot;, coloring)
+println(&quot;Number of conflicts: &quot;, conflicts)
+
+# output
+
+Graph coloring: [0, 1, 0, 1]
+Number of conflicts: 0.0</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../api/">API Reference »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Thursday 25 June 2026 03:01">Thursday 25 June 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
