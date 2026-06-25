@@ -1,5 +1,6 @@
 # Projection-MPO construction adapted from the CoTenN constraint projection
-# design, but implemented natively with ITensors/ITensorMPS.
+# design in Sharma, Ritvik, Cheng Peng, Siddharth Dangwal, and Sara Achour,
+# "CoTenN: Constrained Optimization with Tensor Networks," PLDI 2026.
 
 struct _SparseTensorEntry{T}
   coordinates::Dict{Int,Int}
@@ -38,6 +39,10 @@ function _identity_tensor(::Type{T}, site) where {T}
 end
 
 function _pass_through_tensor(::Type{T}, site, left_link, right_link) where {T}
+  if isnothing(left_link) && isnothing(right_link)
+    return _identity_tensor(T, site)
+  end
+
   inds = _mpo_tensor_indices(site, left_link, right_link)
   path_count = _path_count(left_link, right_link)
   nonzeros = Tuple{Vector{Int},T}[]
@@ -94,6 +99,11 @@ function _tensor_to_mpo(::Type{T}, entries, sites) where {T}
     site = site_vec[site_position]
     left_link = site_position == firstindex(site_vec) ? nothing : links[site_position - 1]
     right_link = site_position == lastindex(site_vec) ? nothing : links[site_position]
+    if !isempty(entry_vec) && all(entry -> !haskey(entry.coordinates, site_position), entry_vec)
+      tensors[site_position] = _pass_through_tensor(T, site, left_link, right_link)
+      continue
+    end
+
     inds = _mpo_tensor_indices(site, left_link, right_link)
     nonzeros = Tuple{Vector{Int},T}[]
 

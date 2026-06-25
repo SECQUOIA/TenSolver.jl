@@ -62,6 +62,9 @@ They are documented here for advanced users who may need to understand the inter
 
 ```@docs
 TenSolver.tensorize
+TenSolver.itensor_from_nonzeros
+TenSolver.projection_mpo
+TenSolver.projection_mpos
 TenSolver.qmatrix_permutation
 TenSolver.preprocess_qubo
 ```
