@@ -25,12 +25,7 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
   relation::Symbol
   rhs::T
 
-  function SumConstraint{T}(
-    sites::AbstractVector{<:Integer},
-    weights::AbstractVector{T},
-    relation::Symbol,
-    rhs::T,
-  ) where {T<:Real}
+  function SumConstraint{T}(sites, weights, relation, rhs::T) where {T<:Real}
     site_vec = _validate_sites(sites)
     weight_vec = _validate_weights(weights)
     _validate_same_length(site_vec, weight_vec, "sites", "weights")
@@ -41,7 +36,6 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
 end
 
 function SumConstraint(sites, weights, relation, rhs)
-  site_vec = _validate_sites(sites)
   raw_weights = collect(weights)
   isempty(raw_weights) && throw(ArgumentError("weights must not be empty"))
 
@@ -52,7 +46,8 @@ function SumConstraint(sites, weights, relation, rhs)
   weight_vec = T.(raw_weights)
   rhs_value = convert(T, rhs)
 
-  return SumConstraint{T}(site_vec, weight_vec, _validate_relation(relation), rhs_value)
+  # `sites` and `relation` are validated once, inside the inner constructor.
+  return SumConstraint{T}(sites, weight_vec, relation, rhs_value)
 end
 
 """
@@ -249,6 +244,11 @@ end
 function _validate_weights(weights)
   weight_vec = collect(weights)
   isempty(weight_vec) && throw(ArgumentError("weights must not be empty"))
+  # Nonnegativity is a deliberate v1 contract (issue #56 acceptance criteria):
+  # it keeps the predicate aligned with the nonnegative projection targets used
+  # by the constraint/MPO work tracked in #57. Signed weights (e.g. encoding a
+  # difference `x1 - x2 == 0`) are intentionally out of scope here and should be
+  # revisited together with that lowering, not relaxed in isolation.
   all(weight -> weight >= 0, weight_vec) ||
     throw(ArgumentError("weights must be nonnegative"))
 
