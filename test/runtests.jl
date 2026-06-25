@@ -21,6 +21,9 @@ include(filepath("backend.jl"))
 # Ising <-> QUBO utilities
 include(filepath("ising_conversion.jl"))
 
+# Binary constraint API
+include(filepath("constraints.jl"))
+
 # Traditional interface
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
