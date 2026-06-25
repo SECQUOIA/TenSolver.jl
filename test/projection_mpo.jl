@@ -42,11 +42,11 @@ end
     )
     @test_throws ArgumentError TenSolver._tensor_to_mpo(Float64, [], ITensors.Index{Int64}[])
     @test_throws ArgumentError TenSolver._tensor_to_mpo(Float64, [], qutrit_sites)
-    @test_throws BoundsError TenSolver.projection_mpo(exactly_one_constraint([4]), sites)
+    @test_throws BoundsError TenSolver.projection_mpo(ExactlyOneConstraint([4]), sites)
   end
 
   @testset "Manual diagonal masks" begin
-    constraint = not_equals_constraint([1, 3], [1, 0])
+    constraint = NotEqualsConstraint([1, 3], [1, 0])
     H = TenSolver.projection_mpo(constraint, sites)
     diagonal = _projection_diagonal(H, sites)
 
@@ -58,9 +58,9 @@ end
 
   @testset "Feasible states are preserved" begin
     constraints = AbstractConstraint[
-      exactly_one_constraint([1, 2, 3]),
-      relation_constraint(1, Symbol("<="), 2),
-      sum_constraint([1, 3], [2, 1], Symbol("<="), 2),
+      ExactlyOneConstraint([1, 2, 3]),
+      RelationConstraint(1, Symbol("<="), 2),
+      SumConstraint([1, 3], [2, 1], Symbol("<="), 2),
     ]
     projections = TenSolver.projection_mpos(constraints, sites)
 
@@ -77,7 +77,7 @@ end
   end
 
   @testset "Infeasible constraints build zero masks" begin
-    constraint = sum_constraint([1, 2], [1, 1], Symbol("<"), 0)
+    constraint = SumConstraint([1, 2], [1, 1], Symbol("<="), -1)
     H = TenSolver.projection_mpo(constraint, sites)
     diagonal = _projection_diagonal(H, sites)
 
