@@ -23,6 +23,7 @@ include(filepath("ising_conversion.jl"))
 
 # Binary constraint API
 include(filepath("constraints.jl"))
+include(filepath("projection_mpo.jl"))
 
 # Traditional interface
 include(filepath("qubo.jl"))
