@@ -16,7 +16,7 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [compat]
 Combinatorics = "1"
-ITensorMPS = "0.3"
+ITensorMPS = "0.3, 0.4"
 ITensors = "0.9"
 LinearAlgebra = "1.10"
 MultivariatePolynomials = "0.5.9"
