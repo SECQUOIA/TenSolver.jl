@@ -38,6 +38,21 @@ TenSolver.qubo_to_ising
 TenSolver.ising_to_qubo
 ```
 
+## Constraints
+
+```@docs
+TenSolver.AbstractConstraint
+TenSolver.SumConstraint
+TenSolver.NotEqualsConstraint
+TenSolver.ExactlyOneConstraint
+TenSolver.RelationConstraint
+TenSolver.sum_constraint
+TenSolver.not_equals_constraint
+TenSolver.exactly_one_constraint
+TenSolver.relation_constraint
+TenSolver.is_feasible
+```
+
 ## Utility Functions
 
 ```@docs

@@ -1,5 +1,24 @@
+"""
+    AbstractConstraint
+
+Supertype for the binary feasibility constraints understood by
+[`is_feasible`](@ref).
+
+Concrete subtypes are [`SumConstraint`](@ref), [`NotEqualsConstraint`](@ref),
+[`ExactlyOneConstraint`](@ref), and [`RelationConstraint`](@ref). Each describes
+a condition over a binary vector `x` (entries in `{0, 1}`) addressed by 1-based
+site indices.
+"""
 abstract type AbstractConstraint end
 
+"""
+    SumConstraint{T} <: AbstractConstraint
+
+Weighted-sum constraint `sum(weights .* x[sites]) <relation> rhs` over a binary
+vector `x`, where `relation` is one of `:(==)`, `:(!=)`, `:(<)`, `:(<=)`,
+`:(>)`, `:(>=)`. Sites must be unique positive integers and weights nonnegative.
+Build instances with [`sum_constraint`](@ref).
+"""
 struct SumConstraint{T<:Real} <: AbstractConstraint
   sites::Vector{Int}
   weights::Vector{T}
@@ -36,6 +55,13 @@ function SumConstraint(sites, weights, relation, rhs)
   return SumConstraint{T}(site_vec, weight_vec, _validate_relation(relation), rhs_value)
 end
 
+"""
+    NotEqualsConstraint <: AbstractConstraint
+
+Excludes a single assignment: `x[sites]` must differ from `values` in at least
+one position, i.e. the exact partial assignment `x[sites] == values` is
+forbidden. Build instances with [`not_equals_constraint`](@ref).
+"""
 struct NotEqualsConstraint <: AbstractConstraint
   sites::Vector{Int}
   values::Vector{Int}
@@ -49,6 +75,12 @@ struct NotEqualsConstraint <: AbstractConstraint
   end
 end
 
+"""
+    ExactlyOneConstraint <: AbstractConstraint
+
+Requires exactly one of `x[sites]` to equal `1`. Build instances with
+[`exactly_one_constraint`](@ref).
+"""
 struct ExactlyOneConstraint <: AbstractConstraint
   sites::Vector{Int}
 
@@ -57,6 +89,13 @@ struct ExactlyOneConstraint <: AbstractConstraint
   end
 end
 
+"""
+    RelationConstraint <: AbstractConstraint
+
+Pairwise constraint `x[left_site] <relation> x[right_site]` between two distinct
+sites, where `relation` is one of `:(==)`, `:(!=)`, `:(<)`, `:(<=)`, `:(>)`,
+`:(>=)`. Build instances with [`relation_constraint`](@ref).
+"""
 struct RelationConstraint <: AbstractConstraint
   left_site::Int
   relation::Symbol
@@ -71,12 +110,77 @@ struct RelationConstraint <: AbstractConstraint
   end
 end
 
+"""
+    sum_constraint(sites, weights, relation, rhs)
+    sum_constraint(sites, weights, rhs; relation = :(==))
+
+Construct a [`SumConstraint`](@ref) `sum(weights .* x[sites]) <relation> rhs`.
+
+Two call forms are supported. In the four-argument form the relation is the
+third positional argument. In the three-argument form `rhs` is the third
+positional argument and the relation is the `relation` keyword (default
+`:(==)`); passing a relation positionally to this form is an error rather than a
+silently misinterpreted `rhs`.
+
+`sites` must be unique positive integers, `weights` nonnegative and the same
+length as `sites`, and `relation` one of `:(==)`, `:(!=)`, `:(<)`, `:(<=)`,
+`:(>)`, `:(>=)`.
+
+```julia
+sum_constraint([1, 2, 3], [2, 1, 1], :(<=), 3)
+sum_constraint([1, 2], [1, 1], 1)            # relation defaults to :(==)
+```
+"""
 sum_constraint(sites, weights, relation, rhs) = SumConstraint(sites, weights, relation, rhs)
-sum_constraint(sites, weights, rhs; relation=Symbol("==")) = SumConstraint(sites, weights, relation, rhs)
+
+function sum_constraint(sites, weights, rhs; relation=Symbol("=="))
+  rhs isa Symbol && throw(ArgumentError(
+    "sum_constraint(sites, weights, rhs; relation) takes `rhs` as the third " *
+    "positional argument and `relation` as a keyword. To pass a relation " *
+    "positionally, use the four-argument form " *
+    "sum_constraint(sites, weights, relation, rhs).",
+  ))
+
+  return SumConstraint(sites, weights, relation, rhs)
+end
+
+"""
+    not_equals_constraint(sites, values)
+
+Construct a [`NotEqualsConstraint`](@ref) forbidding `x[sites] == values`.
+`values` must be binary (`0` or `1`) and the same length as `sites`.
+"""
 not_equals_constraint(sites, values) = NotEqualsConstraint(sites, values)
+
+"""
+    exactly_one_constraint(sites)
+
+Construct an [`ExactlyOneConstraint`](@ref) requiring exactly one of `x[sites]`
+to equal `1`.
+"""
 exactly_one_constraint(sites) = ExactlyOneConstraint(sites)
+
+"""
+    relation_constraint(left_site, relation, right_site)
+
+Construct a [`RelationConstraint`](@ref)
+`x[left_site] <relation> x[right_site]`. The two sites must be distinct positive
+integers and `relation` one of `:(==)`, `:(!=)`, `:(<)`, `:(<=)`, `:(>)`,
+`:(>=)`.
+"""
 relation_constraint(left_site, relation, right_site) = RelationConstraint(left_site, relation, right_site)
 
+"""
+    is_feasible(x, constraint)
+    is_feasible(x, constraints)
+
+Test whether the binary vector `x` (entries in `{0, 1}`, 1-based indexing)
+satisfies a single `constraint <: AbstractConstraint` or every constraint in a
+vector `constraints`. An empty constraint vector is feasible.
+
+Throws an `ArgumentError` if `x` contains a non-binary entry and a `BoundsError`
+if a constraint references a site outside `x`.
+"""
 function is_feasible(x::AbstractVector, constraint::SumConstraint)
   lhs = sum(
     constraint.weights[i] * _binary_at(x, constraint.sites[i])

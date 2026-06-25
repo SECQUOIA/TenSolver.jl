@@ -42,6 +42,9 @@
     @test_throws ArgumentError sum_constraint([1], [-1], Symbol("=="), 0)
     @test_throws ArgumentError sum_constraint([1], [1], Symbol("~"), 0)
     @test_throws ArgumentError sum_constraint([1], [1], "==", 0)
+    # A relation passed positionally to the three-argument form is rejected
+    # rather than silently treated as `rhs`.
+    @test_throws ArgumentError sum_constraint([1, 2], [1, 1], Symbol("<="))
 
     @test_throws DimensionMismatch not_equals_constraint([1, 2], [1])
     @test_throws ArgumentError not_equals_constraint([1], [2])
