@@ -30,6 +30,21 @@ end
     @test count(!iszero, materialized) == 2
   end
 
+  @testset "Validation errors" begin
+    s1 = sites[1]
+    s1p = ITensors.prime(s1)
+    qutrit_sites = ITensors.siteinds("Qudit", 1; dim=3)
+
+    @test_throws DimensionMismatch TenSolver.itensor_from_nonzeros(
+      Float64,
+      (s1, s1p),
+      [((1, 1, 1), 1.0)],
+    )
+    @test_throws ArgumentError TenSolver._tensor_to_mpo(Float64, [], ITensors.Index{Int64}[])
+    @test_throws ArgumentError TenSolver._tensor_to_mpo(Float64, [], qutrit_sites)
+    @test_throws BoundsError TenSolver.projection_mpo(exactly_one_constraint([4]), sites)
+  end
+
   @testset "Manual diagonal masks" begin
     constraint = not_equals_constraint([1, 3], [1, 0])
     H = TenSolver.projection_mpo(constraint, sites)
