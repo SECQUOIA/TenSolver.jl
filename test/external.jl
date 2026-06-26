@@ -124,7 +124,7 @@ end
   compat = TOML.parsefile(joinpath(dirname(@__DIR__), "Project.toml"))["compat"]
 
   @test compat["QUBODrivers"] == "0.6.1"
-  @test compat["QUBOTools"] == "0.13, 0.14, 0.15"
+  @test compat["QUBOTools"] == "0.13, 0.14, 0.15, 0.16"
 end
 
 @testset "Aqua.jl" begin
