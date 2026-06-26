@@ -122,12 +122,10 @@ struct RelationConstraint <: AbstractConstraint
 end
 
 """
-    is_feasible(x, constraint)
-    is_feasible(x, constraints)
+    is_feasible(x, constraint::AbstractConstraint)
 
 Test whether the binary vector `x` (entries in `{0, 1}`, 1-based indexing)
-satisfies a single `constraint <: AbstractConstraint` or every constraint in a
-vector `constraints`. Any vector is feasible for an empty constraint vector.
+satisfies a single `constraint <: AbstractConstraint`.
 
 Throws an `ArgumentError` if `x` contains a non-binary entry and a `BoundsError`
 if a constraint references a site outside `x`.
@@ -159,6 +157,16 @@ function is_feasible(x::AbstractVector, constraint::RelationConstraint)
   return _relation_holds(lhs, constraint.relation, rhs)
 end
 
+"""
+    is_feasible(x, constraints::Vector{AbstractConstraint})
+
+Test whether the binary vector `x`
+satisfies every constraint in a vector `constraints`.
+Any vector is feasible for an empty constraint vector.
+
+Throws an `ArgumentError` if `x` contains a non-binary entry and a `BoundsError`
+if a constraint references a site outside `x`.
+"""
 function is_feasible(x::AbstractVector, constraints::AbstractVector{<:AbstractConstraint})
   return all(constraint -> is_feasible(x, constraint), constraints)
 end
