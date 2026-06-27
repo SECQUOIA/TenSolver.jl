@@ -46,6 +46,7 @@ end
     s1 = sites[1]
     s1p = ITensors.prime(s1)
     qutrit_sites = ITensors.siteinds("Qudit", 1; dim=3)
+    too_large_int = big(typemax(Int)) + 1
 
     @test_throws DimensionMismatch TenSolver.itensor_from_nonzeros(
       Float64,
@@ -65,6 +66,14 @@ end
     )
     @test_throws ArgumentError TenSolver.projection_mpo(
       SumConstraint([1], [1], Symbol("<="), 1.5),
+      sites,
+    )
+    @test_throws ArgumentError TenSolver.projection_mpo(
+      SumConstraint([1], [too_large_int], Symbol("<="), 1),
+      sites,
+    )
+    @test_throws ArgumentError TenSolver.projection_mpo(
+      SumConstraint([1, 2], [typemax(Int), 1], Symbol("<="), typemax(Int)),
       sites,
     )
   end

@@ -148,10 +148,6 @@ function validate_constraint_site_bounds(constraint_sites, sites)
   return nothing
 end
 
-function constraint_sites(constraint::SumConstraint)
-  return constraint.sites
-end
-
 function constraint_sites(constraint::NotEqualsConstraint)
   return constraint.sites
 end
@@ -162,10 +158,6 @@ end
 
 function constraint_sites(constraint::RelationConstraint)
   return [constraint.left_site, constraint.right_site]
-end
-
-function projection_entries(::Type{T}, constraint::SumConstraint) where {T}
-  return projection_entries(T, constraint, constraint_sites(constraint))
 end
 
 function projection_entries(::Type{T}, constraint::NotEqualsConstraint) where {T}
@@ -354,6 +346,9 @@ Build a diagonal projection MPO that preserves basis states satisfying
 
 `SumConstraint` projection MPOs use exact integer partial sums, so their
 weights and right-hand side must be integer-valued.
+For SumConstraint, MPO link dimensions grow with the number of distinct
+reachable partial sums, which can be exponential in the number of weighted
+sites.
 """
 function projection_mpo(::Type{T}, constraint::SumConstraint, sites) where {T}
   return sum_constraint_projection_mpo(T, constraint, collect(sites))
