@@ -17,6 +17,14 @@ TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
 ```
 
+## Solver Backends
+
+```@docs
+TenSolver.AbstractTenSolverBackend
+TenSolver.DMRGBackend
+TenSolver.normalize_backend
+```
+
 ## Solution
 
 ```@docs
@@ -36,6 +44,17 @@ TenSolver.bool_to_spin
 TenSolver.spin_to_bool
 TenSolver.qubo_to_ising
 TenSolver.ising_to_qubo
+```
+
+## Constraints
+
+```@docs
+TenSolver.AbstractConstraint
+TenSolver.SumConstraint
+TenSolver.NotEqualsConstraint
+TenSolver.ExactlyOneConstraint
+TenSolver.RelationConstraint
+TenSolver.is_feasible
 ```
 
 ## Utility Functions

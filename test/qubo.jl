@@ -11,6 +11,15 @@
     bw
   end
 
+  @testset "Ill-formed input" begin
+    # Should throw when the matrix is not square
+    Q = randn(dim, dim - 2)
+    @test_throws DimensionMismatch minimize(Q)
+
+    Q = randn(dim - 2, dim)
+    @test_throws DimensionMismatch minimize(Q)
+  end
+
   @testset "Ultra simple sanity checks" begin
     @testset "Zero matrix" begin
       E, psi = minimize([0.0 0; 0 0])
