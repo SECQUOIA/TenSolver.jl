@@ -1,10 +1,10 @@
 # SpinGlassPEPS Integration Architecture
 
-This page records the planned boundary between TenSolver.jl and the
-SpinGlassPEPS.jl work described in
+This page records the boundary between TenSolver.jl and the SpinGlassPEPS.jl
+work described in
 [arXiv:2411.16431](https://arxiv.org/abs/2411.16431). It is a design note for
-the implementation stack, not a description of behavior available in the
-current TenSolver release.
+the implementation stack. For user-facing PEPS installation, examples,
+limitations, and benchmark scripts, see [PEPS Backend](@ref).
 
 The central decision is that SpinGlassPEPS should be integrated as an optional
 structured-graph backend. It should not replace TenSolver's current
@@ -188,9 +188,11 @@ This stack step keeps the direct PEPS path as non-public scaffolding. The core
 package contains internal backend, topology, and result boundaries, while the
 exported `solve_ising` function is the public Ising boundary that optional
 structured backends may implement. `TenSolverSpinGlassPEPSExt` owns the
-SpinGlass component imports and calls. This keeps ordinary TenSolver installs
-on the existing dependency footprint and avoids documenting an activation path
-that cannot be tested from registered packages.
+SpinGlass component calls, and Julia loads it only after `SpinGlassNetworks`,
+`SpinGlassEngine`, and `SpinGlassTensors` are imported in the user's session.
+This keeps ordinary TenSolver installs on the existing dependency footprint and
+avoids documenting an activation path that cannot be tested from registered
+packages.
 
 The extension remains gated while the upstream dependency stack settles. In
 local checks against SpinGlassNetworks 1.4, SpinGlassEngine 1.6, and
@@ -222,6 +224,10 @@ set_attribute(model, "backend", :dmrg)
 The PEPS path is selected explicitly and requires topology metadata:
 
 ```julia
+import SpinGlassNetworks
+import SpinGlassEngine
+import SpinGlassTensors
+
 set_attribute(model, "backend", :peps)
 set_attribute(model, "peps_layout", :square)
 set_attribute(model, "peps_topology", (m, n))
@@ -244,7 +250,7 @@ install/load the optional PEPS bridge.
 
 ## Stacked PR Plan
 
-The integration should be implemented as a sequence of stacked PRs:
+The integration was organized as a sequence of stacked PRs:
 
 1. Add this design document and link it from the documentation navigation.
 2. Add QUBOTools-backed QUBO/Ising conversion adapters with exact

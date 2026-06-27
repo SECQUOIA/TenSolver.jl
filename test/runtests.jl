@@ -44,6 +44,9 @@ end
 # HDF5 snapshot callback
 include(filepath("hdf5.jl"))
 
+# Benchmark helper smoke tests
+include(filepath("benchmarks.jl"))
+
 # QUBODrivers.jl and Aqua.jl test suites
 include(filepath("external.jl"))
 
