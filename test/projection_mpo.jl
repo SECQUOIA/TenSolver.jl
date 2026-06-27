@@ -73,7 +73,7 @@ end
       sites,
     )
     @test_throws ArgumentError TenSolver.projection_mpo(
-      SumConstraint([1, 2], [typemax(Int), 1], Symbol("<="), typemax(Int)),
+      SumConstraint([1, 2], [typemax(Int), 1], Symbol(">="), typemax(Int)),
       sites,
     )
   end
@@ -95,6 +95,18 @@ end
     for constraint in constraints
       assert_projection_matches_feasibility(constraint, automaton_sites)
     end
+  end
+
+  @testset "SumConstraint prunes dead partial sums" begin
+    pruning_sites = ITensors.siteinds("Qudit", 6; dim=2)
+    le_constraint = SumConstraint(1:6, [1, 2, 4, 8, 16, 32], Symbol("<="), 3)
+    eq_constraint = SumConstraint(1:6, [1, 2, 4, 8, 16, 32], Symbol("=="), 3)
+
+    le_projection = assert_projection_matches_feasibility(le_constraint, pruning_sites)
+    eq_projection = assert_projection_matches_feasibility(eq_constraint, pruning_sites)
+
+    @test ITensorMPS.maxlinkdim(le_projection) <= 4
+    @test ITensorMPS.maxlinkdim(eq_projection) <= 4
   end
 
   @testset "Knapsack-style capacity mask" begin

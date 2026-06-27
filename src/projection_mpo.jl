@@ -229,20 +229,42 @@ function checked_sum_projection_add(lhs::Int, rhs::Int)
   end
 end
 
-function sum_transition_target(partial_sum::Int, weight::Int, bit::Integer)
+function sum_projection_state_limit(relation::Symbol, rhs::Int)
+  (relation === Symbol("<=") || relation === Symbol("==")) && return rhs
+
+  return nothing
+end
+
+function sum_exceeds_state_limit(partial_sum::Int, weight::Int, state_limit::Int)
+  return big(partial_sum) + big(weight) > state_limit
+end
+
+function sum_transition_target(partial_sum::Int, weight::Int, bit::Integer, state_limit)
   bit == 0 && return partial_sum
+
+  if !isnothing(state_limit) && sum_exceeds_state_limit(partial_sum, weight, state_limit)
+    return nothing
+  end
 
   return checked_sum_projection_add(partial_sum, weight)
 end
 
-function sum_projection_reachable_states(weights_by_site, num_sites)
+function sum_projection_reachable_states(weights_by_site, num_sites, relation::Symbol, rhs::Int)
   states_after_site = Vector{Vector{Int}}(undef, num_sites)
-  reachable = [0]
+  state_limit = sum_projection_state_limit(relation, rhs)
+  reachable = !isnothing(state_limit) && 0 > state_limit ? Int[] : [0]
 
   for site_position in 1:num_sites
     weight = get(weights_by_site, site_position, 0)
-    shifted = [checked_sum_projection_add(partial_sum, weight) for partial_sum in reachable]
-    next_reachable = unique!(sort!(vcat(reachable, shifted)))
+    next_reachable = Int[]
+
+    for partial_sum in reachable, bit in 0:1
+      target = sum_transition_target(partial_sum, weight, bit, state_limit)
+      isnothing(target) && continue
+      push!(next_reachable, target)
+    end
+
+    unique!(sort!(next_reachable))
     states_after_site[site_position] = next_reachable
     reachable = next_reachable
   end
@@ -273,13 +295,16 @@ function sum_constraint_projection_tensor(
   weight::Int,
   relation::Symbol,
   rhs::Int,
+  state_limit,
 ) where {T}
   inds = mpo_tensor_indices(site, left_link, right_link)
   nonzeros = Tuple{Vector{Int},T}[]
 
   for (left_position, partial_sum) in pairs(left_states)
     for bit in 0:1
-      next_sum = sum_transition_target(partial_sum, weight, bit)
+      next_sum = sum_transition_target(partial_sum, weight, bit, state_limit)
+      isnothing(next_sum) && continue
+
       if isnothing(right_link)
         relation_holds(next_sum, relation, rhs) || continue
         right_position = nothing
@@ -307,7 +332,15 @@ function sum_constraint_projection_mpo(::Type{T}, constraint::SumConstraint, sit
   validate_constraint_site_bounds(constraint.sites, sites)
 
   weights_by_site, rhs = sum_constraint_projection_data(constraint)
-  states_after_site = sum_projection_reachable_states(weights_by_site, length(sites))
+  state_limit = sum_projection_state_limit(constraint.relation, rhs)
+  states_after_site = sum_projection_reachable_states(
+    weights_by_site,
+    length(sites),
+    constraint.relation,
+    rhs,
+  )
+  any(isempty, states_after_site) && return tensor_to_mpo(T, SparseTensorEntry{T}[], sites)
+
   links = [
     ITensors.Index(length(states_after_site[site_position]), "Link,Projection,Sum,l=$site_position")
     for site_position in 1:(length(sites) - 1)
@@ -332,6 +365,7 @@ function sum_constraint_projection_mpo(::Type{T}, constraint::SumConstraint, sit
       weight,
       constraint.relation,
       rhs,
+      state_limit,
     )
   end
 
@@ -349,6 +383,8 @@ weights and right-hand side must be integer-valued.
 For SumConstraint, MPO link dimensions grow with the number of distinct
 reachable partial sums, which can be exponential in the number of weighted
 sites.
+For nonnegative `<=` and `==` constraints, partial sums exceeding the right-hand
+side are pruned from the automaton.
 """
 function projection_mpo(::Type{T}, constraint::SumConstraint, sites) where {T}
   return sum_constraint_projection_mpo(T, constraint, collect(sites))
