@@ -141,6 +141,38 @@ selected = assets[findall(>(0.5), value.(x))]
 (true, "Wind, Battery")
 ```
 
+### Selecting the PEPS Backend from JuMP
+
+The optional SpinGlassPEPS backend is selected explicitly and requires
+structured topology metadata. It is experimental and intended for structured
+quasi-two-dimensional QUBOs; arbitrary dense QUBOs should remain on the default
+DMRG backend.
+
+```julia
+using JuMP, TenSolver
+
+m, n = 2, 2
+model = Model(TenSolver.Optimizer)
+set_attribute(model, "backend", :peps)
+set_attribute(model, "peps_layout", :square)
+set_attribute(model, "peps_topology", (m, n))
+set_attribute(model, "peps_beta", 2.0)
+set_attribute(model, "peps_bond_dim", 8)
+set_attribute(model, "peps_max_states", 256)
+set_attribute(model, "peps_cutoff_prob", 0.0)
+set_attribute(model, "peps_strategy", :svd)
+set_attribute(model, "peps_transformations", :identity)
+
+@variable(model, x[1:(m * n)], Bin)
+# Add a structured objective whose variable order matches the square grid.
+@objective(model, Min, -sum(x))
+optimize!(model)
+```
+
+If the optional SpinGlass component packages are not available, this backend
+errors clearly. If `"backend"` is left unset, or set to `:dmrg`, TenSolver uses
+the existing DMRG path.
+
 ## Controlling Solver Parameters
 
 You can control various solver parameters for better performance:

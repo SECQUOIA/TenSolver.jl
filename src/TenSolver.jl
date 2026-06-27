@@ -54,11 +54,166 @@ QUBODrivers.@setup Optimizer begin
     EigsolveTol["eigsolve_tol"]              :: Float64                         = 1e-14
     Preprocess["preprocess"]                 :: Bool                            = false
     Verbosity["verbosity"]                   :: Int                             = 1
+    # Backend selection
+    "backend"              :: Union{Symbol, String}           = :dmrg
+    # PEPS backend keywords
+    "peps_topology"        :: Any                             = nothing
+    "peps_layout"          :: Union{Symbol, String}           = :square
+    "peps_beta"            :: Float64                         = 2.0
+    "peps_bond_dim"        :: Int                             = 8
+    "peps_max_states"      :: Int                             = 256
+    "peps_cutoff_prob"     :: Float64                         = 0.0
+    "peps_onGPU"           :: Bool                            = false
+    "peps_strategy"        :: Union{Symbol, String}           = :auto
+    "peps_num_sweeps"      :: Int                             = 1
+    "peps_transformations" :: Any                             = :all
+    "peps_local_dimension" :: Any                             = nothing
   end
 end
 
 QUBODrivers.honors_final_reads(::Type{<:Optimizer}) = true
 QUBODrivers.enforces_time_limit(::Type{<:Optimizer}) = true
+
+function _optimizer_symbol(value::Symbol, attr::AbstractString)
+  return Symbol(lowercase(String(value)))
+end
+
+function _optimizer_symbol(value::AbstractString, attr::AbstractString)
+  return Symbol(lowercase(strip(value)))
+end
+
+function _optimizer_symbol(value, attr::AbstractString)
+  throw(ArgumentError("Optimizer attribute `$attr` must be a Symbol or String. Got $(repr(value))."))
+end
+
+function _optimizer_backend(get)
+  backend = _optimizer_symbol(get("backend"), "backend")
+  backend === :dmrg && return :dmrg
+  backend === :peps && return _optimizer_peps_backend(get)
+  throw(ArgumentError("Unsupported optimizer backend $(repr(get("backend"))). Use :dmrg or :peps."))
+end
+
+function _peps_topology_tuple(topology)
+  topology === nothing &&
+    throw(ArgumentError("PEPS backend requires `peps_topology`, for example `(m, n)` for a square or king grid."))
+
+  if topology isa Tuple
+    return topology
+  elseif topology isa AbstractVector
+    return Tuple(topology)
+  else
+    throw(ArgumentError("`peps_topology` must be a tuple/vector such as `(m, n)` or `(m, n, spins_per_site)`. Got $(repr(topology))."))
+  end
+end
+
+function _peps_topology(layout, topology)
+  topology isa AbstractStructuredTopology && return topology
+
+  dims = _peps_topology_tuple(topology)
+  if !(length(dims) in (2, 3))
+    throw(ArgumentError("`peps_topology` must have 2 or 3 entries. Got $(repr(topology))."))
+  end
+
+  layout = _optimizer_symbol(layout, "peps_layout")
+  layout === :square && return SquareGrid(dims...)
+  layout === :king && return KingGrid(dims...)
+  throw(ArgumentError("Unsupported `peps_layout` $(repr(layout)). Use :square or :king."))
+end
+
+function _peps_local_dimension(local_dimension)
+  local_dimension === nothing && return nothing
+  local_dimension isa Integer && return Int(local_dimension)
+  throw(ArgumentError("Only integer `peps_local_dimension` values are currently supported as local dimension limits. Got $(repr(local_dimension))."))
+end
+
+function _optimizer_peps_backend(get)
+  return PEPSBackend(
+    _peps_topology(get("peps_layout"), get("peps_topology"));
+    beta = get("peps_beta"),
+    bond_dim = get("peps_bond_dim"),
+    max_states = get("peps_max_states"),
+    cutoff_prob = get("peps_cutoff_prob"),
+    onGPU = get("peps_onGPU"),
+    contraction = _optimizer_symbol(get("peps_strategy"), "peps_strategy"),
+    num_sweeps = get("peps_num_sweeps"),
+    transformations = get("peps_transformations"),
+    local_dimension = _peps_local_dimension(get("peps_local_dimension")),
+  )
+end
+
+function _qubo_samples(::Type{T}, psi::Solution, l, Q, a, b, num_reads::Integer) where {T}
+  samples = Vector{QUBOTools.Sample{T,Int}}(undef, num_reads)
+  for i in 1:num_reads
+    x = sample(psi)
+    E = QUBOTools.value(x, l, Q, a, b)
+
+    samples[i] = QUBOTools.Sample{T,Int}(x, E)
+  end
+
+  return samples
+end
+
+function _peps_read_counts(psi::PEPSSolution, num_reads::Integer)
+  num_reads >= 0 || throw(ArgumentError("num_reads must be nonnegative. Got $num_reads."))
+
+  states = psi.states
+  isempty(states) && throw(ArgumentError("Cannot build QUBOTools samples from an empty PEPS solution."))
+
+  counts = zeros(Int, length(states))
+  num_reads == 0 && return counts
+
+  probabilities = psi.probabilities
+  if isempty(probabilities)
+    counts[begin] = Int(num_reads)
+    return counts
+  end
+
+  length(probabilities) == length(states) ||
+    throw(ArgumentError("PEPS probabilities length must match states length. Got $(length(probabilities)) probabilities for $(length(states)) states."))
+  any(p -> p < 0, probabilities) &&
+    throw(ArgumentError("PEPS probabilities must be nonnegative. Got $(repr(probabilities))."))
+
+  total = sum(probabilities)
+  total > 0 || throw(ArgumentError("PEPS probabilities must have positive total weight. Got $(repr(probabilities))."))
+
+  weights = (Float64.(probabilities) ./ Float64(total)) .* Int(num_reads)
+  counts .= floor.(Int, weights)
+  remaining = Int(num_reads) - sum(counts)
+
+  if remaining > 0
+    order = sortperm(collect(eachindex(weights)); by = i -> (weights[i] - counts[i], -i), rev = true)
+    for i in Iterators.take(order, remaining)
+      counts[i] += 1
+    end
+  end
+
+  return counts
+end
+
+function _qubo_samples(::Type{T}, psi::PEPSSolution, l, Q, a, b, num_reads::Integer) where {T}
+  counts = _peps_read_counts(psi, num_reads)
+  samples = QUBOTools.Sample{T,Int}[]
+  sizehint!(samples, count(>(0), counts))
+
+  for (x, reads) in zip(psi.states, counts)
+    reads == 0 && continue
+    E = QUBOTools.value(x, l, Q, a, b)
+    push!(samples, QUBOTools.Sample{T,Int}(copy(x), E, reads))
+  end
+
+  return samples
+end
+
+function _add_backend_metadata!(metadata::Dict{String,Any}, psi::PEPSSolution)
+  peps = copy(psi.metadata)
+  peps["candidate_states"] = length(psi.states)
+  peps["effective_time"] = metadata["time"]["effective"]
+  tensolver = get!(metadata, "tensolver", Dict{String,Any}())
+  tensolver["peps"] = peps
+  return metadata
+end
+
+_add_backend_metadata!(metadata::Dict{String,Any}, psi) = metadata
 
 function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   # ~ Manage Attributes ~ #
@@ -79,31 +234,36 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   n, l, Q, a, b = QUBOTools.qubo(sampler, :sparse; sense = :min)
   # min_x a*(x'Qx + l'x + b)
   #  s.t. x in {0, 1}^n
-  results = @timed minimize(Q, l, b;
-    time_limit,
-    verbosity,
-    cutoff      = get("cutoff"),
-    vtol        = get("vtol"),
-    iterations  = get("iterations"),
-    maxdim      = get("maxdim"),
-    mindim      = get("mindim"),
-    noise       = get("noise"),
-    device      = get("device"),
-    preprocess  = get("preprocess"),
-    eigsolve_krylovdim =  get("eigsolve_krylovdim"),
-    eigsolve_tol       =  get("eigsolve_tol"),
-    eigsolve_maxiter   =  get("eigsolve_maxiter"),
-  )
+  backend = _optimizer_backend(get)
+  results = if backend isa PEPSBackend
+    @timed minimize(Q, l, b;
+      backend,
+      cutoff = get("cutoff"),
+      preprocess = get("preprocess"),
+      verbosity,
+    )
+  else
+    @timed minimize(Q, l, b;
+      backend,
+      cutoff      = get("cutoff"),
+      vtol        = get("vtol"),
+      iterations  = get("iterations"),
+      time_limit,
+      maxdim      = get("maxdim"),
+      mindim      = get("mindim"),
+      noise       = get("noise"),
+      device      = get("device"),
+      preprocess  = get("preprocess"),
+      verbosity,
+      eigsolve_krylovdim =  get("eigsolve_krylovdim"),
+      eigsolve_tol       =  get("eigsolve_tol"),
+      eigsolve_maxiter   =  get("eigsolve_maxiter"),
+    )
+  end
   _, psi = results.value
 
   # ~ Samples and Output ~ #
-  samples = Vector{QUBOTools.Sample{T,Int}}(undef, final_num_reads)
-  for i in 1:final_num_reads
-    x = sample(psi)
-    E = QUBOTools.value(x, l, Q, a, b)
-
-    samples[i] = QUBOTools.Sample{T,Int}(x, E)
-  end
+  samples = _qubo_samples(T, psi, l, Q, a, b, final_num_reads)
 
   # ~ Metadata ~ #
   metadata = _tensolver_metadata(
@@ -117,6 +277,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     vtol            = get("vtol"),
     maxdim          = get("maxdim"),
   )
+  _add_backend_metadata!(metadata, psi)
 
   return QUBOTools.SampleSet{T}(samples, metadata; sense = :min, domain = :bool)
 end
@@ -157,6 +318,45 @@ function _tensolver_metadata(
       "sweep_elapsed" => copy(solution.elapsed_times),
       "sweep_times"   => _sweep_times(solution.elapsed_times),
     ),
+    "parameters" => Dict{String,Any}(
+      "cutoff"     => cutoff,
+      "vtol"       => vtol,
+      "maxdim"     => maxdim isa AbstractVector ? copy(maxdim) : maxdim,
+      "iterations" => iterations,
+      "time_limit" => time_limit,
+    ),
+  )
+
+  return metadata
+end
+
+function _tensolver_metadata(
+  solution::PEPSSolution;
+  effective_time::Real,
+  num_reads::Integer,
+  final_num_reads::Integer,
+  time_limit::Real,
+  iterations::Integer,
+  cutoff::Real,
+  vtol::Real,
+  maxdim,
+)
+  algorithm_name = get(solution.metadata, "backend", "SpinGlassPEPS")
+  metadata = QUBODrivers._sampler_metadata(
+    origin                = "TenSolver.jl",
+    algorithm_name        = algorithm_name,
+    backend_name          = "TenSolver",
+    backend_version       = __VERSION__,
+    execution_mode        = "tensor_network_peps",
+    optimizer_iterations  = 1,
+    optimizer_evaluations = length(solution.states),
+    number_of_reads       = num_reads,
+    final_number_of_reads = final_num_reads,
+    status                = "locally_solved",
+    termination_status    = MOI.LOCALLY_SOLVED,
+  )
+  metadata["time"] = Dict{String,Any}("effective" => effective_time)
+  metadata["tensolver"] = Dict{String,Any}(
     "parameters" => Dict{String,Any}(
       "cutoff"     => cutoff,
       "vtol"       => vtol,
