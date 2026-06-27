@@ -99,6 +99,8 @@ end
   @test local_solve_metadata["status"] == "locally_solved"
   @test local_solve_metadata["termination_status"] == MOI.LOCALLY_SOLVED
 
+  # QUBODrivers accepts raw attribute values, so TenSolver validates that read
+  # counts are non-negative before generating the final SampleSet.
   negative_reads_model = _qubodrivers_test_model()
   MOI.set(negative_reads_model, TenSolver.NumberOfReads(), -1)
   negative_reads_error = try
@@ -122,7 +124,7 @@ end
   compat = TOML.parsefile(joinpath(dirname(@__DIR__), "Project.toml"))["compat"]
 
   @test compat["QUBODrivers"] == "0.6.1"
-  @test compat["QUBOTools"] == "0.13"
+  @test compat["QUBOTools"] == "0.13, 0.14, 0.15, 0.16"
 end
 
 @testset "Aqua.jl" begin

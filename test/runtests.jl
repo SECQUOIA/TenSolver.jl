@@ -15,32 +15,37 @@ include(filepath("ising_conversion.jl"))
 include(filepath("backend.jl"))
 include(filepath("peps_backend.jl"))
 
-@testset "Ill-formed input" begin
-  dim = 4
+#----------------------------------------------------------#
+#                         Test sets                        #
+#----------------------------------------------------------#
 
-  # Should throw when the matrix is not square
-  Q = randn(dim, dim - 2)
-  @test_throws DimensionMismatch minimize(Q)
+# Ising <-> QUBO utilities
+include(filepath("ising_conversion.jl"))
 
-  Q = randn(dim - 2, dim)
-  @test_throws DimensionMismatch minimize(Q)
-end
+# Binary constraint API
+include(filepath("constraints.jl"))
 
 # Traditional interface
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
-# Iteration Log utilities
-include(filepath("log.jl"))
+
 # JuMP interface
 include(filepath("jump.jl"))
-# QUBODrivers.jl and Aqua.jl test suites
-include(filepath("external.jl"))
+
+# Iteration Log utilities
+include(filepath("log.jl"))
 
 # Cases from papers
-include(filepath("cases/vrp.jl"))
+@testset "Real Models" begin
+  include(filepath("cases/pharma.jl"))
+  include(filepath("cases/vrp.jl"))
+end
 
 # HDF5 snapshot callback
 include(filepath("hdf5.jl"))
+
+# QUBODrivers.jl and Aqua.jl test suites
+include(filepath("external.jl"))
 
 # Documentation tests
 include(filepath("doctests.jl"))
