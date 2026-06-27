@@ -14,6 +14,14 @@ QUBODrivers = "a3f166f7-2cd3-47b6-9e1e-6fbfe0449eb0"
 QUBOTools = "60eb5b62-0a39-4ddc-84c5-97d2adff9319"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
+[weakdeps]
+SpinGlassEngine = "0563570f-ea1b-4080-8a64-041ac6565a4e"
+SpinGlassNetworks = "b7f6bd3e-55dc-4da6-96a9-ef9dbec6ac19"
+SpinGlassTensors = "7584fc6a-5a23-4eeb-8277-827aab0146ea"
+
+[extensions]
+TenSolverSpinGlassPEPSExt = ["SpinGlassEngine", "SpinGlassNetworks", "SpinGlassTensors"]
+
 [compat]
 Combinatorics = "1"
 ITensorMPS = "0.3, 0.4"
@@ -21,6 +29,9 @@ ITensors = "0.9"
 LinearAlgebra = "1.10"
 MultivariatePolynomials = "0.5.9"
 Printf = "1"
+SpinGlassEngine = "1.6"
+SpinGlassNetworks = "1.4"
+SpinGlassTensors = "1.3"
 QUBODrivers = "0.6.1"
 QUBOTools = "0.13, 0.14, 0.15, 0.16"
 SparseArrays = "1.10"

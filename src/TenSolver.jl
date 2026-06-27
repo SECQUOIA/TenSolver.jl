@@ -21,8 +21,8 @@ export SumConstraint, NotEqualsConstraint, ExactlyOneConstraint, RelationConstra
 export is_feasible
 
 include("solver.jl")
-export minimize, maximize
-export DMRGBackend
+export minimize, maximize, solve_ising
+export AbstractTenSolverBackend, DMRGBackend
 
 # Convergence logging
 include("log.jl")

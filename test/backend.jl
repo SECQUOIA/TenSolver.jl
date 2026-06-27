@@ -30,6 +30,30 @@ end
     @test TenSolver.sample(psi) == [1]
   end
 
+  @testset "solve_ising preserves pair couplings and offsets" begin
+    J = [0.0 0.5; 1.0 0.0]
+    h = [-0.25, 0.75]
+    offset = 2.0
+    model = TenSolver.IsingModel(J, h, offset)
+    spin_states = [[s1, s2] for s1 in (-1, 1) for s2 in (-1, 1)]
+    energies = [TenSolver.ising_energy(model, spin) for spin in spin_states]
+    expected_energy, expected_index = findmin(energies)
+    expected_spin = spin_states[expected_index]
+
+    for solve_call in (
+      () -> solve_ising(model; backend=:dmrg, verbosity=0),
+      () -> solve_ising(J, h, offset; backend=:dmrg, verbosity=0),
+    )
+      energy, solution = solve_call()
+      sample_bits = TenSolver.sample(solution)
+      sample_spin = TenSolver.bool_to_spin(sample_bits)
+
+      @test energy ≈ expected_energy
+      @test sample_spin == expected_spin
+      @test TenSolver.ising_energy(model, sample_spin) ≈ expected_energy
+    end
+  end
+
   @testset "Symbol backends can be provided by extensions" begin
     Q = reshape([1.0], 1, 1)
     E, payload = minimize(Q; backend=:test_symbol_backend, verbosity=0, cutoff=1e-6)
