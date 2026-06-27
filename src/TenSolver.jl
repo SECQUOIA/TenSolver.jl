@@ -15,6 +15,11 @@ include("preprocess.jl")
 include("ising.jl")
 export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
 
+include("constraints.jl")
+export AbstractConstraint
+export SumConstraint, NotEqualsConstraint, ExactlyOneConstraint, RelationConstraint
+export is_feasible
+
 include("solver.jl")
 export minimize, maximize, solve_ising
 export AbstractTenSolverBackend, DMRGBackend

@@ -1,8 +1,8 @@
 struct TestSymbolBackend <: TenSolver.AbstractTenSolverBackend end
 struct MissingMethodBackend <: TenSolver.AbstractTenSolverBackend end
 
-TenSolver._normalize_backend(::Val{:test_symbol_backend}) = TestSymbolBackend()
-function TenSolver._minimize(::TestSymbolBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); kwargs...) where {T}
+TenSolver.normalize_backend(::Val{:test_symbol_backend}) = TestSymbolBackend()
+function TenSolver.minimize(::TestSymbolBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); kwargs...) where {T}
   return T(42), (; Q, l, c, kwargs)
 end
 
@@ -56,14 +56,15 @@ end
 
   @testset "Symbol backends can be provided by extensions" begin
     Q = reshape([1.0], 1, 1)
-    E, payload = minimize(Q; backend=:test_symbol_backend, verbosity=0)
+    E, payload = minimize(Q; backend=:test_symbol_backend, verbosity=0, cutoff=1e-6)
 
     @test E == 42.0
     @test payload.Q === Q
     @test isnothing(payload.l)
     @test payload.c == 0.0
-    @test payload.kwargs[:cutoff] == 1e-8
+    @test payload.kwargs[:cutoff] == 1e-6
     @test payload.kwargs[:verbosity] == 0
+    @test !haskey(payload.kwargs, :preprocess)
   end
 
   @testset "Unavailable backends error clearly" begin
@@ -85,7 +86,7 @@ end
       err
     end
     @test unknown_symbol_error isa ArgumentError
-    @test occursin("No `_minimize` method is available for backend :foo", sprint(showerror, unknown_symbol_error))
+    @test occursin("No backend-specific `minimize` method is available for backend :foo", sprint(showerror, unknown_symbol_error))
     @test !occursin("PEPS extension", sprint(showerror, unknown_symbol_error))
 
     unsupported_error = try
@@ -94,7 +95,7 @@ end
       err
     end
     @test unsupported_error isa ArgumentError
-    @test occursin("No `_minimize` method is available for backend \"dmrg\"", sprint(showerror, unsupported_error))
+    @test occursin("No backend-specific `minimize` method is available for backend \"dmrg\"", sprint(showerror, unsupported_error))
 
     missing_method_error = try
       minimize(Q; backend=MissingMethodBackend(), verbosity=0)
@@ -102,7 +103,7 @@ end
       err
     end
     @test missing_method_error isa ArgumentError
-    @test occursin("No `_minimize` method is available for backend", sprint(showerror, missing_method_error))
+    @test occursin("No backend-specific `minimize` method is available for backend", sprint(showerror, missing_method_error))
     @test occursin("MissingMethodBackend", sprint(showerror, missing_method_error))
   end
 end
