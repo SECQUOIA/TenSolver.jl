@@ -12,6 +12,18 @@ function projection_diagonal(H, sites)
   return diagonal
 end
 
+function assert_projection_matches_feasibility(constraint, sites)
+  H = TenSolver.projection_mpo(constraint, sites)
+  diagonal = projection_diagonal(H, sites)
+
+  for bits in keys(diagonal)
+    expected = is_feasible(bits, constraint) ? 1.0 : 0.0
+    @test diagonal[bits] == expected
+  end
+
+  return H
+end
+
 @testset "Projection MPOs" begin
   sites = ITensors.siteinds("Qudit", 3; dim=2)
 
@@ -43,17 +55,50 @@ end
     @test_throws ArgumentError TenSolver.tensor_to_mpo(Float64, [], ITensors.Index{Int64}[])
     @test_throws ArgumentError TenSolver.tensor_to_mpo(Float64, [], qutrit_sites)
     @test_throws BoundsError TenSolver.projection_mpo(ExactlyOneConstraint([4]), sites)
+    @test_throws ArgumentError TenSolver.projection_mpo(
+      SumConstraint([1], [1], Symbol("<="), 1),
+      qutrit_sites,
+    )
+    @test_throws ArgumentError TenSolver.projection_mpo(
+      SumConstraint([1], [0.5], Symbol("<="), 1),
+      sites,
+    )
+    @test_throws ArgumentError TenSolver.projection_mpo(
+      SumConstraint([1], [1], Symbol("<="), 1.5),
+      sites,
+    )
   end
 
   @testset "Manual diagonal masks" begin
     constraint = NotEqualsConstraint([1, 3], [1, 0])
-    H = TenSolver.projection_mpo(constraint, sites)
-    diagonal = projection_diagonal(H, sites)
+    assert_projection_matches_feasibility(constraint, sites)
+  end
 
-    for bits in keys(diagonal)
-      expected = is_feasible(bits, constraint) ? 1.0 : 0.0
-      @test diagonal[bits] ≈ expected
+  @testset "SumConstraint automaton masks" begin
+    automaton_sites = ITensors.siteinds("Qudit", 4; dim=2)
+    constraints = [
+      SumConstraint([1, 3], [2, 1], Symbol("<="), 2),
+      SumConstraint([2, 4], [2, 3], Symbol(">="), 3),
+      SumConstraint([1, 2, 4], [1, 2, 3], Symbol("=="), 3),
+      SumConstraint([1, 2, 4], [1, 2, 3], Symbol("!="), 3),
+    ]
+
+    for constraint in constraints
+      assert_projection_matches_feasibility(constraint, automaton_sites)
     end
+  end
+
+  @testset "Knapsack-style capacity mask" begin
+    knapsack_sites = ITensors.siteinds("Qudit", 4; dim=2)
+    constraint = SumConstraint(1:4, [2, 3, 4, 5], 5; relation=Symbol("<="))
+    H = assert_projection_matches_feasibility(constraint, knapsack_sites)
+    diagonal = projection_diagonal(H, knapsack_sites)
+
+    @test count(==(1.0), values(diagonal)) == 6
+    @test diagonal[[1, 1, 0, 0]] == 1.0
+    @test diagonal[[0, 0, 0, 1]] == 1.0
+    @test diagonal[[1, 0, 1, 0]] == 0.0
+    @test diagonal[[0, 1, 0, 1]] == 0.0
   end
 
   @testset "Feasible states are preserved" begin
@@ -71,7 +116,7 @@ end
 
       for bits in keys(diagonal)
         expected = is_feasible(bits, constraint) ? 1.0 : 0.0
-        @test diagonal[bits] ≈ expected
+        @test diagonal[bits] == expected
       end
     end
   end
