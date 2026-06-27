@@ -1,6 +1,6 @@
 import ITensors, ITensorMPS
 
-function _projection_diagonal(H, sites)
+function projection_diagonal(H, sites)
   diagonal = Dict{Vector{Int},Float64}()
 
   for assignment in Iterators.product(fill(0:1, length(sites))...)
@@ -40,15 +40,15 @@ end
       (s1, s1p),
       [((1, 1, 1), 1.0)],
     )
-    @test_throws ArgumentError TenSolver._tensor_to_mpo(Float64, [], ITensors.Index{Int64}[])
-    @test_throws ArgumentError TenSolver._tensor_to_mpo(Float64, [], qutrit_sites)
+    @test_throws ArgumentError TenSolver.tensor_to_mpo(Float64, [], ITensors.Index{Int64}[])
+    @test_throws ArgumentError TenSolver.tensor_to_mpo(Float64, [], qutrit_sites)
     @test_throws BoundsError TenSolver.projection_mpo(ExactlyOneConstraint([4]), sites)
   end
 
   @testset "Manual diagonal masks" begin
     constraint = NotEqualsConstraint([1, 3], [1, 0])
     H = TenSolver.projection_mpo(constraint, sites)
-    diagonal = _projection_diagonal(H, sites)
+    diagonal = projection_diagonal(H, sites)
 
     for bits in keys(diagonal)
       expected = is_feasible(bits, constraint) ? 1.0 : 0.0
@@ -67,7 +67,7 @@ end
     @test length(projections) == length(constraints)
 
     for (constraint, H) in zip(constraints, projections)
-      diagonal = _projection_diagonal(H, sites)
+      diagonal = projection_diagonal(H, sites)
 
       for bits in keys(diagonal)
         expected = is_feasible(bits, constraint) ? 1.0 : 0.0
@@ -79,7 +79,7 @@ end
   @testset "Infeasible constraints build zero masks" begin
     constraint = SumConstraint([1, 2], [1, 1], Symbol("<="), -1)
     H = TenSolver.projection_mpo(constraint, sites)
-    diagonal = _projection_diagonal(H, sites)
+    diagonal = projection_diagonal(H, sites)
 
     @test all(iszero, values(diagonal))
   end
