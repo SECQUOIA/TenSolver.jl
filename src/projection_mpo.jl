@@ -2,7 +2,7 @@
 # design in Sharma, Ritvik, Cheng Peng, Siddharth Dangwal, and Sara Achour,
 # "CoTenN: Constrained Optimization with Tensor Networks," PLDI 2026.
 
-struct _SparseTensorEntry{T}
+struct SparseTensorEntry{T}
   coordinates::Dict{Int,Int}
   value::T
 end
@@ -31,37 +31,37 @@ end
 
 itensor_from_nonzeros(inds, nonzeros) = itensor_from_nonzeros(Float64, inds, nonzeros)
 
-function _identity_tensor(::Type{T}, site) where {T}
+function identity_tensor(::Type{T}, site) where {T}
   site_prime = ITensors.prime(site)
   nonzeros = (((state, state), one(T)) for state in 1:ITensors.dim(site))
 
   return itensor_from_nonzeros(T, (site, site_prime), nonzeros)
 end
 
-function _pass_through_tensor(::Type{T}, site, left_link, right_link) where {T}
+function pass_through_tensor(::Type{T}, site, left_link, right_link) where {T}
   if isnothing(left_link) && isnothing(right_link)
-    return _identity_tensor(T, site)
+    return identity_tensor(T, site)
   end
 
-  inds = _mpo_tensor_indices(site, left_link, right_link)
-  path_count = _path_count(left_link, right_link)
+  inds = mpo_tensor_indices(site, left_link, right_link)
+  num_paths = path_count(left_link, right_link)
   nonzeros = Tuple{Vector{Int},T}[]
 
-  for path in 1:path_count, state in 1:ITensors.dim(site)
-    push!(nonzeros, (_mpo_coordinate(state, path, left_link, right_link), one(T)))
+  for path in 1:num_paths, state in 1:ITensors.dim(site)
+    push!(nonzeros, (mpo_coordinate(state, path, left_link, right_link), one(T)))
   end
 
   return itensor_from_nonzeros(T, inds, nonzeros)
 end
 
-function _path_count(left_link, right_link)
+function path_count(left_link, right_link)
   !isnothing(left_link) && return ITensors.dim(left_link)
   !isnothing(right_link) && return ITensors.dim(right_link)
 
   return 1
 end
 
-function _mpo_tensor_indices(site, left_link, right_link)
+function mpo_tensor_indices(site, left_link, right_link)
   inds = []
   !isnothing(left_link) && push!(inds, left_link)
   push!(inds, site, ITensors.prime(site))
@@ -70,7 +70,7 @@ function _mpo_tensor_indices(site, left_link, right_link)
   return Tuple(inds)
 end
 
-function _mpo_coordinate(state::Integer, path::Integer, left_link, right_link)
+function mpo_coordinate(state::Integer, path::Integer, left_link, right_link)
   coordinate = Int[]
   !isnothing(left_link) && push!(coordinate, path)
   push!(coordinate, state, state)
@@ -79,18 +79,18 @@ function _mpo_coordinate(state::Integer, path::Integer, left_link, right_link)
   return coordinate
 end
 
-function _tensor_to_mpo(::Type{T}, entries, sites) where {T}
+function tensor_to_mpo(::Type{T}, entries, sites) where {T}
   site_vec = collect(sites)
   isempty(site_vec) && throw(ArgumentError("sites must not be empty"))
   all(site -> ITensors.dim(site) == 2, site_vec) ||
     throw(ArgumentError("projection MPO sites must be binary Qudit indices"))
 
   entry_vec = collect(entries)
-  _validate_sparse_entries(entry_vec, site_vec)
+  validate_sparse_entries(entry_vec, site_vec)
 
-  path_count = max(length(entry_vec), 1)
+  num_paths = max(length(entry_vec), 1)
   links = [
-    ITensors.Index(path_count, "Link,Projection,l=$i")
+    ITensors.Index(num_paths, "Link,Projection,l=$i")
     for i in 1:(length(site_vec) - 1)
   ]
 
@@ -100,11 +100,11 @@ function _tensor_to_mpo(::Type{T}, entries, sites) where {T}
     left_link = site_position == firstindex(site_vec) ? nothing : links[site_position - 1]
     right_link = site_position == lastindex(site_vec) ? nothing : links[site_position]
     if !isempty(entry_vec) && all(entry -> !haskey(entry.coordinates, site_position), entry_vec)
-      tensors[site_position] = _pass_through_tensor(T, site, left_link, right_link)
+      tensors[site_position] = pass_through_tensor(T, site, left_link, right_link)
       continue
     end
 
-    inds = _mpo_tensor_indices(site, left_link, right_link)
+    inds = mpo_tensor_indices(site, left_link, right_link)
     nonzeros = Tuple{Vector{Int},T}[]
 
     for (path, entry) in enumerate(entry_vec)
@@ -113,7 +113,7 @@ function _tensor_to_mpo(::Type{T}, entries, sites) where {T}
       coefficient = site_position == firstindex(site_vec) ? entry.value : one(T)
 
       for state in states
-        push!(nonzeros, (_mpo_coordinate(state, path, left_link, right_link), coefficient))
+        push!(nonzeros, (mpo_coordinate(state, path, left_link, right_link), coefficient))
       end
     end
 
@@ -123,7 +123,7 @@ function _tensor_to_mpo(::Type{T}, entries, sites) where {T}
   return ITensorMPS.MPO(tensors)
 end
 
-function _validate_sparse_entries(entries, sites)
+function validate_sparse_entries(entries, sites)
   for entry in entries
     for (site_position, coordinate) in entry.coordinates
       checkbounds(sites, site_position)
@@ -135,26 +135,41 @@ function _validate_sparse_entries(entries, sites)
   return nothing
 end
 
-function _constraint_sites(constraint::SumConstraint)
+function constraint_sites(constraint::SumConstraint)
   return constraint.sites
 end
 
-function _constraint_sites(constraint::NotEqualsConstraint)
+function constraint_sites(constraint::NotEqualsConstraint)
   return constraint.sites
 end
 
-function _constraint_sites(constraint::ExactlyOneConstraint)
+function constraint_sites(constraint::ExactlyOneConstraint)
   return constraint.sites
 end
 
-function _constraint_sites(constraint::RelationConstraint)
+function constraint_sites(constraint::RelationConstraint)
   return [constraint.left_site, constraint.right_site]
 end
 
-function _projection_entries(::Type{T}, constraint::AbstractConstraint) where {T}
-  constraint_sites = _constraint_sites(constraint)
+function projection_entries(::Type{T}, constraint::SumConstraint) where {T}
+  return projection_entries(T, constraint, constraint_sites(constraint))
+end
+
+function projection_entries(::Type{T}, constraint::NotEqualsConstraint) where {T}
+  return projection_entries(T, constraint, constraint_sites(constraint))
+end
+
+function projection_entries(::Type{T}, constraint::ExactlyOneConstraint) where {T}
+  return projection_entries(T, constraint, constraint_sites(constraint))
+end
+
+function projection_entries(::Type{T}, constraint::RelationConstraint) where {T}
+  return projection_entries(T, constraint, constraint_sites(constraint))
+end
+
+function projection_entries(::Type{T}, constraint::AbstractConstraint, constraint_sites) where {T}
   assignments = Iterators.product(fill(0:1, length(constraint_sites))...)
-  entries = _SparseTensorEntry{T}[]
+  entries = SparseTensorEntry{T}[]
 
   for assignment in assignments
     x = zeros(Int, maximum(constraint_sites))
@@ -166,7 +181,7 @@ function _projection_entries(::Type{T}, constraint::AbstractConstraint) where {T
     end
 
     if is_feasible(x, constraint)
-      push!(entries, _SparseTensorEntry{T}(coordinates, one(T)))
+      push!(entries, SparseTensorEntry{T}(coordinates, one(T)))
     end
   end
 
@@ -174,25 +189,49 @@ function _projection_entries(::Type{T}, constraint::AbstractConstraint) where {T
 end
 
 """
-    projection_mpo(constraint, sites)
+    projection_mpo([T], constraint, sites)
 
 Build a diagonal projection MPO that preserves basis states satisfying
 `constraint` and zeros infeasible states.
 """
-function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
+function projection_mpo(::Type{T}, constraint::SumConstraint, sites) where {T}
+  return projection_mpo(T, constraint, constraint_sites(constraint), sites)
+end
+
+function projection_mpo(::Type{T}, constraint::NotEqualsConstraint, sites) where {T}
+  return projection_mpo(T, constraint, constraint_sites(constraint), sites)
+end
+
+function projection_mpo(::Type{T}, constraint::ExactlyOneConstraint, sites) where {T}
+  return projection_mpo(T, constraint, constraint_sites(constraint), sites)
+end
+
+function projection_mpo(::Type{T}, constraint::RelationConstraint, sites) where {T}
+  return projection_mpo(T, constraint, constraint_sites(constraint), sites)
+end
+
+function projection_mpo(::Type{T}, constraint::AbstractConstraint, constraint_sites, sites) where {T}
   site_vec = collect(sites)
-  constraint_sites = _constraint_sites(constraint)
   all(site -> 1 <= site <= length(site_vec), constraint_sites) ||
     throw(BoundsError(site_vec, maximum(constraint_sites)))
 
-  return _tensor_to_mpo(T, _projection_entries(T, constraint), site_vec)
+  return tensor_to_mpo(T, projection_entries(T, constraint), site_vec)
 end
 
-projection_mpo(constraint::AbstractConstraint, sites) =
+projection_mpo(constraint::SumConstraint, sites) =
+  projection_mpo(Float64, constraint, sites)
+
+projection_mpo(constraint::NotEqualsConstraint, sites) =
+  projection_mpo(Float64, constraint, sites)
+
+projection_mpo(constraint::ExactlyOneConstraint, sites) =
+  projection_mpo(Float64, constraint, sites)
+
+projection_mpo(constraint::RelationConstraint, sites) =
   projection_mpo(Float64, constraint, sites)
 
 """
-    projection_mpos(constraints, sites)
+    projection_mpos([T], constraints, sites)
 
 Build one projection MPO per constraint.
 """
