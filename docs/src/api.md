@@ -15,13 +15,6 @@ TenSolver.solve_ising
 ```@docs
 TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
-```
-
-## Solver Backends
-
-```@docs
-TenSolver.AbstractTenSolverBackend
-TenSolver.DMRGBackend
 TenSolver.normalize_backend
 ```
 
