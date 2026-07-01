@@ -48,6 +48,20 @@ end
     @test count(!iszero, materialized) == 2
   end
 
+  @testset "Entry value on a pass-through leading site" begin
+    # Regression: the entry `value` must survive even when the first register
+    # site is a pass-through site. Here only site 2 is constrained, so sites 1
+    # and 3 pass through; the coefficient must be anchored on site 2.
+    entry = TenSolver.SparseTensorEntry(Dict(2 => 2), 7.0)
+    H = TenSolver.tensor_to_mpo(Float64, [entry], sites)
+    diagonal = projection_diagonal(H, sites)
+
+    for (bits, value) in diagonal
+      expected = bits[2] == 1 ? 7.0 : 0.0
+      @test value ≈ expected
+    end
+  end
+
   @testset "Validation errors" begin
     s1 = sites[1]
     s1p = ITensors.prime(s1)

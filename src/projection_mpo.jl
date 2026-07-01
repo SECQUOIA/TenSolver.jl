@@ -1,6 +1,17 @@
 # Projection-MPO construction adapted from the CoTenN constraint projection
 # design in Sharma, Ritvik, Cheng Peng, Siddharth Dangwal, and Sara Achour,
 # "CoTenN: Constrained Optimization with Tensor Networks," PLDI 2026.
+#
+# Note on ITensors.jl / ITensorMPS.jl helpers: the on-site identity is built with
+# `ITensors.delta` rather than a hand-rolled Kronecker tensor. The higher-level
+# `OpSum`/`MPO(::OpSum, sites)` (AutoMPO) machinery was considered for the full
+# assembly but is intentionally not used here: it heuristically compresses the
+# operator and does not guarantee the exact, uncompressed one-path-per-feasible-
+# assignment structure this module needs (bond dimension = number of feasible
+# assignments). Bounding/compressing that bond dimension is deferred to #58, where
+# projections meet solves and the downstream cost is measurable. The remaining
+# path-threaded tensors have no direct high-level equivalent, so they are assembled
+# from sparse nonzeros via `itensor_from_nonzeros`.
 
 """
     SparseTensorEntry{T}
@@ -39,11 +50,10 @@ end
 
 itensor_from_nonzeros(inds, nonzeros) = itensor_from_nonzeros(Float64, inds, nonzeros)
 
+# Diagonal identity over a single physical site (`sum_s |s><s|`). This is exactly
+# what `ITensors.delta` builds, so we reuse it instead of assembling by hand.
 function identity_tensor(::Type{T}, site) where {T}
-  site_prime = ITensors.prime(site)
-  nonzeros = (((state, state), one(T)) for state in 1:ITensors.dim(site))
-
-  return itensor_from_nonzeros(T, (site, site_prime), nonzeros)
+  return ITensors.delta(T, site, ITensors.prime(site))
 end
 
 function pass_through_tensor(::Type{T}, site, left_link, right_link) where {T}
@@ -105,6 +115,16 @@ function tensor_to_mpo(::Type{T}, entries, sites) where {T}
     for i in 1:(length(site_vec) - 1)
   ]
 
+  # Each entry's `value` is written exactly once, at the first register site the
+  # entry constrains. Anchoring on the first *constrained* site (rather than the
+  # first register site) keeps the coefficient from being dropped when the leading
+  # sites are pass-through, where the tensor is built without consulting `value`.
+  # Entries that constrain no site fall back to the first register site.
+  value_positions = [
+    isempty(entry.coordinates) ? firstindex(site_vec) : minimum(keys(entry.coordinates))
+    for entry in entry_vec
+  ]
+
   tensors = Vector{ITensors.ITensor}(undef, length(site_vec))
   for site_position in eachindex(site_vec)
     site = site_vec[site_position]
@@ -121,7 +141,7 @@ function tensor_to_mpo(::Type{T}, entries, sites) where {T}
     for (path, entry) in enumerate(entry_vec)
       states = get(entry.coordinates, site_position, nothing)
       states = isnothing(states) ? (1, 2) : (states,)
-      coefficient = site_position == firstindex(site_vec) ? entry.value : one(T)
+      coefficient = site_position == value_positions[path] ? entry.value : one(T)
 
       for state in states
         push!(nonzeros, (mpo_coordinate(state, path, left_link, right_link), coefficient))
