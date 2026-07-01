@@ -135,22 +135,6 @@ function validate_sparse_entries(entries, sites)
   return nothing
 end
 
-function constraint_sites(constraint::SumConstraint)
-  return constraint.sites
-end
-
-function constraint_sites(constraint::NotEqualsConstraint)
-  return constraint.sites
-end
-
-function constraint_sites(constraint::ExactlyOneConstraint)
-  return constraint.sites
-end
-
-function constraint_sites(constraint::RelationConstraint)
-  return [constraint.left_site, constraint.right_site]
-end
-
 function projection_entries(::Type{T}, constraint::AbstractConstraint) where {T}
   cs = constraint_sites(constraint)
   assignments = Iterators.product(fill(0:1, length(cs))...)

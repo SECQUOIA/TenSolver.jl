@@ -171,6 +171,29 @@ function is_feasible(x::AbstractVector, constraints::AbstractVector{<:AbstractCo
   return all(constraint -> is_feasible(x, constraint), constraints)
 end
 
+"""
+    constraint_sites(constraint::AbstractConstraint)
+
+Access the site indices stored in the `constraint`.
+"""
+function constraint_sites end
+
+function constraint_sites(constraint::SumConstraint)
+  return constraint.sites
+end
+
+function constraint_sites(constraint::NotEqualsConstraint)
+  return constraint.sites
+end
+
+function constraint_sites(constraint::ExactlyOneConstraint)
+  return constraint.sites
+end
+
+function constraint_sites(constraint::RelationConstraint)
+  return [constraint.left_site, constraint.right_site]
+end
+
 
 #----------------------------------------------------------#
 # Constraint Validation
