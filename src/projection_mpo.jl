@@ -2,6 +2,14 @@
 # design in Sharma, Ritvik, Cheng Peng, Siddharth Dangwal, and Sara Achour,
 # "CoTenN: Constrained Optimization with Tensor Networks," PLDI 2026.
 
+"""
+    SparseTensorEntry{T}
+
+One nonzero term in the sparse representation used to assemble a projection
+MPO. `coordinates` maps 1-based register sites to 1-based local basis states;
+sites omitted from the dictionary are unconstrained by this entry. `value` is
+the coefficient carried by that partial assignment.
+"""
 struct SparseTensorEntry{T}
   coordinates::Dict{Int,Int}
   value::T
@@ -88,6 +96,9 @@ function tensor_to_mpo(::Type{T}, entries, sites) where {T}
   entry_vec = collect(entries)
   validate_sparse_entries(entry_vec, site_vec)
 
+  # Each feasible partial assignment gets one path threaded through the MPO
+  # links. Constrained sites write that assignment; unconstrained sites pass the
+  # path and physical basis state through unchanged.
   num_paths = max(length(entry_vec), 1)
   links = [
     ITensors.Index(num_paths, "Link,Projection,l=$i")
@@ -135,6 +146,9 @@ function validate_sparse_entries(entries, sites)
   return nothing
 end
 
+# Enumerate feasible assignments on the sites touched by `constraint`. The
+# resulting sparse entries intentionally omit untouched sites; `tensor_to_mpo`
+# expands those missing coordinates into pass-through tensors.
 function projection_entries(::Type{T}, constraint::AbstractConstraint) where {T}
   cs = constraint_sites(constraint)
   assignments = Iterators.product(fill(0:1, length(cs))...)
@@ -160,8 +174,12 @@ end
 """
     projection_mpo([T], constraint, sites)
 
-Build a diagonal projection MPO that preserves basis states satisfying
-`constraint` and zeros infeasible states.
+Build a diagonal projection MPO over the binary Qudit register `sites`.
+
+The diagonal entry is `one(T)` for computational basis states whose bits satisfy
+`constraint`, and zero otherwise. Constraint site numbers use the same 1-based
+register indexing as `sites`. The construction is exact and uncompressed: each
+feasible assignment of the constrained sites is represented as one MPO path.
 """
 function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
   cs = constraint_sites(constraint)
@@ -179,7 +197,12 @@ projection_mpo(constraint::AbstractConstraint, sites) =
 """
     projection_mpos([T], constraints, sites)
 
-Build one projection MPO per constraint.
+Build one projection MPO per constraint over the shared binary Qudit register
+`sites`.
+
+This is a convenience wrapper around [`projection_mpo`](@ref) that reuses the
+same collected site register for every constraint. `T` controls the numeric
+element type of the assembled MPO tensors.
 """
 function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
   site_vec = collect(sites)

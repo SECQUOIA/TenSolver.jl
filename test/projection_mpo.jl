@@ -15,6 +15,24 @@ end
 @testset "Projection MPOs" begin
   sites = ITensors.siteinds("Qudit", 3; dim=2)
 
+  @testset "Projection API inference" begin
+    constraint = ExactlyOneConstraint([1, 2])
+    constraints = AbstractConstraint[
+      constraint,
+      RelationConstraint(1, Symbol("<="), 2),
+    ]
+
+    typed_mpo = @inferred TenSolver.projection_mpo(Float64, constraint, sites)
+    default_mpo = @inferred TenSolver.projection_mpo(constraint, sites)
+    typed_mpos = @inferred TenSolver.projection_mpos(Float64, constraints, sites)
+    default_mpos = @inferred TenSolver.projection_mpos(constraints, sites)
+
+    @test typed_mpo isa ITensorMPS.MPO
+    @test default_mpo isa ITensorMPS.MPO
+    @test typed_mpos isa Vector{ITensorMPS.MPO}
+    @test default_mpos isa Vector{ITensorMPS.MPO}
+  end
+
   @testset "Sparse ITensor construction" begin
     s1, s2 = sites[1], sites[2]
     s1p, s2p = ITensors.prime(s1), ITensors.prime(s2)
