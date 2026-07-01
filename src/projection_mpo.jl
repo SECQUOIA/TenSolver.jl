@@ -151,21 +151,6 @@ function constraint_sites(constraint::RelationConstraint)
   return [constraint.left_site, constraint.right_site]
 end
 
-function projection_entries(::Type{T}, constraint::SumConstraint) where {T}
-  return projection_entries(T, constraint, constraint_sites(constraint))
-end
-
-function projection_entries(::Type{T}, constraint::NotEqualsConstraint) where {T}
-  return projection_entries(T, constraint, constraint_sites(constraint))
-end
-
-function projection_entries(::Type{T}, constraint::ExactlyOneConstraint) where {T}
-  return projection_entries(T, constraint, constraint_sites(constraint))
-end
-
-function projection_entries(::Type{T}, constraint::RelationConstraint) where {T}
-  return projection_entries(T, constraint, constraint_sites(constraint))
-end
 
 function projection_entries(::Type{T}, constraint::AbstractConstraint, constraint_sites) where {T}
   assignments = Iterators.product(fill(0:1, length(constraint_sites))...)
@@ -194,22 +179,6 @@ end
 Build a diagonal projection MPO that preserves basis states satisfying
 `constraint` and zeros infeasible states.
 """
-function projection_mpo(::Type{T}, constraint::SumConstraint, sites) where {T}
-  return projection_mpo(T, constraint, constraint_sites(constraint), sites)
-end
-
-function projection_mpo(::Type{T}, constraint::NotEqualsConstraint, sites) where {T}
-  return projection_mpo(T, constraint, constraint_sites(constraint), sites)
-end
-
-function projection_mpo(::Type{T}, constraint::ExactlyOneConstraint, sites) where {T}
-  return projection_mpo(T, constraint, constraint_sites(constraint), sites)
-end
-
-function projection_mpo(::Type{T}, constraint::RelationConstraint, sites) where {T}
-  return projection_mpo(T, constraint, constraint_sites(constraint), sites)
-end
-
 function projection_mpo(::Type{T}, constraint::AbstractConstraint, constraint_sites, sites) where {T}
   site_vec = collect(sites)
   all(site -> 1 <= site <= length(site_vec), constraint_sites) ||
@@ -218,16 +187,7 @@ function projection_mpo(::Type{T}, constraint::AbstractConstraint, constraint_si
   return tensor_to_mpo(T, projection_entries(T, constraint), site_vec)
 end
 
-projection_mpo(constraint::SumConstraint, sites) =
-  projection_mpo(Float64, constraint, sites)
-
-projection_mpo(constraint::NotEqualsConstraint, sites) =
-  projection_mpo(Float64, constraint, sites)
-
-projection_mpo(constraint::ExactlyOneConstraint, sites) =
-  projection_mpo(Float64, constraint, sites)
-
-projection_mpo(constraint::RelationConstraint, sites) =
+projection_mpo(constraint::AbstractConstraint, sites) =
   projection_mpo(Float64, constraint, sites)
 
 """
