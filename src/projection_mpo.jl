@@ -151,16 +151,16 @@ function constraint_sites(constraint::RelationConstraint)
   return [constraint.left_site, constraint.right_site]
 end
 
-
-function projection_entries(::Type{T}, constraint::AbstractConstraint, constraint_sites) where {T}
-  assignments = Iterators.product(fill(0:1, length(constraint_sites))...)
+function projection_entries(::Type{T}, constraint::AbstractConstraint) where {T}
+  cs = constraint_sites(constraint)
+  assignments = Iterators.product(fill(0:1, length(cs))...)
   entries = SparseTensorEntry{T}[]
 
   for assignment in assignments
-    x = zeros(Int, maximum(constraint_sites))
+    x = zeros(Int, maximum(cs))
     coordinates = Dict{Int,Int}()
 
-    for (site, bit) in zip(constraint_sites, assignment)
+    for (site, bit) in zip(cs, assignment)
       x[site] = bit
       coordinates[site] = bit + 1
     end
@@ -179,10 +179,12 @@ end
 Build a diagonal projection MPO that preserves basis states satisfying
 `constraint` and zeros infeasible states.
 """
-function projection_mpo(::Type{T}, constraint::AbstractConstraint, constraint_sites, sites) where {T}
+function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
+  cs = constraint_sites(constraint)
   site_vec = collect(sites)
-  all(site -> 1 <= site <= length(site_vec), constraint_sites) ||
-    throw(BoundsError(site_vec, maximum(constraint_sites)))
+
+  all(site -> 1 <= site <= length(site_vec), cs) ||
+    throw(BoundsError(site_vec, maximum(cs)))
 
   return tensor_to_mpo(T, projection_entries(T, constraint), site_vec)
 end
