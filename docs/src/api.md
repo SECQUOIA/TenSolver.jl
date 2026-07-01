@@ -47,6 +47,7 @@ TenSolver.NotEqualsConstraint
 TenSolver.ExactlyOneConstraint
 TenSolver.RelationConstraint
 TenSolver.is_feasible
+TenSolver.constraint_sites
 ```
 
 ## Utility Functions
