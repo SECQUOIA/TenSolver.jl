@@ -27,6 +27,24 @@ end
 @testset "Projection MPOs" begin
   sites = ITensors.siteinds("Qudit", 3; dim=2)
 
+  @testset "Projection API inference" begin
+    constraint = ExactlyOneConstraint([1, 2])
+    constraints = AbstractConstraint[
+      constraint,
+      RelationConstraint(1, Symbol("<="), 2),
+    ]
+
+    typed_mpo = @inferred TenSolver.projection_mpo(Float64, constraint, sites)
+    default_mpo = @inferred TenSolver.projection_mpo(constraint, sites)
+    typed_mpos = @inferred TenSolver.projection_mpos(Float64, constraints, sites)
+    default_mpos = @inferred TenSolver.projection_mpos(constraints, sites)
+
+    @test typed_mpo isa ITensorMPS.MPO
+    @test default_mpo isa ITensorMPS.MPO
+    @test typed_mpos isa Vector{ITensorMPS.MPO}
+    @test default_mpos isa Vector{ITensorMPS.MPO}
+  end
+
   @testset "Sparse ITensor construction" begin
     s1, s2 = sites[1], sites[2]
     s1p, s2p = ITensors.prime(s1), ITensors.prime(s2)
@@ -40,6 +58,20 @@ end
     @test materialized[1, 1, 2, 2] == 3.0
     @test materialized[2, 2, 1, 1] == 5.0
     @test count(!iszero, materialized) == 2
+  end
+
+  @testset "Entry value on a pass-through leading site" begin
+    # Regression: the entry `value` must survive even when the first register
+    # site is a pass-through site. Here only site 2 is constrained, so sites 1
+    # and 3 pass through; the coefficient must be anchored on site 2.
+    entry = TenSolver.SparseTensorEntry(Dict(2 => 2), 7.0)
+    H = TenSolver.tensor_to_mpo(Float64, [entry], sites)
+    diagonal = projection_diagonal(H, sites)
+
+    for (bits, value) in diagonal
+      expected = bits[2] == 1 ? 7.0 : 0.0
+      @test value ≈ expected
+    end
   end
 
   @testset "Validation errors" begin

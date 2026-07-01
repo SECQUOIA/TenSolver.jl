@@ -11,12 +11,12 @@ filepath(x) = joinpath(dirname(@__FILE__), x)
 # Exact solvers. No testset on this file
 include(filepath("utils.jl"))
 
-include(filepath("ising_conversion.jl"))
-include(filepath("backend.jl"))
-
 #----------------------------------------------------------#
 #                         Test sets                        #
 #----------------------------------------------------------#
+
+# Abstract Backend API
+include(filepath("backend.jl"))
 
 # Ising <-> QUBO utilities
 include(filepath("ising_conversion.jl"))

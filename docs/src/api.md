@@ -47,6 +47,7 @@ TenSolver.NotEqualsConstraint
 TenSolver.ExactlyOneConstraint
 TenSolver.RelationConstraint
 TenSolver.is_feasible
+TenSolver.constraint_sites
 ```
 
 ## Utility Functions
@@ -62,6 +63,7 @@ They are documented here for advanced users who may need to understand the inter
 
 ```@docs
 TenSolver.tensorize
+TenSolver.SparseTensorEntry
 TenSolver.itensor_from_nonzeros
 TenSolver.projection_mpo
 TenSolver.projection_mpos
