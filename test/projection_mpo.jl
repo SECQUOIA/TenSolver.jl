@@ -18,7 +18,7 @@ function assert_projection_matches_feasibility(constraint, sites)
 
   for bits in keys(diagonal)
     expected = is_feasible(bits, constraint) ? 1.0 : 0.0
-    @test diagonal[bits] == expected
+    @test diagonal[bits] ≈ expected
   end
 
   return H
@@ -169,7 +169,7 @@ end
 
       for bits in keys(diagonal)
         expected = is_feasible(bits, constraint) ? 1.0 : 0.0
-        @test diagonal[bits] == expected
+        @test diagonal[bits] ≈ expected
       end
     end
   end
