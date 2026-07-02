@@ -108,7 +108,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   end
 
   # ~ Metadata ~ #
-  metadata = _tensolver_metadata(
+  metadata = tensolver_metadata(
     psi;
     effective_time  = results.time,
     num_reads,
@@ -123,7 +123,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   return QUBOTools.SampleSet{T}(samples, metadata; sense = :min, domain = :bool)
 end
 
-function _tensolver_metadata(
+function tensolver_metadata(
   solution::Solution;
   effective_time::Real,
   num_reads::Integer,
@@ -135,7 +135,7 @@ function _tensolver_metadata(
   maxdim,
 )
   optimizer_iterations = length(solution.energies)
-  termination_status, status = _tensolver_status(
+  termination_status, status = tensolver_status(
     solution;
     iterations,
     time_limit,
@@ -157,7 +157,7 @@ function _tensolver_metadata(
   metadata["tensolver"] = Dict{String,Any}(
     "dmrg" => Dict{String,Any}(
       "sweep_elapsed" => copy(solution.elapsed_times),
-      "sweep_times"   => _sweep_times(solution.elapsed_times),
+      "sweep_times"   => sweep_times(solution.elapsed_times),
     ),
     "parameters" => Dict{String,Any}(
       "cutoff"     => cutoff,
@@ -171,7 +171,7 @@ function _tensolver_metadata(
   return metadata
 end
 
-function _tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
+function tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
   elapsed_time = isempty(solution.elapsed_times) ? 0.0 : last(solution.elapsed_times)
   if length(solution.energies) >= iterations
     return MOI.ITERATION_LIMIT, "iteration_limit"
@@ -182,7 +182,7 @@ function _tensolver_status(solution::Solution; iterations::Integer, time_limit::
   end
 end
 
-function _sweep_times(elapsed_times::Vector{Float64})
+function sweep_times(elapsed_times::Vector{Float64})
   isempty(elapsed_times) && return Float64[]
 
   return diff(vcat(0.0, elapsed_times))
