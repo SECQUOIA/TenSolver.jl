@@ -50,15 +50,9 @@ end
 
 itensor_from_nonzeros(inds, nonzeros) = itensor_from_nonzeros(Float64, inds, nonzeros)
 
-# Diagonal identity over a single physical site (`sum_s |s><s|`). This is exactly
-# what `ITensors.delta` builds, so we reuse it instead of assembling by hand.
-function identity_tensor(::Type{T}, site) where {T}
-  return ITensors.delta(T, site, ITensors.prime(site))
-end
-
 function pass_through_tensor(::Type{T}, site, left_link, right_link) where {T}
   if isnothing(left_link) && isnothing(right_link)
-    return identity_tensor(T, site)
+    return ITensors.delta(T, site, ITensors.prime(site))
   end
 
   inds = mpo_tensor_indices(site, left_link, right_link)
@@ -73,28 +67,63 @@ function pass_through_tensor(::Type{T}, site, left_link, right_link) where {T}
 end
 
 function path_count(left_link, right_link)
-  !isnothing(left_link) && return ITensors.dim(left_link)
-  !isnothing(right_link) && return ITensors.dim(right_link)
-
-  return 1
+  if !isnothing(left_link)          # All but first index
+    return ITensors.dim(left_link)
+  elseif !isnothing(right_link)     # First index
+    return ITensors.dim(right_link)
+  else                              # 1-qubit case
+    return 1
+  end
 end
 
 function mpo_tensor_indices(site, left_link, right_link)
-  inds = []
-  !isnothing(left_link) && push!(inds, left_link)
-  push!(inds, site, ITensors.prime(site))
-  !isnothing(right_link) && push!(inds, right_link)
-
-  return Tuple(inds)
+  return filter(!isnothing, (left_link, site, ITensors.prime(site), right_link))
 end
 
 function mpo_coordinate(state::Integer, path::Integer, left_link, right_link)
-  coordinate = Int[]
-  !isnothing(left_link) && push!(coordinate, path)
-  push!(coordinate, state, state)
-  !isnothing(right_link) && push!(coordinate, path)
+  return filter(!isnothing, [ifnotnothing(left_link, path), state, state, ifnotnothing(right_link, path)])
+end
 
-  return coordinate
+function first_constrained_site(entry, default_site)
+  return isempty(entry.coordinates) ? default_site : minimum(keys(entry.coordinates))
+end
+
+function site_is_unconstrained(entries, site_position)
+  return !isempty(entries) && !any(entry -> haskey(entry.coordinates, site_position), entries)
+end
+
+function site_link(links, link_position)
+  return 1 <= link_position <= length(links) ? links[link_position] : nothing
+end
+
+function site_states(entry::SparseTensorEntry, site_position)
+  state = get(entry.coordinates, site_position, (1, 2))
+  return Tuple(state)
+end
+
+function site_coefficient(::Type{T}, entry, site_position, value_site) where {T}
+  return site_position == value_site ? entry.value : one(T)
+end
+
+function projection_site_nonzeros(::Type{T}, entries, left_link, right_link, site_position, value_positions) where {T}
+  return [
+    (mpo_coordinate(state, path, left_link, right_link),
+     site_coefficient(T, entry, site_position, value_positions[path]))
+    for (path, entry) in enumerate(entries)
+    for state in site_states(entry, site_position)
+  ]
+end
+
+function projection_site_tensor(::Type{T}, site, left_link, right_link, entries, site_position, value_positions) where {T}
+  if site_is_unconstrained(entries, site_position)
+    return pass_through_tensor(T, site, left_link, right_link)
+  else
+    return itensor_from_nonzeros(
+      T,
+      mpo_tensor_indices(site, left_link, right_link),
+      projection_site_nonzeros(T, entries, left_link, right_link, site_position, value_positions),
+    )
+  end
 end
 
 function tensor_to_mpo(::Type{T}, entries, sites) where {T}
@@ -106,53 +135,30 @@ function tensor_to_mpo(::Type{T}, entries, sites) where {T}
   entry_vec = collect(entries)
   validate_sparse_entries(entry_vec, site_vec)
 
-  # Each feasible partial assignment gets one path threaded through the MPO
-  # links. Constrained sites write that assignment; unconstrained sites pass the
-  # path and physical basis state through unchanged.
   num_paths = max(length(entry_vec), 1)
-  links = [
-    ITensors.Index(num_paths, "Link,Projection,l=$i")
-    for i in 1:(length(site_vec) - 1)
-  ]
+  links = [ITensors.Index(num_paths, "Link,Projection,l=$i")
+           for i in 1:max(length(site_vec) - 1, 0)
+          ]
 
-  # Each entry's `value` is written exactly once, at the first register site the
-  # entry constrains. Anchoring on the first *constrained* site (rather than the
-  # first register site) keeps the coefficient from being dropped when the leading
-  # sites are pass-through, where the tensor is built without consulting `value`.
-  # Entries that constrain no site fall back to the first register site.
-  value_positions = [
-    isempty(entry.coordinates) ? firstindex(site_vec) : minimum(keys(entry.coordinates))
-    for entry in entry_vec
-  ]
+  # Each feasible partial assignment gets one path threaded through the MPO links.
+  # Constrained sites write that assignment;
+  # unconstrained sites pass the path and physical basis state through unchanged.
+  value_positions = map(entry -> first_constrained_site(entry, firstindex(site_vec)), entry_vec)
 
-  tensors = Vector{ITensors.ITensor}(undef, length(site_vec))
-  for site_position in eachindex(site_vec)
-    site = site_vec[site_position]
-    left_link = site_position == firstindex(site_vec) ? nothing : links[site_position - 1]
-    right_link = site_position == lastindex(site_vec) ? nothing : links[site_position]
-    if !isempty(entry_vec) && all(entry -> !haskey(entry.coordinates, site_position), entry_vec)
-      tensors[site_position] = pass_through_tensor(T, site, left_link, right_link)
-      continue
-    end
-
-    inds = mpo_tensor_indices(site, left_link, right_link)
-    nonzeros = Tuple{Vector{Int},T}[]
-
-    for (path, entry) in enumerate(entry_vec)
-      states = get(entry.coordinates, site_position, nothing)
-      states = isnothing(states) ? (1, 2) : (states,)
-      coefficient = site_position == value_positions[path] ? entry.value : one(T)
-
-      for state in states
-        push!(nonzeros, (mpo_coordinate(state, path, left_link, right_link), coefficient))
-      end
-    end
-
-    tensors[site_position] = itensor_from_nonzeros(T, inds, nonzeros)
-  end
-
-  return ITensorMPS.MPO(tensors)
+  return ITensorMPS.MPO([
+    projection_site_tensor(
+      T,
+      site_vec[site_position],
+      site_link(links, site_position - 1),
+      site_link(links, site_position),
+      entry_vec,
+      site_position,
+      value_positions,
+    )
+    for site_position in eachindex(site_vec)
+   ])
 end
+
 
 function validate_sparse_entries(entries, sites)
   for entry in entries
