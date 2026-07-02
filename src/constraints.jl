@@ -22,6 +22,10 @@ Weighted-sum constraint over a binary vector `x`:
 `sites` must be unique positive integers, `weights` must be nonnegative and the
 same length as `sites`, and `relation` must be one of `:(==)`, `:(!=)`,
 `:(<=)`, or `:(>=)`.
+
+The `==` and `!=` relations use exact arithmetic comparison. Projection MPO
+lowering for `SumConstraint` supports integer-valued weights and right-hand side
+values.
 """
 struct SumConstraint{T<:Real} <: AbstractConstraint
   sites::Vector{Int}

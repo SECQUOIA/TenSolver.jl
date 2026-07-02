@@ -124,15 +124,17 @@ function projection_site_tensor(::Type{T}, site, left_link, right_link, entries,
   end
 end
 
+function validate_projection_sites(sites)
+  isempty(sites) && throw(ArgumentError("sites must not be empty"))
+  all(site -> ITensors.dim(site) == 2, sites) ||
+    throw(ArgumentError("projection MPO sites must be binary Qudit indices"))
+
+  return nothing
+end
+
 function tensor_to_mpo(::Type{T}, entries, sites) where {T}
   site_vec = collect(sites)
-
-  if isempty(site_vec)
-    throw(ArgumentError("sites must not be empty"))
-  end
-  if !all(site -> ITensors.dim(site) == 2, site_vec)
-    throw(ArgumentError("projection MPO sites must be binary Qudit indices"))
-  end
+  validate_projection_sites(site_vec)
 
   entry_vec = collect(entries)
   validate_sparse_entries(entry_vec, site_vec)
@@ -161,7 +163,6 @@ function tensor_to_mpo(::Type{T}, entries, sites) where {T}
    ])
 end
 
-
 function validate_sparse_entries(entries, sites)
   for entry in entries
     for (site_position, coordinate) in entry.coordinates
@@ -170,6 +171,13 @@ function validate_sparse_entries(entries, sites)
         throw(BoundsError(1:ITensors.dim(sites[site_position]), coordinate))
     end
   end
+
+  return nothing
+end
+
+function validate_constraint_site_bounds(constraint_sites, sites)
+  all(site -> 1 <= site <= length(sites), constraint_sites) ||
+    throw(BoundsError(sites, maximum(constraint_sites)))
 
   return nothing
 end
@@ -199,6 +207,185 @@ function projection_entries(::Type{T}, constraint::AbstractConstraint) where {T}
   return entries
 end
 
+function integer_projection_value(value::Real, name)
+  isinteger(value) ||
+    throw(ArgumentError("$name must be integer-valued for SumConstraint projection MPOs"))
+
+  try
+    return Int(value)
+  catch error
+    if error isa InexactError || error isa OverflowError
+      throw(ArgumentError("$name must fit in Int for SumConstraint projection MPOs"))
+    end
+    rethrow()
+  end
+end
+
+function sum_constraint_projection_data(constraint::SumConstraint)
+  weights_by_site = Dict{Int,Int}()
+  for (site, weight) in zip(constraint.sites, constraint.weights)
+    weights_by_site[site] = integer_projection_value(weight, "SumConstraint weights")
+  end
+
+  rhs = integer_projection_value(constraint.rhs, "SumConstraint rhs")
+
+  return weights_by_site, rhs
+end
+
+function checked_sum_projection_add(lhs::Int, rhs::Int)
+  try
+    return Base.checked_add(lhs, rhs)
+  catch error
+    if error isa OverflowError
+      throw(ArgumentError("SumConstraint projection partial sums must fit in Int"))
+    end
+    rethrow()
+  end
+end
+
+function sum_projection_state_limit(relation::Symbol, rhs::Int)
+  (relation === Symbol("<=") || relation === Symbol("==")) && return rhs
+
+  return nothing
+end
+
+function sum_exceeds_state_limit(partial_sum::Int, weight::Int, state_limit::Int)
+  return big(partial_sum) + big(weight) > state_limit
+end
+
+function sum_transition_target(partial_sum::Int, weight::Int, bit::Integer, state_limit)
+  bit == 0 && return partial_sum
+
+  if !isnothing(state_limit) && sum_exceeds_state_limit(partial_sum, weight, state_limit)
+    return nothing
+  end
+
+  return checked_sum_projection_add(partial_sum, weight)
+end
+
+function sum_projection_reachable_states(weights_by_site, num_sites, relation::Symbol, rhs::Int)
+  states_after_site = Vector{Vector{Int}}(undef, num_sites)
+  state_limit = sum_projection_state_limit(relation, rhs)
+  reachable = !isnothing(state_limit) && 0 > state_limit ? Int[] : [0]
+
+  for site_position in 1:num_sites
+    weight = get(weights_by_site, site_position, 0)
+    next_reachable = Int[]
+
+    for partial_sum in reachable, bit in 0:1
+      target = sum_transition_target(partial_sum, weight, bit, state_limit)
+      isnothing(target) && continue
+      push!(next_reachable, target)
+    end
+
+    unique!(sort!(next_reachable))
+    states_after_site[site_position] = next_reachable
+    reachable = next_reachable
+  end
+
+  return states_after_site
+end
+
+function sum_state_position_map(states)
+  return Dict(state => position for (position, state) in pairs(states))
+end
+
+function mpo_transition_coordinate(state::Integer, left_position, right_position, left_link, right_link)
+  coordinate = Int[]
+  !isnothing(left_link) && push!(coordinate, left_position)
+  push!(coordinate, state, state)
+  !isnothing(right_link) && push!(coordinate, right_position)
+
+  return coordinate
+end
+
+function sum_constraint_projection_tensor(
+  ::Type{T},
+  site,
+  left_link,
+  right_link,
+  left_states,
+  right_positions,
+  weight::Int,
+  relation::Symbol,
+  rhs::Int,
+  state_limit,
+) where {T}
+  inds = mpo_tensor_indices(site, left_link, right_link)
+  nonzeros = Tuple{Vector{Int},T}[]
+
+  for (left_position, partial_sum) in pairs(left_states)
+    for bit in 0:1
+      next_sum = sum_transition_target(partial_sum, weight, bit, state_limit)
+      isnothing(next_sum) && continue
+
+      if isnothing(right_link)
+        relation_holds(next_sum, relation, rhs) || continue
+        right_position = nothing
+      else
+        right_position = right_positions[next_sum]
+      end
+
+      state = bit + 1
+      coordinate = mpo_transition_coordinate(
+        state,
+        left_position,
+        right_position,
+        left_link,
+        right_link,
+      )
+      push!(nonzeros, (coordinate, one(T)))
+    end
+  end
+
+  return itensor_from_nonzeros(T, inds, nonzeros)
+end
+
+function sum_constraint_projection_mpo(::Type{T}, constraint::SumConstraint, sites) where {T}
+  validate_projection_sites(sites)
+  validate_constraint_site_bounds(constraint.sites, sites)
+
+  weights_by_site, rhs = sum_constraint_projection_data(constraint)
+  state_limit = sum_projection_state_limit(constraint.relation, rhs)
+  states_after_site = sum_projection_reachable_states(
+    weights_by_site,
+    length(sites),
+    constraint.relation,
+    rhs,
+  )
+  any(isempty, states_after_site) && return tensor_to_mpo(T, SparseTensorEntry{T}[], sites)
+
+  links = [
+    ITensors.Index(length(states_after_site[site_position]), "Link,Projection,Sum,l=$site_position")
+    for site_position in 1:(length(sites) - 1)
+  ]
+
+  tensors = Vector{ITensors.ITensor}(undef, length(sites))
+  for site_position in eachindex(sites)
+    site = sites[site_position]
+    left_link = site_position == firstindex(sites) ? nothing : links[site_position - 1]
+    right_link = site_position == lastindex(sites) ? nothing : links[site_position]
+    left_states = site_position == firstindex(sites) ? [0] : states_after_site[site_position - 1]
+    right_positions = isnothing(right_link) ? nothing : sum_state_position_map(states_after_site[site_position])
+    weight = get(weights_by_site, site_position, 0)
+
+    tensors[site_position] = sum_constraint_projection_tensor(
+      T,
+      site,
+      left_link,
+      right_link,
+      left_states,
+      right_positions,
+      weight,
+      constraint.relation,
+      rhs,
+      state_limit,
+    )
+  end
+
+  return ITensorMPS.MPO(tensors)
+end
+
 """
     projection_mpo([T], constraint, sites)
 
@@ -206,17 +393,27 @@ Build a diagonal projection MPO over the binary Qudit register `sites`.
 
 The diagonal entry is `one(T)` for computational basis states whose bits satisfy
 `constraint`, and zero otherwise. Constraint site numbers use the same 1-based
-register indexing as `sites`. The construction is exact and uncompressed: each
-feasible assignment of the constrained sites is represented as one MPO path.
+register indexing as `sites`. The generic construction is exact and
+uncompressed: each feasible assignment of the constrained sites is represented
+as one MPO path.
+
+`SumConstraint` uses a specialized exact integer partial-sum automaton. Its
+weights and right-hand side must be integer-valued. Link dimensions grow with
+the number of distinct reachable partial sums, which can be exponential in the
+number of weighted sites. For nonnegative `<=` and `==` constraints, partial
+sums exceeding the right-hand side are pruned from the automaton.
 """
+function projection_mpo(::Type{T}, constraint::SumConstraint, sites) where {T}
+  return sum_constraint_projection_mpo(T, constraint, collect(sites))
+end
+
 function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
   cs = constraint_sites(constraint)
+  site_vec = collect(sites)
 
-  if !all(site -> 1 <= site <= length(sites), cs)
-    throw(BoundsError(sites, maximum(cs)))
-  end
+  validate_constraint_site_bounds(cs, site_vec)
 
-  return tensor_to_mpo(T, projection_entries(T, constraint), sites)
+  return tensor_to_mpo(T, projection_entries(T, constraint), site_vec)
 end
 
 projection_mpo(constraint::AbstractConstraint, sites) =
@@ -233,7 +430,9 @@ same collected site register for every constraint. `T` controls the numeric
 element type of the assembled MPO tensors.
 """
 function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
-  return [projection_mpo(T, constraint, sites) for constraint in constraints]
+  site_vec = collect(sites)
+
+  return [projection_mpo(T, constraint, site_vec) for constraint in constraints]
 end
 
 projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
