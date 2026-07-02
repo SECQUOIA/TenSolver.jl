@@ -93,7 +93,7 @@ function site_is_unconstrained(entries, site_position)
 end
 
 function site_link(links, link_position)
-  return 1 <= link_position <= length(links) ? links[link_position] : nothing
+  return get(links, link_position, nothing)
 end
 
 function site_states(entry::SparseTensorEntry, site_position)
@@ -105,32 +105,34 @@ function site_coefficient(::Type{T}, entry, site_position, value_site) where {T}
   return site_position == value_site ? entry.value : one(T)
 end
 
-function projection_site_nonzeros(::Type{T}, entries, left_link, right_link, site_position, value_positions) where {T}
-  return [
-    (mpo_coordinate(state, path, left_link, right_link),
-     site_coefficient(T, entry, site_position, value_positions[path]))
-    for (path, entry) in enumerate(entries)
-    for state in site_states(entry, site_position)
-  ]
-end
-
 function projection_site_tensor(::Type{T}, site, left_link, right_link, entries, site_position, value_positions) where {T}
   if site_is_unconstrained(entries, site_position)
     return pass_through_tensor(T, site, left_link, right_link)
   else
+    nonzeros = [
+      (mpo_coordinate(state, path, left_link, right_link),
+       site_coefficient(T, entry, site_position, value_positions[path]))
+      for (path, entry) in enumerate(entries)
+      for state in site_states(entry, site_position)
+    ]
+
     return itensor_from_nonzeros(
       T,
       mpo_tensor_indices(site, left_link, right_link),
-      projection_site_nonzeros(T, entries, left_link, right_link, site_position, value_positions),
+      nonzeros
     )
   end
 end
 
 function tensor_to_mpo(::Type{T}, entries, sites) where {T}
   site_vec = collect(sites)
-  isempty(site_vec) && throw(ArgumentError("sites must not be empty"))
-  all(site -> ITensors.dim(site) == 2, site_vec) ||
+
+  if isempty(site_vec)
+    throw(ArgumentError("sites must not be empty"))
+  end
+  if !all(site -> ITensors.dim(site) == 2, site_vec)
     throw(ArgumentError("projection MPO sites must be binary Qudit indices"))
+  end
 
   entry_vec = collect(entries)
   validate_sparse_entries(entry_vec, site_vec)
@@ -209,12 +211,12 @@ feasible assignment of the constrained sites is represented as one MPO path.
 """
 function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
   cs = constraint_sites(constraint)
-  site_vec = collect(sites)
 
-  all(site -> 1 <= site <= length(site_vec), cs) ||
-    throw(BoundsError(site_vec, maximum(cs)))
+  if !all(site -> 1 <= site <= length(sites), cs)
+    throw(BoundsError(sites, maximum(cs)))
+  end
 
-  return tensor_to_mpo(T, projection_entries(T, constraint), site_vec)
+  return tensor_to_mpo(T, projection_entries(T, constraint), sites)
 end
 
 projection_mpo(constraint::AbstractConstraint, sites) =
@@ -231,9 +233,7 @@ same collected site register for every constraint. `T` controls the numeric
 element type of the assembled MPO tensors.
 """
 function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
-  site_vec = collect(sites)
-
-  return [projection_mpo(T, constraint, site_vec) for constraint in constraints]
+  return [projection_mpo(T, constraint, sites) for constraint in constraints]
 end
 
 projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
