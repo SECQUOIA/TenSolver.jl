@@ -6,6 +6,8 @@ import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms
 maybe(f::Function, mx::Nothing; default=nothing) = default
 maybe(f::Function, mx; default=nothing) = f(mx)
 
+ifnotnothing(a, b) = maybe(_ -> b, a)
+
 """
     AbstractTenSolverBackend
 
