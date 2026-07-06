@@ -2,16 +2,9 @@ import ITensors, ITensorMPS
 
 all_bitstrings(n) = Iterators.product(fill(0:1, n)...)
 
-function projection_diagonal(H, sites)
-  diagonal = Dict{Tuple,Float64}()
-
-  for assignment in all_bitstrings(length(sites))
-    bits = Tuple(assignment)
-    psi  = ITensorMPS.MPS(sites, string.(bits))
-    diagonal[bits] = real(ITensors.inner(psi', H, psi))
-  end
-
-  return diagonal
+function mpo_diagonal(H, sites, bits)
+  psi = ITensorMPS.MPS(sites, string.(bits))
+  return real(ITensors.inner(psi', H, psi))
 end
 
 function dfa_accepts(dfa, input)
@@ -26,29 +19,6 @@ function dfa_accepts(dfa, input)
   return state in dfa.accepting_states
 end
 
-
-function assert_mpo_matches_dfa(H, dfa, sites)
-  diagonal = projection_diagonal(H, sites)
-
-  for bits in keys(diagonal)
-    expected = Float64(dfa_accepts(dfa, bits))
-    @test diagonal[bits] ≈ expected
-  end
-
-  return H
-end
-
-function assert_mpo_dimensions(H, dfa, sites)
-  for i in eachindex(sites)
-    @test ITensors.dim(ITensors.siteind(H, i)) == ITensors.dim(sites[i])
-  end
-
-  for i in 1:length(sites) - 1
-    @test ITensors.dim(ITensorMPS.linkind(H, i)) == length(dfa.states)
-  end
-
-  return H
-end
 
 function exactly_one_one_dfa(num_sites)
   transitions = [
@@ -78,8 +48,14 @@ function divisible_by_three_dfa(num_sites)
   return TenSolver.DFA([0, 1, 2], [0, 1], 0, Set([0]), transitions)
 end
 
-
 @testset "Constraints as MPO Projection" begin
+  TEST_CONSTRAINTS = [
+    SumConstraint([1, 3], [2, 1], :(<=), 2),
+    SumConstraint([1, 2, 4], [1, 2, 3], :(==), 3),
+    SumConstraint([2, 4], [2, 3], :(>=), 3),
+    SumConstraint([1, 2, 4], [1, 2, 3], :(!=), 3),
+  ]
+
   @testset "DFA correctness" begin
     exactly_one = exactly_one_one_dfa(3)
     @test dfa_accepts(exactly_one, (0, 0, 0)) == false
@@ -99,14 +75,7 @@ end
   @testset "Constraint -> DFA" begin
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
-    constraints = [
-      SumConstraint([1, 3], [2, 1], Symbol("<="), 2),
-      SumConstraint([1, 2, 4], [1, 2, 3], Symbol("=="), 3),
-      SumConstraint([2, 4], [2, 3], Symbol(">="), 3),
-      SumConstraint([1, 2, 4], [1, 2, 3], Symbol("!="), 3),
-    ]
-
-    for constraint in constraints
+    for constraint in TEST_CONSTRAINTS
       dfa = TenSolver.constraint_to_dfa(constraint, sites)
 
       for bits in all_bitstrings(length(sites))
@@ -115,7 +84,6 @@ end
       end
     end
   end
-
 
   @testset "DFA -> MPO" begin
     examples = [
@@ -126,28 +94,34 @@ end
     for (dfa, sites) in examples
       H = TenSolver.dfa_to_mpo(Float64, dfa, sites)
 
-      assert_mpo_dimensions(H, dfa, sites)
-      assert_mpo_matches_dfa(H, dfa, sites)
+      @testset "MPO Dimensions" begin
+        for i in eachindex(sites)
+          @test ITensors.dim(ITensors.siteind(H, i)) == ITensors.dim(sites[i])
+        end
+
+        for i in 1:length(sites)-1
+          @test ITensorMPS.linkdim(H, i) == length(dfa.states)
+        end
+      end
+
+      @testset "MPO Diagonal matches acceptance" begin
+        for bits in all_bitstrings(length(sites))
+          expected = Float64(dfa_accepts(dfa, bits))
+          @test mpo_diagonal(H, sites, bits) ≈ expected
+        end
+      end
     end
   end
 
   @testset "Projection MPO" begin
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
-    constraints = [
-      SumConstraint([1, 3], [2, 1], Symbol("<="), 2),
-      SumConstraint([1, 2, 4], [1, 2, 3], Symbol("=="), 3),
-      SumConstraint([2, 4], [2, 3], Symbol(">="), 3),
-      SumConstraint([1, 2, 4], [1, 2, 3], Symbol("!="), 3),
-    ]
-
-    for constraint in constraints
+    for constraint in TEST_CONSTRAINTS
       H = TenSolver.projection_mpo(constraint, sites)
-      diagonal = projection_diagonal(H, sites)
 
-      for bits in keys(diagonal)
-        expected = is_feasible(collect(bits), constraint) ? 1.0 : 0.0
-        @test diagonal[bits] ≈ expected
+      for bits in all_bitstrings(length(sites))
+        expected = Float64(is_feasible(collect(bits), constraint))
+        @test mpo_diagonal(H, sites, bits) ≈ expected
       end
     end
   end

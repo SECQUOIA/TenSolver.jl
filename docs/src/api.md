@@ -58,17 +58,28 @@ Base.in(::AbstractVector, ::TenSolver.Solution)
 
 ## Internal Functions
 
-These functions are part of the internal implementation and are not exported. 
+These functions are part of the internal implementation and are not exported.
 They are documented here for advanced users who may need to understand the internals.
+Notice: As unexported method and types, they are subject to change without warning.
+
+### Objective Construction
 
 ```@docs
 TenSolver.tensorize
-TenSolver.SparseTensorEntry
-TenSolver.itensor_from_nonzeros
-TenSolver.projection_mpo
-TenSolver.projection_mpos
 TenSolver.qmatrix_permutation
 TenSolver.preprocess_qubo
+```
+
+### MPO Construction
+
+```@docs
+TenSolver.DFA
+TenSolver.constraint_to_dfa
+TenSolver.dfa_to_mpo
+TenSolver.projection_mpo
+TenSolver.projection_mpos
+TenSolver.SparseTensorEntry
+TenSolver.projection_entries
 ```
 
 ## Index

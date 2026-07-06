@@ -2,16 +2,201 @@
 # design in Sharma, Ritvik, Cheng Peng, Siddharth Dangwal, and Sara Achour,
 # "CoTenN: Constrained Optimization with Tensor Networks," PLDI 2026.
 #
-# Note on ITensors.jl / ITensorMPS.jl helpers: the on-site identity is built with
-# `ITensors.delta` rather than a hand-rolled Kronecker tensor. The higher-level
-# `OpSum`/`MPO(::OpSum, sites)` (AutoMPO) machinery was considered for the full
-# assembly but is intentionally not used here: it heuristically compresses the
-# operator and does not guarantee the exact, uncompressed one-path-per-feasible-
-# assignment structure this module needs (bond dimension = number of feasible
-# assignments). Bounding/compressing that bond dimension is deferred to #58, where
-# projections meet solves and the downstream cost is measurable. The remaining
-# path-threaded tensors have no direct high-level equivalent, so they are assembled
-# from sparse nonzeros via `itensor_from_nonzeros`.
+# The implementation builds exact diagonal projection MPOs by lowering each
+# constraint to a step-dependent DFA and then threading the DFA through sparse
+# nonzero tensor entries. The helpers below assemble the MPO directly from those
+# nonzero paths.
+
+
+###############################################################################
+# Finite Automata to MPO utilities
+###############################################################################
+
+"""
+    DFA{S, A}
+
+Step-dependent deterministic finite automaton.
+
+Fields:
+- `states`: DFA states, used to define the MPO bond dimension.
+- `alphabet`: local symbols, ordered to match the physical basis positions.
+- `initial_state`: start state.
+- `accepting_states`: set of accepting states.
+- `transitions`: one transition table per site; each table maps `(state, symbol)` to
+  the next state. Missing entries are rejected.
+"""
+struct DFA{S,A}
+  states::Vector{S}
+  alphabet::Vector{A}
+  initial_state::S
+  accepting_states::Set{S}
+  transitions::Vector{Dict{Tuple{S,A},S}}
+
+  function DFA(
+    states,
+    alphabet,
+    initial_state,
+    accepting_states,
+    transitions,
+  )
+    state_vec = collect(states)
+    alphabet_vec = collect(alphabet)
+    transition_vec = collect(transitions)
+
+    isempty(state_vec) && throw(ArgumentError("states must not be empty"))
+    isempty(alphabet_vec) && throw(ArgumentError("alphabet must not be empty"))
+    isempty(transition_vec) && throw(ArgumentError("transitions must not be empty"))
+
+    length(unique(state_vec)) == length(state_vec) ||
+      throw(ArgumentError("states must be unique"))
+
+    state_set = Set(state_vec)
+    initial_state in state_set ||
+      throw(ArgumentError("initial_state must be one of the DFA states"))
+
+    accepting_set = Set(collect(accepting_states))
+    all(state -> state in state_set, accepting_set) ||
+      throw(ArgumentError("accepting_states must be a subset of states"))
+
+    alphabet_set = Set(alphabet_vec)
+    for (table_idx, table) in enumerate(transition_vec)
+      for ((state, symbol), next_state) in table
+        state in state_set ||
+          throw(ArgumentError("transition table $(table_idx): unknown source state $(repr(state))"))
+        symbol in alphabet_set ||
+          throw(ArgumentError("transition table $(table_idx): symbol $(repr(symbol)) is not in the alphabet"))
+        next_state in state_set ||
+          throw(ArgumentError("transition table $(table_idx): unknown target state $(repr(next_state))"))
+      end
+    end
+
+    return new{eltype(state_vec),eltype(alphabet_vec)}(
+      state_vec,
+      alphabet_vec,
+      initial_state,
+      accepting_set,
+      transition_vec,
+    )
+  end
+end
+
+function tensor_from_nonzeros(::Type{T}, inds, nonzeros) where {T}
+  ind_tuple = Tuple(inds)
+  tensor = ITensors.ITensor(T, ind_tuple...)
+
+  for (coordinate, value) in nonzeros
+    coordinate_tuple = Tuple(coordinate)
+    length(coordinate_tuple) == length(ind_tuple) ||
+      throw(DimensionMismatch("nonzero coordinate length must match tensor order"))
+
+    selector = map(i -> ind_tuple[i] => coordinate_tuple[i], eachindex(ind_tuple))
+    tensor[selector...] = tensor[selector...] + convert(T, value)
+  end
+
+  return tensor
+end
+
+function tensor_indices(site, left_link, right_link)
+  return filter(!isnothing, (left_link, site, ITensors.prime(site), right_link))
+end
+
+function tensor_coordinate(symbol_pos::Integer, left_pos, right_pos, left_link, right_link)
+  coordinate = Int[]
+  !isnothing(left_link) && push!(coordinate, left_pos)
+  push!(coordinate, symbol_pos, symbol_pos)
+  !isnothing(right_link) && push!(coordinate, right_pos)
+  return coordinate
+end
+
+function dfa_site_tensor(
+  ::Type{T},
+  site,
+  left_link,
+  right_link,
+  dfa::DFA,
+  step::Integer,
+  state_positions,
+) where {T}
+  inds = tensor_indices(site, left_link, right_link)
+  nonzeros = Tuple{Vector{Int},T}[]
+  table = dfa.transitions[step]
+
+  source_states = isnothing(left_link) ? (dfa.initial_state,) : dfa.states
+  for source_state in source_states
+    left_pos = isnothing(left_link) ? nothing : state_positions[source_state]
+
+    for (symbol_pos, symbol) in enumerate(dfa.alphabet)
+      next_state = get(table, (source_state, symbol), nothing)
+      isnothing(next_state) && continue
+
+      if isnothing(right_link)
+        next_state in dfa.accepting_states || continue
+        push!(
+          nonzeros,
+          (tensor_coordinate(symbol_pos, left_pos, nothing, left_link, right_link), one(T)),
+        )
+      else
+        right_pos = state_positions[next_state]
+        push!(
+          nonzeros,
+          (tensor_coordinate(symbol_pos, left_pos, right_pos, left_link, right_link), one(T)),
+        )
+      end
+    end
+  end
+
+  return tensor_from_nonzeros(T, inds, nonzeros)
+end
+
+function validate_dfa_sites(sites, alphabet_len::Integer)
+  isempty(sites) && throw(ArgumentError("sites must not be empty"))
+  all(site -> ITensors.dim(site) == alphabet_len, sites) ||
+    throw(DimensionMismatch("each site dimension must match the DFA alphabet size"))
+end
+
+"""
+    dfa_to_mpo([T], dfa, sites)
+
+Build an exact diagonal projection MPO from a step-dependent DFA.
+
+The physical index basis positions are matched against `dfa.alphabet` in order:
+`alphabet[k]` corresponds to local basis state `k`.
+
+The MPO bond dimension equals `length(dfa.states)`.
+"""
+function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where {T}
+  site_vec = collect(sites)
+  length(site_vec) == length(dfa.transitions) ||
+    throw(DimensionMismatch("DFA transition tables must match the number of sites"))
+
+  validate_dfa_sites(site_vec, length(dfa.alphabet))
+
+  state_positions = Dict(state => i for (i, state) in enumerate(dfa.states))
+  links = [
+    ITensors.Index(length(dfa.states), "Link,DFA,l=$i")
+    for i in 1:max(length(site_vec) - 1, 0)
+  ]
+
+  tensors = Vector{ITensors.ITensor}(undef, length(site_vec))
+  for site_position in eachindex(site_vec)
+    left_link = site_position == firstindex(site_vec) ? nothing : links[site_position - 1]
+    right_link = site_position == lastindex(site_vec) ? nothing : links[site_position]
+
+    tensors[site_position] = dfa_site_tensor(
+      T,
+      site_vec[site_position],
+      left_link,
+      right_link,
+      dfa,
+      site_position,
+      state_positions,
+    )
+  end
+
+  return ITensorMPS.MPO(tensors)
+end
+
+dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
 
 """
     projection_mpo([T], constraint, sites)
@@ -24,11 +209,14 @@ register indexing as `sites`. The generic construction is exact and
 uncompressed: each feasible assignment of the constrained sites is represented
 as one MPO path.
 
-`SumConstraint` uses a specialized exact integer partial-sum automaton. Its
-weights and right-hand side must be integer-valued. Link dimensions grow with
-the number of distinct reachable partial sums, which can be exponential in the
-number of weighted sites. For nonnegative `<=` and `==` constraints, partial
-sums exceeding the right-hand side are pruned from the automaton.
+The construction is exact and uncompressed. Constraint site numbers use the same
+1-based register indexing as `sites`.
+
+# Known constraints
+
+- `SumConstraint` uses a specialized exact integer partial-sum automaton.
+Its weights and right-hand side must be nonnegative and from an [`Integer`](@ref) type.
+For a constraint with rhs `k`, its maximum bond dimension is `k`.
 """
 function projection_mpo end
 
