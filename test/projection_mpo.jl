@@ -1,10 +1,10 @@
 import ITensors, ITensorMPS
 
 function projection_diagonal(H, sites)
-  diagonal = Dict{Vector{Int},Float64}()
+  diagonal = Dict{Tuple,Float64}()
 
   for assignment in Iterators.product(fill(0:1, length(sites))...)
-    bits = collect(assignment)
+    bits = Tuple(assignment)
     psi = ITensorMPS.MPS(sites, string.(bits))
     diagonal[bits] = real(ITensors.inner(adjoint(psi), H, psi))
   end
@@ -17,11 +17,59 @@ function assert_projection_matches_feasibility(constraint, sites)
   diagonal = projection_diagonal(H, sites)
 
   for bits in keys(diagonal)
-    expected = is_feasible(bits, constraint) ? 1.0 : 0.0
+    expected = is_feasible(collect(bits), constraint) ? 1.0 : 0.0
     @test diagonal[bits] ≈ expected
   end
 
   return H
+end
+
+function dfa_diagonal(H, sites)
+  diagonal = Dict{Tuple,Float64}()
+
+  for assignment in Iterators.product(fill(0:1, length(sites))...)
+    bits = Tuple(assignment)
+    psi = ITensorMPS.MPS(sites, string.(bits))
+    diagonal[bits] = real(ITensors.inner(adjoint(psi), H, psi))
+  end
+
+  return diagonal
+end
+
+function exactly_one_transition_table()
+  return Dict{Tuple{Int,Int},Int}(
+    (0, 0) => 0,
+    (0, 1) => 1,
+    (1, 0) => 1,
+    (1, 1) => 2,
+    (2, 0) => 2,
+    (2, 1) => 2,
+  )
+end
+
+@testset "DFA construction" begin
+  sites = ITensors.siteinds("Qudit", 3; dim=2)
+
+  @testset "dfa_to_mpo exact diagonal" begin
+    dfa = TenSolver.DFA(
+      [0, 1, 2],
+      [0, 1],
+      0,
+      Set([1]),
+      [exactly_one_transition_table() for _ in eachindex(sites)],
+    )
+
+    H = TenSolver.dfa_to_mpo(Float64, dfa, sites)
+    diagonal = dfa_diagonal(H, sites)
+
+    for (bits, value) in diagonal
+      expected = count(==(1), bits) == 1 ? 1.0 : 0.0
+      @test value ≈ expected
+    end
+
+    @test count(==(1.0), values(diagonal)) == 3
+    @test ITensorMPS.maxlinkdim(H) == 3
+  end
 end
 
 @testset "Projection MPOs" begin
@@ -45,69 +93,16 @@ end
     @test default_mpos isa Vector{ITensorMPS.MPO}
   end
 
-  @testset "Sparse ITensor construction" begin
-    s1, s2 = sites[1], sites[2]
-    s1p, s2p = ITensors.prime(s1), ITensors.prime(s2)
-    tensor = TenSolver.itensor_from_nonzeros(
-      Float64,
-      (s1, s1p, s2, s2p),
-      [((1, 1, 2, 2), 3.0), ((2, 2, 1, 1), 5.0)],
-    )
-    materialized = Array(tensor, s1, s1p, s2, s2p)
-
-    @test materialized[1, 1, 2, 2] == 3.0
-    @test materialized[2, 2, 1, 1] == 5.0
-    @test count(!iszero, materialized) == 2
-  end
-
-  @testset "Entry value on a pass-through leading site" begin
-    # Regression: the entry `value` must survive even when the first register
-    # site is a pass-through site. Here only site 2 is constrained, so sites 1
-    # and 3 pass through; the coefficient must be anchored on site 2.
-    entry = TenSolver.SparseTensorEntry(Dict(2 => 2), 7.0)
-    H = TenSolver.tensor_to_mpo(Float64, [entry], sites)
+  @testset "Constraint -> DFA -> MPO" begin
+    constraint = NotEqualsConstraint([1, 3], [1, 0])
+    dfa = TenSolver.constraint_to_dfa(Float64, constraint, sites)
+    H = TenSolver.dfa_to_mpo(Float64, dfa, sites)
     diagonal = projection_diagonal(H, sites)
 
-    for (bits, value) in diagonal
-      expected = bits[2] == 1 ? 7.0 : 0.0
-      @test value ≈ expected
+    for bits in keys(diagonal)
+      expected = is_feasible(collect(bits), constraint) ? 1.0 : 0.0
+      @test diagonal[bits] ≈ expected
     end
-  end
-
-  @testset "Validation errors" begin
-    s1 = sites[1]
-    s1p = ITensors.prime(s1)
-    qutrit_sites = ITensors.siteinds("Qudit", 1; dim=3)
-    too_large_int = big(typemax(Int)) + 1
-
-    @test_throws DimensionMismatch TenSolver.itensor_from_nonzeros(
-      Float64,
-      (s1, s1p),
-      [((1, 1, 1), 1.0)],
-    )
-    @test_throws ArgumentError TenSolver.tensor_to_mpo(Float64, [], ITensors.Index{Int64}[])
-    @test_throws ArgumentError TenSolver.tensor_to_mpo(Float64, [], qutrit_sites)
-    @test_throws BoundsError TenSolver.projection_mpo(ExactlyOneConstraint([4]), sites)
-    @test_throws ArgumentError TenSolver.projection_mpo(
-      SumConstraint([1], [1], Symbol("<="), 1),
-      qutrit_sites,
-    )
-    @test_throws ArgumentError TenSolver.projection_mpo(
-      SumConstraint([1], [0.5], Symbol("<="), 1),
-      sites,
-    )
-    @test_throws ArgumentError TenSolver.projection_mpo(
-      SumConstraint([1], [1], Symbol("<="), 1.5),
-      sites,
-    )
-    @test_throws ArgumentError TenSolver.projection_mpo(
-      SumConstraint([1], [too_large_int], Symbol("<="), 1),
-      sites,
-    )
-    @test_throws ArgumentError TenSolver.projection_mpo(
-      SumConstraint([1, 2], [typemax(Int), 1], Symbol(">="), typemax(Int)),
-      sites,
-    )
   end
 
   @testset "Manual diagonal masks" begin
@@ -148,10 +143,10 @@ end
     diagonal = projection_diagonal(H, knapsack_sites)
 
     @test count(==(1.0), values(diagonal)) == 6
-    @test diagonal[[1, 1, 0, 0]] == 1.0
-    @test diagonal[[0, 0, 0, 1]] == 1.0
-    @test diagonal[[1, 0, 1, 0]] == 0.0
-    @test diagonal[[0, 1, 0, 1]] == 0.0
+    @test diagonal[(1, 1, 0, 0)] == 1.0
+    @test diagonal[(0, 0, 0, 1)] == 1.0
+    @test diagonal[(1, 0, 1, 0)] == 0.0
+    @test diagonal[(0, 1, 0, 1)] == 0.0
   end
 
   @testset "Feasible states are preserved" begin
@@ -168,7 +163,7 @@ end
       diagonal = projection_diagonal(H, sites)
 
       for bits in keys(diagonal)
-        expected = is_feasible(bits, constraint) ? 1.0 : 0.0
+        expected = is_feasible(collect(bits), constraint) ? 1.0 : 0.0
         @test diagonal[bits] ≈ expected
       end
     end

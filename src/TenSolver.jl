@@ -15,6 +15,8 @@ include("preprocess.jl")
 include("ising.jl")
 export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
 
+include("dfa.jl")
+
 include("constraints.jl")
 export AbstractConstraint
 export SumConstraint, NotEqualsConstraint, ExactlyOneConstraint, RelationConstraint
