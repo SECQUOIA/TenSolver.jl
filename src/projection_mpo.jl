@@ -145,22 +145,15 @@ function constraint_to_dfa(::Type{T}, constraint::AbstractConstraint, sites) whe
   )
 end
 
-function sum_constraint_projection_data(constraint::SumConstraint)
-  weights_by_site = Dict{Int,Int}()
-  for (site, weight) in zip(constraint.sites, constraint.weights)
-    weights_by_site[site] = integer_projection_value(weight, "SumConstraint weights")
-  end
-
-  rhs = integer_projection_value(constraint.rhs, "SumConstraint rhs")
-  return weights_by_site, rhs
-end
-
-function constraint_to_dfa(::Type{T}, constraint::SumConstraint, sites) where {T}
+function constraint_to_dfa(::Type{T}, constraint::SumConstraint{S}, sites) where {T,S<:Integer}
   site_vec = collect(sites)
   validate_projection_sites(site_vec)
-  validate_constraint_site_bounds(constraint.sites, site_vec)
 
-  weights_by_site, rhs = sum_constraint_projection_data(constraint)
+  weights_by_site = constraint.weights
+  rhs = constraint.rhs
+
+  validate_constraint_site_bounds(constraint_sites(constraint), site_vec)
+
   state_limit = sum_projection_state_limit(constraint.relation, rhs)
   states_after_site = sum_projection_reachable_states(
     weights_by_site,
@@ -169,7 +162,7 @@ function constraint_to_dfa(::Type{T}, constraint::SumConstraint, sites) where {T
     rhs,
   )
 
-  states = Int[0]
+  states = S[zero(S)]
   for reachable in states_after_site
     append!(states, reachable)
   end
@@ -179,10 +172,10 @@ function constraint_to_dfa(::Type{T}, constraint::SumConstraint, sites) where {T
     filter(state -> relation_holds(state, constraint.relation, rhs), states_after_site[end])
   )
 
-  transitions = [Dict{Tuple{Int,Int},Int}() for _ in eachindex(site_vec)]
+  transitions = [Dict{Tuple{S,Int},S}() for _ in eachindex(site_vec)]
   for site_position in eachindex(site_vec)
-    left_states = site_position == firstindex(site_vec) ? [0] : states_after_site[site_position - 1]
-    weight = get(weights_by_site, site_position, 0)
+    left_states = site_position == firstindex(site_vec) ? [zero(S)] : states_after_site[site_position - 1]
+    weight = get(weights_by_site, site_position, zero(S))
 
     for partial_sum in left_states
       for bit in 0:1
@@ -193,62 +186,47 @@ function constraint_to_dfa(::Type{T}, constraint::SumConstraint, sites) where {T
     end
   end
 
-  return DFA(states, [0, 1], 0, accepting_states, transitions)
+  return DFA(states, [0, 1], zero(S), accepting_states, transitions)
 end
 
-function integer_projection_value(value::Real, name)
-  isinteger(value) ||
-    throw(ArgumentError("$name must be integer-valued for SumConstraint projection MPOs"))
-
-  try
-    return Int(value)
-  catch error
-    if error isa InexactError || error isa OverflowError
-      throw(ArgumentError("$name must fit in Int for SumConstraint projection MPOs"))
-    end
-    rethrow()
-  end
-end
-
-function checked_sum_projection_add(lhs::Int, rhs::Int)
+function checked_sum_projection_add(lhs::S, rhs::S) where {S<:Integer}
   try
     return Base.checked_add(lhs, rhs)
   catch error
     if error isa OverflowError
-      throw(ArgumentError("SumConstraint projection partial sums must fit in Int"))
+      throw(ArgumentError("SumConstraint projection partial sums must fit in the integer type"))
     end
     rethrow()
   end
 end
 
-function sum_projection_state_limit(relation::Symbol, rhs::Int)
+function sum_projection_state_limit(relation::Symbol, rhs::S) where {S<:Integer}
   (relation === Symbol("<=") || relation === Symbol("==")) && return rhs
-
   return nothing
 end
 
-function sum_exceeds_state_limit(partial_sum::Int, weight::Int, state_limit::Int)
-  return big(partial_sum) + big(weight) > state_limit
+function sum_exceeds_state_limit(partial_sum::S, weight::S, state_limit::S) where {S<:Integer}
+  return partial_sum + weight > state_limit
 end
 
-function sum_transition_target(partial_sum::Int, weight::Int, bit::Integer, state_limit)
-  bit == 0 && return partial_sum
+function sum_transition_target(partial_sum::S, weight::S, bit::Integer, state_limit) where {S<:Integer}
+  iszero(bit) && return partial_sum
 
   if !isnothing(state_limit) && sum_exceeds_state_limit(partial_sum, weight, state_limit)
     return nothing
+  else
+    return checked_sum_projection_add(partial_sum, weight)
   end
-
-  return checked_sum_projection_add(partial_sum, weight)
 end
 
-function sum_projection_reachable_states(weights_by_site, num_sites, relation::Symbol, rhs::Int)
-  states_after_site = Vector{Vector{Int}}(undef, num_sites)
+function sum_projection_reachable_states(weights_by_site, num_sites::Integer, relation::Symbol, rhs::S) where {S<:Integer}
+  states_after_site = Vector{Vector{S}}(undef, num_sites)
   state_limit = sum_projection_state_limit(relation, rhs)
-  reachable = !isnothing(state_limit) && 0 > state_limit ? Int[] : [0]
+  reachable = !isnothing(state_limit) && zero(S) > state_limit ? S[] : [zero(S)]
 
   for site_position in 1:num_sites
-    weight = get(weights_by_site, site_position, 0)
-    next_reachable = Int[]
+    weight = get(weights_by_site, site_position, zero(S))
+    next_reachable = S[]
 
     for partial_sum in reachable, bit in 0:1
       target = sum_transition_target(partial_sum, weight, bit, state_limit)

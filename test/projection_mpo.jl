@@ -24,18 +24,6 @@ function assert_projection_matches_feasibility(constraint, sites)
   return H
 end
 
-function dfa_diagonal(H, sites)
-  diagonal = Dict{Tuple,Float64}()
-
-  for assignment in Iterators.product(fill(0:1, length(sites))...)
-    bits = Tuple(assignment)
-    psi = ITensorMPS.MPS(sites, string.(bits))
-    diagonal[bits] = real(ITensors.inner(adjoint(psi), H, psi))
-  end
-
-  return diagonal
-end
-
 function exactly_one_transition_table()
   return Dict{Tuple{Int,Int},Int}(
     (0, 0) => 0,
@@ -60,7 +48,7 @@ end
     )
 
     H = TenSolver.dfa_to_mpo(Float64, dfa, sites)
-    diagonal = dfa_diagonal(H, sites)
+    diagonal = projection_diagonal(H, sites)
 
     for (bits, value) in diagonal
       expected = count(==(1), bits) == 1 ? 1.0 : 0.0

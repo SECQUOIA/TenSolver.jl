@@ -3,8 +3,14 @@
 
 Supertype for conditions over a binary vector `x` (entries in `{0, 1}`)
 addressed by 1-based site indices.
-These are the binary feasibility constraints understood by
-[`is_feasible`](@ref).
+
+
+# API
+
+These are an interface for binary feasibility constraints.
+Any concrete subtype is expected to implement
+- [`is_feasible`](@ref).
+- [`constraint_sites`](@ref).
 
 See also [`SumConstraint`](@ref), [`NotEqualsConstraint`](@ref),
 [`ExactlyOneConstraint`](@ref), and [`RelationConstraint`](@ref).
@@ -28,18 +34,21 @@ lowering for `SumConstraint` supports integer-valued weights and right-hand side
 values.
 """
 struct SumConstraint{T<:Real} <: AbstractConstraint
-  sites::Vector{Int}
-  weights::Vector{T}
+  weights::Dict{Int,T}
   relation::Symbol
   rhs::T
 
   function SumConstraint{T}(sites, weights, relation, rhs::T) where {T<:Real}
-    site_vec = validate_sites(sites)
+    site_vec   = validate_sites(sites)
     weight_vec = validate_weights(weights)
     validate_same_length(site_vec, weight_vec, "sites", "weights")
-    relation = validate_relation(relation)
+    relation   = validate_relation(relation)
 
-    return new{T}(site_vec, weight_vec, relation, rhs)
+    weight_map = Dict(site => weight for (site, weight) in zip(site_vec, weight_vec))
+    length(weight_map) == length(site_vec) ||
+      throw(ArgumentError("sites must be unique"))
+
+    return new{T}(weight_map, relation, rhs)
   end
 end
 
@@ -117,7 +126,7 @@ struct RelationConstraint <: AbstractConstraint
   right_site::Int
 
   function RelationConstraint(left_site, relation, right_site)
-    left = validate_site(left_site, "left_site")
+    left  = validate_site(left_site, "left_site")
     right = validate_site(right_site, "right_site")
     left == right && throw(ArgumentError("relation constraint sites must be distinct"))
 
@@ -134,11 +143,10 @@ satisfies a single `constraint <: AbstractConstraint`.
 Throws an `ArgumentError` if `x` contains a non-binary entry and a `BoundsError`
 if a constraint references a site outside `x`.
 """
+function is_feasible end
+
 function is_feasible(x::AbstractVector, constraint::SumConstraint)
-  lhs = sum(
-    constraint.weights[i] * binary_at(x, constraint.sites[i])
-    for i in eachindex(constraint.sites, constraint.weights)
-  )
+  lhs = sum( weight * binary_at(x, site) for (site, weight) in constraint.weights )
 
   return relation_holds(lhs, constraint.relation, constraint.rhs)
 end
@@ -182,8 +190,9 @@ Access the site indices stored in the `constraint`.
 """
 function constraint_sites end
 
+# TODO: Why do we always have to sort it?
 function constraint_sites(constraint::SumConstraint)
-  return constraint.sites
+  return sort!(collect(keys(constraint.weights)))
 end
 
 function constraint_sites(constraint::NotEqualsConstraint)
@@ -222,8 +231,7 @@ function validate_sites(sites)
   isempty(site_vec) && throw(ArgumentError("sites must not be empty"))
 
   validated = [validate_site(site, "sites") for site in site_vec]
-  length(unique(validated)) == length(validated) ||
-    throw(ArgumentError("sites must be unique"))
+  allunique(validated) || throw(ArgumentError("sites must be unique"))
 
   return validated
 end
@@ -269,7 +277,7 @@ end
 function binary_at(x, site)
   checkbounds(x, site)
   value = x[site]
-  value == 0 || value == 1 ||
+  value in (0, 1) ||
     throw(ArgumentError("x must contain only binary values 0 or 1"))
 
   return Int(value)

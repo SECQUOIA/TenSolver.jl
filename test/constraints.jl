@@ -3,14 +3,14 @@
     sum = SumConstraint([1, 3], [2, 1], Symbol("<="), 2)
     @test sum isa SumConstraint
     @test sum isa AbstractConstraint
-    @test sum.sites == [1, 3]
-    @test sum.weights == [2, 1]
+    @test TenSolver.constraint_sites(sum) == [1, 3]
+    @test sum.weights == Dict(1 => 2, 3 => 1)
     @test sum.relation == Symbol("<=")
     @test sum.rhs == 2
 
     keyword_sum = SumConstraint([1, 2], [1.5, 0.5], 2.0; relation=Symbol("=="))
     @test keyword_sum.relation == Symbol("==")
-    @test keyword_sum.weights == [1.5, 0.5]
+    @test keyword_sum.weights == Dict(1 => 1.5, 2 => 0.5)
     @test keyword_sum.rhs == 2.0
 
     not_equals = NotEqualsConstraint([1, 2], [1, 0])
