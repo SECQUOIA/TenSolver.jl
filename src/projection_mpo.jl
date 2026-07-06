@@ -14,6 +14,57 @@
 # from sparse nonzeros via `itensor_from_nonzeros`.
 
 """
+    projection_mpo([T], constraint, sites)
+
+Build a projection MPO over the binary Qudit register `sites`.
+
+The diagonal entry is `one(T)` for computational basis states whose bits satisfy
+`constraint`, and zero otherwise. Constraint site numbers use the same 1-based
+register indexing as `sites`. The generic construction is exact and
+uncompressed: each feasible assignment of the constrained sites is represented
+as one MPO path.
+
+`SumConstraint` uses a specialized exact integer partial-sum automaton. Its
+weights and right-hand side must be integer-valued. Link dimensions grow with
+the number of distinct reachable partial sums, which can be exponential in the
+number of weighted sites. For nonnegative `<=` and `==` constraints, partial
+sums exceeding the right-hand side are pruned from the automaton.
+"""
+function projection_mpo end
+
+
+function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
+  return dfa_to_mpo(T, constraint_to_dfa(constraint, sites), sites)
+end
+
+projection_mpo(constraint::AbstractConstraint, sites) =
+  projection_mpo(Float64, constraint, sites)
+
+"""
+    projection_mpos([T], constraints, sites)
+
+Build one projection MPO per constraint over the shared binary Qudit register
+`sites`.
+
+This is a convenience wrapper around [`projection_mpo`](@ref) that reuses the
+same collected site register for every constraint. `T` controls the numeric
+element type of the assembled MPO tensors.
+"""
+function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
+  site_vec = collect(sites)
+
+  return [projection_mpo(T, constraint, site_vec) for constraint in constraints]
+end
+
+projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
+  projection_mpos(Float64, constraints, sites)
+
+
+##############################################
+# Generic constraint construction path
+##############################################
+
+"""
     SparseTensorEntry{T}
 
 One nonzero term in the sparse representation used to assemble a projection
@@ -125,167 +176,45 @@ function projection_entries_to_dfa(entries, num_sites::Integer, constrained_site
   return DFA(states, [0, 1], 1, accepting, transitions)
 end
 
+##############################################
+# Constraint to DFA
+##############################################
 
 """
-    constraint_to_dfa([T], constraint, sites)
+    constraint_to_dfa(constraint, sites)
 
 Build a DFA for `constraint` over `sites`.
 """
-function constraint_to_dfa(::Type{T}, constraint::AbstractConstraint, sites) where {T}
-  site_vec = collect(sites)
-  validate_projection_sites(site_vec)
+function constraint_to_dfa(constraint::AbstractConstraint, sites)
+  validate_projection_sites(sites)
 
   cs = constraint_sites(constraint)
-  validate_constraint_site_bounds(cs, site_vec)
+  validate_constraint_site_bounds(cs, sites)
 
   return projection_entries_to_dfa(
-    projection_entries(T, constraint),
-    length(site_vec),
+    projection_entries(Bool, constraint),
+    length(sites),
     cs,
   )
 end
 
-function constraint_to_dfa(::Type{T}, constraint::SumConstraint{S}, sites) where {T,S<:Integer}
-  site_vec = collect(sites)
-  validate_projection_sites(site_vec)
+function constraint_to_dfa(constraint::SumConstraint{S}, sites) where {S<:Integer}
+  (; weights, rhs, relation) = constraint
 
-  weights_by_site = constraint.weights
-  rhs = constraint.rhs
+  overflow  = rhs + one(S)
+  states    = collect(zero(S):overflow)
+  alphabet  = [0, 1]
+  accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
-  validate_constraint_site_bounds(constraint_sites(constraint), site_vec)
-
-  state_limit = sum_projection_state_limit(constraint.relation, rhs)
-  states_after_site = sum_projection_reachable_states(
-    weights_by_site,
-    length(site_vec),
-    constraint.relation,
-    rhs,
-  )
-
-  states = S[zero(S)]
-  for reachable in states_after_site
-    append!(states, reachable)
-  end
-  unique!(sort!(states))
-
-  accepting_states = Set(
-    filter(state -> relation_holds(state, constraint.relation, rhs), states_after_site[end])
-  )
-
-  transitions = [Dict{Tuple{S,Int},S}() for _ in eachindex(site_vec)]
-  for site_position in eachindex(site_vec)
-    left_states = site_position == firstindex(site_vec) ? [zero(S)] : states_after_site[site_position - 1]
-    weight = get(weights_by_site, site_position, zero(S))
-
-    for partial_sum in left_states
-      for bit in 0:1
-        next_sum = sum_transition_target(partial_sum, weight, bit, state_limit)
-        isnothing(next_sum) && continue
-        transitions[site_position][(partial_sum, bit)] = next_sum
-      end
+  transitions = [
+    let weight = get(weights, i, zero(S))
+      Dict(
+        (q, a) => min(q + weight * S(a), overflow)
+        for q in states, a in alphabet
+      )
     end
-  end
+    for i in eachindex(sites)
+  ]
 
-  return DFA(states, [0, 1], zero(S), accepting_states, transitions)
+  return DFA(states, alphabet, zero(S), accepting, transitions)
 end
-
-function checked_sum_projection_add(lhs::S, rhs::S) where {S<:Integer}
-  try
-    return Base.checked_add(lhs, rhs)
-  catch error
-    if error isa OverflowError
-      throw(ArgumentError("SumConstraint projection partial sums must fit in the integer type"))
-    end
-    rethrow()
-  end
-end
-
-function sum_projection_state_limit(relation::Symbol, rhs::S) where {S<:Integer}
-  (relation === Symbol("<=") || relation === Symbol("==")) && return rhs
-  return nothing
-end
-
-function sum_exceeds_state_limit(partial_sum::S, weight::S, state_limit::S) where {S<:Integer}
-  return partial_sum + weight > state_limit
-end
-
-function sum_transition_target(partial_sum::S, weight::S, bit::Integer, state_limit) where {S<:Integer}
-  iszero(bit) && return partial_sum
-
-  if !isnothing(state_limit) && sum_exceeds_state_limit(partial_sum, weight, state_limit)
-    return nothing
-  else
-    return checked_sum_projection_add(partial_sum, weight)
-  end
-end
-
-function sum_projection_reachable_states(weights_by_site, num_sites::Integer, relation::Symbol, rhs::S) where {S<:Integer}
-  states_after_site = Vector{Vector{S}}(undef, num_sites)
-  state_limit = sum_projection_state_limit(relation, rhs)
-  reachable = !isnothing(state_limit) && zero(S) > state_limit ? S[] : [zero(S)]
-
-  for site_position in 1:num_sites
-    weight = get(weights_by_site, site_position, zero(S))
-    next_reachable = S[]
-
-    for partial_sum in reachable, bit in 0:1
-      target = sum_transition_target(partial_sum, weight, bit, state_limit)
-      isnothing(target) && continue
-      push!(next_reachable, target)
-    end
-
-    unique!(sort!(next_reachable))
-    states_after_site[site_position] = next_reachable
-    reachable = next_reachable
-  end
-
-  return states_after_site
-end
-
-
-"""
-    projection_mpo([T], constraint, sites)
-
-Build a diagonal projection MPO over the binary Qudit register `sites`.
-
-The diagonal entry is `one(T)` for computational basis states whose bits satisfy
-`constraint`, and zero otherwise. Constraint site numbers use the same 1-based
-register indexing as `sites`. The generic construction is exact and
-uncompressed: each feasible assignment of the constrained sites is represented
-as one MPO path.
-
-`SumConstraint` uses a specialized exact integer partial-sum automaton. Its
-weights and right-hand side must be integer-valued. Link dimensions grow with
-the number of distinct reachable partial sums, which can be exponential in the
-number of weighted sites. For nonnegative `<=` and `==` constraints, partial
-sums exceeding the right-hand side are pruned from the automaton.
-"""
-function projection_mpo end
-
-
-function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
-  site_vec = collect(sites)
-  return dfa_to_mpo(T, constraint_to_dfa(T, constraint, site_vec), site_vec)
-end
-
-projection_mpo(constraint::AbstractConstraint, sites) =
-  projection_mpo(Float64, constraint, sites)
-
-"""
-    projection_mpos([T], constraints, sites)
-
-Build one projection MPO per constraint over the shared binary Qudit register
-`sites`.
-
-This is a convenience wrapper around [`projection_mpo`](@ref) that reuses the
-same collected site register for every constraint. `T` controls the numeric
-element type of the assembled MPO tensors.
-"""
-function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
-  site_vec = collect(sites)
-
-  return [projection_mpo(T, constraint, site_vec) for constraint in constraints]
-end
-
-projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
-  projection_mpos(Float64, constraints, sites)

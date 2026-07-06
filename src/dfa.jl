@@ -48,14 +48,14 @@ struct DFA{S,A}
       throw(ArgumentError("accepting_states must be a subset of states"))
 
     alphabet_set = Set(alphabet_vec)
-    for table in transition_vec
+    for (table_idx, table) in enumerate(transition_vec)
       for ((state, symbol), next_state) in table
         state in state_set ||
-          throw(ArgumentError("transition table contains an unknown source state"))
+          throw(ArgumentError("transition table $(table_idx): unknown source state $(repr(state))"))
         symbol in alphabet_set ||
-          throw(ArgumentError("transition table contains a symbol outside the alphabet"))
+          throw(ArgumentError("transition table $(table_idx): symbol $(repr(symbol)) is not in the alphabet"))
         next_state in state_set ||
-          throw(ArgumentError("transition table contains an unknown target state"))
+          throw(ArgumentError("transition table $(table_idx): unknown target state $(repr(next_state))"))
       end
     end
 

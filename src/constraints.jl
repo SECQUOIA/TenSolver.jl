@@ -146,8 +146,7 @@ if a constraint references a site outside `x`.
 function is_feasible end
 
 function is_feasible(x::AbstractVector, constraint::SumConstraint)
-  lhs = sum( weight * binary_at(x, site) for (site, weight) in constraint.weights )
-
+  lhs = sum(weight * binary_at(x, site) for (site, weight) in constraint.weights)
   return relation_holds(lhs, constraint.relation, constraint.rhs)
 end
 
