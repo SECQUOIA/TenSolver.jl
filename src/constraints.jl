@@ -23,11 +23,12 @@ abstract type AbstractConstraint end
     SumConstraint(sites, weights, rhs; relation)
 
 Weighted-sum constraint over a binary vector `x`:
-`sum(weights[i] * x[sites[i]] for i in eachindex(sites)) relation rhs`.
 
-`sites` must be unique positive integers, `weights` must be nonnegative and the
-same length as `sites`, and `relation` must be one of `:(==)`, `:(!=)`,
-`:(<=)`, or `:(>=)`.
+    sum(weights[i] * x[sites[i]] for i in eachindex(sites)) relation rhs.
+
+`sites` must be unique positive integers,
+`weights` must be the same length as `sites` and only contain nonnegative integers,
+and `relation` must be one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`.
 
 The `==` and `!=` relations use exact arithmetic comparison. Projection MPO
 lowering for `SumConstraint` supports integer-valued weights and right-hand side
@@ -43,6 +44,7 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
     weight_vec = validate_weights(weights)
     validate_same_length(site_vec, weight_vec, "sites", "weights")
     relation   = validate_relation(relation)
+    rhs        = validate_rhs(rhs)
 
     weight_map = Dict(site => weight for (site, weight) in zip(site_vec, weight_vec))
     length(weight_map) == length(site_vec) ||
@@ -226,34 +228,54 @@ function validate_site(site, name)
 end
 
 function validate_sites(sites)
-  site_vec = collect(sites)
-  isempty(site_vec) && throw(ArgumentError("sites must not be empty"))
+  if isempty(sites) 
+    throw(ArgumentError("sites must not be empty"))
+  end
 
-  validated = [validate_site(site, "sites") for site in site_vec]
-  allunique(validated) || throw(ArgumentError("sites must be unique"))
+  validated = [validate_site(site, "sites") for site in sites]
+  if !allunique(validated)
+    throw(ArgumentError("sites must be unique"))
+  end
 
   return validated
 end
 
 function validate_same_length(left, right, left_name, right_name)
-  length(left) == length(right) ||
+  if length(left) != length(right)
     throw(DimensionMismatch("$left_name and $right_name must have the same length"))
-
-  return nothing
+  end
 end
 
 function validate_weights(weights)
-  weight_vec = collect(weights)
-  isempty(weight_vec) && throw(ArgumentError("weights must not be empty"))
+  if isempty(weights)
+    throw(ArgumentError("weights must not be empty"))
+  end
   # Nonnegativity is a deliberate v1 contract (issue #56 acceptance criteria):
   # it keeps the predicate aligned with the nonnegative projection targets used
   # by the constraint/MPO work tracked in #57. Signed weights (e.g. encoding a
   # difference `x1 - x2 == 0`) are intentionally out of scope here and should be
   # revisited together with that lowering, not relaxed in isolation.
-  all(weight -> weight >= 0, weight_vec) ||
-    throw(ArgumentError("weights must be nonnegative"))
+  for (i, weight) in enumerate(weights)
+    if weight < 0
+      throw(ArgumentError("Found negative weight w[$(i)] = $(repr(weight)). Weights must be nonnegative."))
+    end
+    if !isinteger(weight)
+      throw(ArgumentError("Found noninteger weight w[$(i)] = $(repr(weight)). Weights must be integer."))
+    end
+  end
 
-  return weight_vec
+  return weights
+end
+
+function validate_rhs(rhs)
+  if rhs < 0
+    throw(ArgumentError("Found negative rhs = $(repr(rhs)). rhs must be nonnegative."))
+  end
+  if !isinteger(rhs)
+    throw(ArgumentError("Found noninteger rhs = $(repr(rhs)). rhs must be integer."))
+  end
+
+  return rhs
 end
 
 function validate_relation(relation)
@@ -265,19 +287,22 @@ function validate_relation(relation)
 end
 
 function validate_binary_values(values, name)
-  value_vec = collect(values)
-  isempty(value_vec) && throw(ArgumentError("$name must not be empty"))
-  all(value -> value == 0 || value == 1, value_vec) ||
+  if isempty(values)
+    throw(ArgumentError("$name must not be empty"))
+  end
+  if any(!in((0, 1)), values)
     throw(ArgumentError("$name must contain only binary values 0 or 1"))
+  end
 
-  return Int.(value_vec)
+  return Int.(values)
 end
 
 function binary_at(x, site)
   checkbounds(x, site)
   value = x[site]
-  value in (0, 1) ||
+  if !(value in (0, 1))
     throw(ArgumentError("x must contain only binary values 0 or 1"))
+  end
 
   return Int(value)
 end

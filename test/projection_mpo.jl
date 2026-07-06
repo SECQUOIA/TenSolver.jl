@@ -1,6 +1,7 @@
 import ITensors, ITensorMPS
 
-all_bitstrings(n) = Iterators.product(fill(0:1, n)...)
+all_bitstrings(n::Number) = Iterators.product(fill(0:1, n)...)
+all_bitstrings(sites::Vector{<:ITensors.Index}) = all_bitstrings(length(sites))
 
 function mpo_diagonal(H, sites, bits)
   psi = ITensorMPS.MPS(sites, string.(bits))
@@ -8,7 +9,7 @@ function mpo_diagonal(H, sites, bits)
 end
 
 function dfa_accepts(dfa, input)
-  state = dfa.initial_state
+  state = dfa.initial
 
   for (i, a) in enumerate(input)
     next_state = get(dfa.transitions[i], (state, a), nothing)
@@ -16,9 +17,8 @@ function dfa_accepts(dfa, input)
     state = next_state
   end
 
-  return state in dfa.accepting_states
+  return state in dfa.accepting
 end
-
 
 function exactly_one_one_dfa(num_sites)
   transitions = [
@@ -78,7 +78,7 @@ end
     for constraint in TEST_CONSTRAINTS
       dfa = TenSolver.constraint_to_dfa(constraint, sites)
 
-      for bits in all_bitstrings(length(sites))
+      for bits in all_bitstrings(sites)
         expected = is_feasible(collect(bits), constraint)
         @test dfa_accepts(dfa, bits) == expected
       end
@@ -105,7 +105,7 @@ end
       end
 
       @testset "MPO Diagonal matches acceptance" begin
-        for bits in all_bitstrings(length(sites))
+        for bits in all_bitstrings(sites)
           expected = Float64(dfa_accepts(dfa, bits))
           @test mpo_diagonal(H, sites, bits) ≈ expected
         end
@@ -119,7 +119,33 @@ end
     for constraint in TEST_CONSTRAINTS
       H = TenSolver.projection_mpo(constraint, sites)
 
-      for bits in all_bitstrings(length(sites))
+      for bits in all_bitstrings(sites)
+        expected = Float64(is_feasible(collect(bits), constraint))
+        @test mpo_diagonal(H, sites, bits) ≈ expected
+      end
+    end
+  end
+
+  @testset "SumConstraint floating-point lowering" begin
+    sites = ITensors.siteinds("Qudit", 3; dim=2)
+
+    constraints = [
+      SumConstraint([1, 2], [1.0, 1.0], 1.0; relation=:(==)),
+      SumConstraint([1, 3], [2.0, 1.0], 2.0; relation=:(<=)),
+      SumConstraint([2, 3], [2.0, 3.0], 3.0; relation=:(>=)),
+      SumConstraint([1, 2], [1.0, 2.0], 1.0; relation=:(!=)),
+    ]
+
+    for constraint in constraints
+      dfa = TenSolver.constraint_to_dfa(constraint, sites)
+      H = TenSolver.projection_mpo(constraint, sites)
+
+      for bits in all_bitstrings(sites)
+        expected = is_feasible(collect(bits), constraint)
+        @test dfa_accepts(dfa, bits) == expected
+      end
+
+      for bits in all_bitstrings(sites)
         expected = Float64(is_feasible(collect(bits), constraint))
         @test mpo_diagonal(H, sites, bits) ≈ expected
       end

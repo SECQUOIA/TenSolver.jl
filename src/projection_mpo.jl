@@ -20,65 +20,74 @@ Step-dependent deterministic finite automaton.
 Fields:
 - `states`: DFA states, used to define the MPO bond dimension.
 - `alphabet`: local symbols, ordered to match the physical basis positions.
-- `initial_state`: start state.
-- `accepting_states`: set of accepting states.
+- `initial`: start state.
+- `accepting`: set of accepting states.
 - `transitions`: one transition table per site; each table maps `(state, symbol)` to
   the next state. Missing entries are rejected.
 """
 struct DFA{S,A}
   states::Vector{S}
   alphabet::Vector{A}
-  initial_state::S
-  accepting_states::Set{S}
+  initial::S
+  accepting::Set{S}
   transitions::Vector{Dict{Tuple{S,A},S}}
-
-  function DFA(
-    states,
-    alphabet,
-    initial_state,
-    accepting_states,
-    transitions,
-  )
-    state_vec = collect(states)
-    alphabet_vec = collect(alphabet)
+  function DFA{S,A}(states, alphabet, initial, accepting, transitions) where {S,A}
+    state_vec      = collect(S, states)
+    alphabet_vec   = collect(A, alphabet)
     transition_vec = collect(transitions)
+    accepting_set  = Set{S}(accepting)
+    initial_state  = convert(S, initial)
 
-    isempty(state_vec) && throw(ArgumentError("states must not be empty"))
-    isempty(alphabet_vec) && throw(ArgumentError("alphabet must not be empty"))
-    isempty(transition_vec) && throw(ArgumentError("transitions must not be empty"))
+    alphabet_set   = Set(alphabet_vec)
+    state_set      = Set(state_vec)
 
-    length(unique(state_vec)) == length(state_vec) ||
+    # Validate here so all downstream code can assume these invariants.
+    if isempty(state_vec)
+      throw(ArgumentError("states must not be empty"))
+    end
+    if isempty(alphabet_vec)
+      throw(ArgumentError("alphabet must not be empty"))
+    end
+    if isempty(transition_vec)
+      throw(ArgumentError("transitions must not be empty"))
+    end
+    if !allunique(state_vec)
       throw(ArgumentError("states must be unique"))
+    end
+    if !(initial_state in state_vec)
+      throw(ArgumentError("initial must be one of the DFA states"))
+    end
+    if !issubset(accepting_set, state_set)
+      throw(ArgumentError("accepting must be a subset of states"))
+    end
 
-    state_set = Set(state_vec)
-    initial_state in state_set ||
-      throw(ArgumentError("initial_state must be one of the DFA states"))
+    for (i, table) in enumerate(transition_vec), ((s, a), ns) in table
+      if !(s in state_set)
+        throw(ArgumentError("transition table $(i): unknown source state $(repr(s))"))
+      end
 
-    accepting_set = Set(collect(accepting_states))
-    all(state -> state in state_set, accepting_set) ||
-      throw(ArgumentError("accepting_states must be a subset of states"))
+      if !(a in alphabet_set)
+        throw(ArgumentError("transition table $(i): symbol $(repr(a)) is not in the alphabet"))
+      end
 
-    alphabet_set = Set(alphabet_vec)
-    for (table_idx, table) in enumerate(transition_vec)
-      for ((state, symbol), next_state) in table
-        state in state_set ||
-          throw(ArgumentError("transition table $(table_idx): unknown source state $(repr(state))"))
-        symbol in alphabet_set ||
-          throw(ArgumentError("transition table $(table_idx): symbol $(repr(symbol)) is not in the alphabet"))
-        next_state in state_set ||
-          throw(ArgumentError("transition table $(table_idx): unknown target state $(repr(next_state))"))
+      if !(ns in state_set)
+        throw(ArgumentError("transition table $(i): unknown target state $(repr(ns))"))
       end
     end
 
-    return new{eltype(state_vec),eltype(alphabet_vec)}(
-      state_vec,
-      alphabet_vec,
-      initial_state,
-      accepting_set,
-      transition_vec,
-    )
+    return new{S,A}(state_vec, alphabet_vec, initial_state, accepting_set, transition_vec)
   end
 end
+
+function DFA(states, alphabet, initial, accepting, transitions)
+  S = eltype(states)
+  A = eltype(alphabet)
+  return DFA{S,A}(states, alphabet, initial, accepting, transitions)
+end
+
+DFA(; states, alphabet, initial, accepting, transitions) =
+  DFA(states, alphabet, initial, accepting, transitions)
+
 
 function tensor_from_nonzeros(::Type{T}, inds, nonzeros) where {T}
   ind_tuple = Tuple(inds)
@@ -121,7 +130,7 @@ function dfa_site_tensor(
   nonzeros = Tuple{Vector{Int},T}[]
   table = dfa.transitions[step]
 
-  source_states = isnothing(left_link) ? (dfa.initial_state,) : dfa.states
+  source_states = isnothing(left_link) ? (dfa.initial,) : dfa.states
   for source_state in source_states
     left_pos = isnothing(left_link) ? nothing : state_positions[source_state]
 
@@ -130,7 +139,7 @@ function dfa_site_tensor(
       isnothing(next_state) && continue
 
       if isnothing(right_link)
-        next_state in dfa.accepting_states || continue
+        next_state in dfa.accepting || continue
         push!(
           nonzeros,
           (tensor_coordinate(symbol_pos, left_pos, nothing, left_link, right_link), one(T)),
@@ -148,10 +157,16 @@ function dfa_site_tensor(
   return tensor_from_nonzeros(T, inds, nonzeros)
 end
 
-function validate_dfa_sites(sites, alphabet_len::Integer)
-  isempty(sites) && throw(ArgumentError("sites must not be empty"))
-  all(site -> ITensors.dim(site) == alphabet_len, sites) ||
+function validate_dfa_sites(dfa::DFA, sites)
+  if isempty(sites)
+    throw(ArgumentError("sites must not be empty"))
+  end
+  if any(site -> ITensors.dim(site) != length(dfa.alphabet), sites)
     throw(DimensionMismatch("each site dimension must match the DFA alphabet size"))
+  end
+  if length(sites) != length(dfa.transitions)
+    throw(DimensionMismatch("DFA transition tables must match the number of sites"))
+  end
 end
 
 """
@@ -165,26 +180,22 @@ The physical index basis positions are matched against `dfa.alphabet` in order:
 The MPO bond dimension equals `length(dfa.states)`.
 """
 function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where {T}
-  site_vec = collect(sites)
-  length(site_vec) == length(dfa.transitions) ||
-    throw(DimensionMismatch("DFA transition tables must match the number of sites"))
-
-  validate_dfa_sites(site_vec, length(dfa.alphabet))
+  validate_dfa_sites(dfa, sites)
 
   state_positions = Dict(state => i for (i, state) in enumerate(dfa.states))
   links = [
     ITensors.Index(length(dfa.states), "Link,DFA,l=$i")
-    for i in 1:max(length(site_vec) - 1, 0)
+    for i in 1:max(length(sites) - 1, 0)
   ]
 
-  tensors = Vector{ITensors.ITensor}(undef, length(site_vec))
-  for site_position in eachindex(site_vec)
-    left_link = site_position == firstindex(site_vec) ? nothing : links[site_position - 1]
-    right_link = site_position == lastindex(site_vec) ? nothing : links[site_position]
+  tensors = Vector{ITensors.ITensor}(undef, length(sites))
+  for site_position in eachindex(sites)
+    left_link  = site_position == firstindex(sites) ? nothing : links[site_position - 1]
+    right_link = site_position == lastindex(sites)  ? nothing : links[site_position]
 
     tensors[site_position] = dfa_site_tensor(
       T,
-      site_vec[site_position],
+      sites[site_position],
       left_link,
       right_link,
       dfa,
@@ -215,8 +226,7 @@ The construction is exact and uncompressed. Constraint site numbers use the same
 # Known constraints
 
 - `SumConstraint` uses a specialized exact integer partial-sum automaton.
-Its weights and right-hand side must be nonnegative and from an [`Integer`](@ref) type.
-For a constraint with rhs `k`, its maximum bond dimension is `k`.
+For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
 """
 function projection_mpo end
 
@@ -234,14 +244,12 @@ projection_mpo(constraint::AbstractConstraint, sites) =
 Build one projection MPO per constraint over the shared binary Qudit register
 `sites`.
 
-This is a convenience wrapper around [`projection_mpo`](@ref) that reuses the
-same collected site register for every constraint. `T` controls the numeric
+This is a convenience wrapper around [`projection_mpo`](@ref).
+`T` controls the numeric
 element type of the assembled MPO tensors.
 """
 function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
-  site_vec = collect(sites)
-
-  return [projection_mpo(T, constraint, site_vec) for constraint in constraints]
+  return [projection_mpo(T, constraint, sites) for constraint in constraints]
 end
 
 projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
@@ -266,18 +274,18 @@ struct SparseTensorEntry{T}
 end
 
 function validate_projection_sites(sites)
-  isempty(sites) && throw(ArgumentError("sites must not be empty"))
-  all(site -> ITensors.dim(site) == 2, sites) ||
-    throw(ArgumentError("projection MPO sites must be binary Qudit indices"))
-
-  return nothing
+  if isempty(sites)
+    throw(ArgumentError("sites must not be empty"))
+  end
+  if any(site -> ITensors.dim(site) != 2, sites)
+    throw(ArgumentError("projection MPO construction only supports Qudit sites with dim=2"))
+  end
 end
 
 function validate_constraint_site_bounds(constraint_sites, sites)
-  all(site -> 1 <= site <= length(sites), constraint_sites) ||
+  if !all(site -> 1 <= site <= length(sites), constraint_sites)
     throw(BoundsError(sites, maximum(constraint_sites)))
-
-  return nothing
+  end
 end
 
 """
@@ -339,7 +347,7 @@ function projection_entries_to_dfa(entries, num_sites::Integer, constrained_site
     push!(accepting, node)
   end
 
-  states = collect(eachindex(children))
+  states = eachindex(children)
   transitions = [Dict{Tuple{Int,Int},Int}() for _ in 1:num_sites]
 
   for site_position in 1:num_sites
@@ -386,18 +394,18 @@ function constraint_to_dfa(constraint::AbstractConstraint, sites)
   )
 end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, sites) where {S<:Integer}
+function constraint_to_dfa(constraint::SumConstraint{S}, sites) where {S}
   (; weights, rhs, relation) = constraint
 
-  overflow  = rhs + one(S)
-  states    = collect(zero(S):overflow)
+  beyond    = rhs + one(S)
+  states    = zero(S):beyond
   alphabet  = [0, 1]
   accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
   transitions = [
     let weight = get(weights, i, zero(S))
       Dict(
-        (q, a) => min(q + weight * S(a), overflow)
+        (q, a) => min(q + weight * S(a), beyond)
         for q in states, a in alphabet
       )
     end
