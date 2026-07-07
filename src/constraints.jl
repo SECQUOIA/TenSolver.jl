@@ -115,17 +115,25 @@ end
 """
     ExactlyOneConstraint <: AbstractConstraint
     ExactlyOneConstraint(sites)
+    ExactlyOneConstraint(sites, value)
 
-Requires `sum(x[site] for site in sites) == 1` over a binary vector `x`.
-`sites` must be unique positive integers.
+Requires exactly one constrained entry to equal the target binary `value`:
+
+    count(x[site] == value for site in sites) == 1.
+
+`value` defaults to `1`. `sites` must be unique positive integers, and `value`
+must be `0` or `1`.
 """
 struct ExactlyOneConstraint <: AbstractConstraint
   sites::Vector{Int}
+  value::Int
 
-  function ExactlyOneConstraint(sites)
-    return new(validate_sites(sites))
+  function ExactlyOneConstraint(sites, value)
+    return new(validate_sites(sites), validate_binary_value(value, "value"))
   end
 end
+
+ExactlyOneConstraint(sites) = ExactlyOneConstraint(sites, 1)
 
 """
     RelationConstraint <: AbstractConstraint
@@ -172,7 +180,7 @@ function is_feasible(x::AbstractVector, constraint::NotEqualsConstraint)
 end
 
 function is_feasible(x::AbstractVector, constraint::ExactlyOneConstraint)
-  return sum(binary_at(x, site) for site in constraint.sites) == 1
+  return count(binary_at(x, site) == constraint.value for site in constraint.sites) == 1
 end
 
 function is_feasible(x::AbstractVector, constraint::RelationConstraint)
@@ -307,6 +315,14 @@ function validate_binary_values(values, name)
   end
 
   return values
+end
+
+function validate_binary_value(value, name)
+  if !(isequal(value, 0) || isequal(value, 1))
+    throw(ArgumentError("$name must be a binary value 0 or 1"))
+  end
+
+  return Int(value)
 end
 
 function binary_at(x, site)
