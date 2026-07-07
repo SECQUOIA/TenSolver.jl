@@ -143,7 +143,7 @@ end
       forbidden = bits[1] == 1 && bits[3] == 0 && bits[4] == 1
       @test mpo_diagonal(H, sites, bits) == Float64(!forbidden)
     end
-    @test ITensorMPS.maxlinkdim(H) <= 14
+    @test ITensorMPS.maxlinkdim(H) <= 2
 
     local_exclusions = [
       NotEqualsConstraint([i, i + 1], [1, 1])
