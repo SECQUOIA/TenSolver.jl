@@ -3,14 +3,14 @@
     sum = SumConstraint([1, 3], [2, 1], Symbol("<="), 2)
     @test sum isa SumConstraint
     @test sum isa AbstractConstraint
-    @test sum.sites == [1, 3]
-    @test sum.weights == [2, 1]
+    @test TenSolver.constraint_sites(sum) == [1, 3]
+    @test sum.weights == Dict(1 => 2, 3 => 1)
     @test sum.relation == Symbol("<=")
     @test sum.rhs == 2
 
-    keyword_sum = SumConstraint([1, 2], [1.5, 0.5], 2.0; relation=Symbol("=="))
+    keyword_sum = SumConstraint([1, 2], [1.0, 5.0], 2; relation=Symbol("=="))
     @test keyword_sum.relation == Symbol("==")
-    @test keyword_sum.weights == [1.5, 0.5]
+    @test keyword_sum.weights == Dict(1 => 1.0, 2 => 5.0)
     @test keyword_sum.rhs == 2.0
 
     not_equals = NotEqualsConstraint([1, 2], [1, 0])
@@ -44,6 +44,15 @@
     @test_throws ArgumentError SumConstraint([1], [1], Symbol("<"), 0)
     @test_throws ArgumentError SumConstraint([1], [1], "==", 0)
     @test_throws UndefKeywordError SumConstraint([1, 2], [1, 1], 1)
+
+    @testset "SumConstraint floating-point validation" begin
+      @test SumConstraint([1, 2], [1.0, 2.0], 2.0; relation=:(<=)) isa SumConstraint
+      @test SumConstraint([1, 2], [1.0, 1.0], 1.0; relation=:(==)) isa SumConstraint
+
+      @test_throws ArgumentError SumConstraint([1, 2], [1.5, 1.0], 2.0; relation=:(<=))
+      @test_throws ArgumentError SumConstraint([1, 2], [1.0, 1.0], 1.5; relation=:(<=))
+      @test_throws ArgumentError SumConstraint([1, 2], [1.0, -1.0], 0.0; relation=:(<=))
+    end
 
     @test_throws DimensionMismatch NotEqualsConstraint([1, 2], [1])
     @test_throws ArgumentError NotEqualsConstraint([1], [2])

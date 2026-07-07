@@ -1,118 +1,154 @@
 import ITensors, ITensorMPS
 
-function projection_diagonal(H, sites)
-  diagonal = Dict{Vector{Int},Float64}()
+all_bitstrings(n::Number) = Iterators.product(fill(0:1, n)...)
+all_bitstrings(sites::Vector{<:ITensors.Index}) = all_bitstrings(length(sites))
 
-  for assignment in Iterators.product(fill(0:1, length(sites))...)
-    bits = collect(assignment)
-    psi = ITensorMPS.MPS(sites, string.(bits))
-    diagonal[bits] = real(ITensors.inner(adjoint(psi), H, psi))
-  end
-
-  return diagonal
+function mpo_diagonal(H, sites, bits)
+  psi = ITensorMPS.MPS(sites, string.(bits))
+  return real(ITensors.inner(psi', H, psi))
 end
 
-@testset "Projection MPOs" begin
-  sites = ITensors.siteinds("Qudit", 3; dim=2)
+function dfa_accepts(dfa, input)
+  state = dfa.initial
 
-  @testset "Projection API inference" begin
-    constraint = ExactlyOneConstraint([1, 2])
-    constraints = AbstractConstraint[
-      constraint,
-      RelationConstraint(1, Symbol("<="), 2),
-    ]
-
-    typed_mpo = @inferred TenSolver.projection_mpo(Float64, constraint, sites)
-    default_mpo = @inferred TenSolver.projection_mpo(constraint, sites)
-    typed_mpos = @inferred TenSolver.projection_mpos(Float64, constraints, sites)
-    default_mpos = @inferred TenSolver.projection_mpos(constraints, sites)
-
-    @test typed_mpo isa ITensorMPS.MPO
-    @test default_mpo isa ITensorMPS.MPO
-    @test typed_mpos isa Vector{ITensorMPS.MPO}
-    @test default_mpos isa Vector{ITensorMPS.MPO}
+  for (i, a) in enumerate(input)
+    next_state = get(dfa.transitions[i], (state, a), nothing)
+    isnothing(next_state) && return false
+    state = next_state
   end
 
-  @testset "Sparse ITensor construction" begin
-    s1, s2 = sites[1], sites[2]
-    s1p, s2p = ITensors.prime(s1), ITensors.prime(s2)
-    tensor = TenSolver.itensor_from_nonzeros(
-      Float64,
-      (s1, s1p, s2, s2p),
-      [((1, 1, 2, 2), 3.0), ((2, 2, 1, 1), 5.0)],
+  return state in dfa.accepting
+end
+
+function exactly_one_one_dfa(num_sites)
+  transitions = [
+    Dict{Tuple{Int,Int},Int}(
+      (0, 0) => 0,
+      (0, 1) => 1,
+      (1, 0) => 1,
+      (1, 1) => 2,
+      (2, 0) => 2,
+      (2, 1) => 2,
     )
-    materialized = Array(tensor, s1, s1p, s2, s2p)
+    for _ in 1:num_sites
+  ]
 
-    @test materialized[1, 1, 2, 2] == 3.0
-    @test materialized[2, 2, 1, 1] == 5.0
-    @test count(!iszero, materialized) == 2
-  end
+  return TenSolver.DFA([0, 1, 2], [0, 1], 0, Set([1]), transitions)
+end
 
-  @testset "Entry value on a pass-through leading site" begin
-    # Regression: the entry `value` must survive even when the first register
-    # site is a pass-through site. Here only site 2 is constrained, so sites 1
-    # and 3 pass through; the coefficient must be anchored on site 2.
-    entry = TenSolver.SparseTensorEntry(Dict(2 => 2), 7.0)
-    H = TenSolver.tensor_to_mpo(Float64, [entry], sites)
-    diagonal = projection_diagonal(H, sites)
-
-    for (bits, value) in diagonal
-      expected = bits[2] == 1 ? 7.0 : 0.0
-      @test value ≈ expected
-    end
-  end
-
-  @testset "Validation errors" begin
-    s1 = sites[1]
-    s1p = ITensors.prime(s1)
-    qutrit_sites = ITensors.siteinds("Qudit", 1; dim=3)
-
-    @test_throws DimensionMismatch TenSolver.itensor_from_nonzeros(
-      Float64,
-      (s1, s1p),
-      [((1, 1, 1), 1.0)],
+function divisible_by_three_dfa(num_sites)
+  transitions = [
+    Dict{Tuple{Int,Int},Int}(
+      (r, a) => mod(2r + a, 3)
+      for r in 0:2, a in 0:1
     )
-    @test_throws ArgumentError TenSolver.tensor_to_mpo(Float64, [], ITensors.Index{Int64}[])
-    @test_throws ArgumentError TenSolver.tensor_to_mpo(Float64, [], qutrit_sites)
-    @test_throws BoundsError TenSolver.projection_mpo(ExactlyOneConstraint([4]), sites)
+    for _ in 1:num_sites
+  ]
+
+  return TenSolver.DFA([0, 1, 2], [0, 1], 0, Set([0]), transitions)
+end
+
+@testset "Constraints as MPO Projection" begin
+  TEST_CONSTRAINTS = [
+    SumConstraint([1, 3], [2, 1], :(<=), 2),
+    SumConstraint([1, 2, 4], [1, 2, 3], :(==), 3),
+    SumConstraint([2, 4], [2, 3], :(>=), 3),
+    SumConstraint([1, 2, 4], [1, 2, 3], :(!=), 3),
+  ]
+
+  @testset "DFA correctness" begin
+    exactly_one = exactly_one_one_dfa(3)
+    @test dfa_accepts(exactly_one, (0, 0, 0)) == false
+    @test dfa_accepts(exactly_one, (1, 0, 0)) == true
+    @test dfa_accepts(exactly_one, (0, 1, 0)) == true
+    @test dfa_accepts(exactly_one, (1, 1, 0)) == false
+    @test dfa_accepts(exactly_one, (1, 1, 1)) == false
+
+    divisible_by_3 = divisible_by_three_dfa(4)
+    @test dfa_accepts(divisible_by_3, (0, 0, 0, 0)) == true
+    @test dfa_accepts(divisible_by_3, (0, 0, 1, 1)) == true
+    @test dfa_accepts(divisible_by_3, (0, 1, 1, 0)) == true
+    @test dfa_accepts(divisible_by_3, (1, 0, 1, 0)) == false
+    @test dfa_accepts(divisible_by_3, (1, 1, 1, 1)) == true
   end
 
-  @testset "Manual diagonal masks" begin
-    constraint = NotEqualsConstraint([1, 3], [1, 0])
-    H = TenSolver.projection_mpo(constraint, sites)
-    diagonal = projection_diagonal(H, sites)
+  @testset "Constraint -> DFA" begin
+    sites = ITensors.siteinds("Qudit", 4; dim=2)
 
-    for bits in keys(diagonal)
-      expected = is_feasible(bits, constraint) ? 1.0 : 0.0
-      @test diagonal[bits] ≈ expected
-    end
-  end
+    for constraint in TEST_CONSTRAINTS
+      dfa = TenSolver.constraint_to_dfa(constraint, sites)
 
-  @testset "Feasible states are preserved" begin
-    constraints = AbstractConstraint[
-      ExactlyOneConstraint([1, 2, 3]),
-      RelationConstraint(1, Symbol("<="), 2),
-      SumConstraint([1, 3], [2, 1], Symbol("<="), 2),
-    ]
-    projections = TenSolver.projection_mpos(constraints, sites)
-
-    @test length(projections) == length(constraints)
-
-    for (constraint, H) in zip(constraints, projections)
-      diagonal = projection_diagonal(H, sites)
-
-      for bits in keys(diagonal)
-        expected = is_feasible(bits, constraint) ? 1.0 : 0.0
-        @test diagonal[bits] ≈ expected
+      for bits in all_bitstrings(sites)
+        expected = is_feasible(collect(bits), constraint)
+        @test dfa_accepts(dfa, bits) == expected
       end
     end
   end
 
-  @testset "Infeasible constraints build zero masks" begin
-    constraint = SumConstraint([1, 2], [1, 1], Symbol("<="), -1)
-    H = TenSolver.projection_mpo(constraint, sites)
-    diagonal = projection_diagonal(H, sites)
+  @testset "DFA -> MPO" begin
+    examples = [
+      (exactly_one_one_dfa(3),    ITensors.siteinds("Qudit", 3; dim=2)),
+      (divisible_by_three_dfa(4), ITensors.siteinds("Qudit", 4; dim=2)),
+    ]
 
-    @test all(iszero, values(diagonal))
+    for (dfa, sites) in examples
+      H = TenSolver.dfa_to_mpo(Float64, dfa, sites)
+
+      @testset "MPO Dimensions" begin
+        for i in eachindex(sites)
+          @test ITensors.dim(ITensors.siteind(H, i)) == ITensors.dim(sites[i])
+        end
+
+        for i in 1:length(sites)-1
+          @test ITensorMPS.linkdim(H, i) == length(dfa.states)
+        end
+      end
+
+      @testset "MPO Diagonal matches acceptance" begin
+        for bits in all_bitstrings(sites)
+          expected = Float64(dfa_accepts(dfa, bits))
+          @test mpo_diagonal(H, sites, bits) ≈ expected
+        end
+      end
+    end
+  end
+
+  @testset "Projection MPO" begin
+    sites = ITensors.siteinds("Qudit", 4; dim=2)
+
+    for constraint in TEST_CONSTRAINTS
+      H = TenSolver.projection_mpo(constraint, sites)
+
+      for bits in all_bitstrings(sites)
+        expected = Float64(is_feasible(collect(bits), constraint))
+        @test mpo_diagonal(H, sites, bits) ≈ expected
+      end
+    end
+  end
+
+  @testset "SumConstraint floating-point lowering" begin
+    sites = ITensors.siteinds("Qudit", 3; dim=2)
+
+    constraints = [
+      SumConstraint([1, 2], [1.0, 1.0], 1.0; relation=:(==)),
+      SumConstraint([1, 3], [2.0, 1.0], 2.0; relation=:(<=)),
+      SumConstraint([2, 3], [2.0, 3.0], 3.0; relation=:(>=)),
+      SumConstraint([1, 2], [1.0, 2.0], 1.0; relation=:(!=)),
+    ]
+
+    for constraint in constraints
+      dfa = TenSolver.constraint_to_dfa(constraint, sites)
+      H = TenSolver.projection_mpo(constraint, sites)
+
+      for bits in all_bitstrings(sites)
+        expected = is_feasible(collect(bits), constraint)
+        @test dfa_accepts(dfa, bits) == expected
+      end
+
+      for bits in all_bitstrings(sites)
+        expected = Float64(is_feasible(collect(bits), constraint))
+        @test mpo_diagonal(H, sites, bits) ≈ expected
+      end
+    end
   end
 end

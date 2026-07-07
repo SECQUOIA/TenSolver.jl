@@ -2,37 +2,94 @@
 # design in Sharma, Ritvik, Cheng Peng, Siddharth Dangwal, and Sara Achour,
 # "CoTenN: Constrained Optimization with Tensor Networks," PLDI 2026.
 #
-# Note on ITensors.jl / ITensorMPS.jl helpers: the on-site identity is built with
-# `ITensors.delta` rather than a hand-rolled Kronecker tensor. The higher-level
-# `OpSum`/`MPO(::OpSum, sites)` (AutoMPO) machinery was considered for the full
-# assembly but is intentionally not used here: it heuristically compresses the
-# operator and does not guarantee the exact, uncompressed one-path-per-feasible-
-# assignment structure this module needs (bond dimension = number of feasible
-# assignments). Bounding/compressing that bond dimension is deferred to #58, where
-# projections meet solves and the downstream cost is measurable. The remaining
-# path-threaded tensors have no direct high-level equivalent, so they are assembled
-# from sparse nonzeros via `itensor_from_nonzeros`.
+# The implementation builds exact diagonal projection MPOs by lowering each
+# constraint to a step-dependent DFA and then threading the DFA through sparse
+# nonzero tensor entries. The helpers below assemble the MPO directly from those
+# nonzero paths.
+
+
+###############################################################################
+# Finite Automata to MPO utilities
+###############################################################################
 
 """
-    SparseTensorEntry{T}
+    DFA{S, A}
 
-One nonzero term in the sparse representation used to assemble a projection
-MPO. `coordinates` maps 1-based register sites to 1-based local basis states;
-sites omitted from the dictionary are unconstrained by this entry. `value` is
-the coefficient carried by that partial assignment.
+Step-dependent deterministic finite automaton.
+
+Fields:
+- `states`: DFA states, used to define the MPO bond dimension.
+- `alphabet`: local symbols, ordered to match the physical basis positions.
+- `initial`: start state.
+- `accepting`: set of accepting states.
+- `transitions`: one transition table per site; each table maps `(state, symbol)` to
+  the next state. Missing entries are rejected.
 """
-struct SparseTensorEntry{T}
-  coordinates::Dict{Int,Int}
-  value::T
+struct DFA{S,A}
+  states::Vector{S}
+  alphabet::Vector{A}
+  initial::S
+  accepting::Set{S}
+  transitions::Vector{Dict{Tuple{S,A},S}}
+  function DFA{S,A}(states, alphabet, initial, accepting, transitions) where {S,A}
+    state_vec      = collect(S, states)
+    alphabet_vec   = collect(A, alphabet)
+    transition_vec = collect(transitions)
+    accepting_set  = Set{S}(accepting)
+    initial_state  = convert(S, initial)
+
+    alphabet_set   = Set(alphabet_vec)
+    state_set      = Set(state_vec)
+
+    # Validate here so all downstream code can assume these invariants.
+    if isempty(state_vec)
+      throw(ArgumentError("states must not be empty"))
+    end
+    if isempty(alphabet_vec)
+      throw(ArgumentError("alphabet must not be empty"))
+    end
+    if isempty(transition_vec)
+      throw(ArgumentError("transitions must not be empty"))
+    end
+    if !allunique(state_vec)
+      throw(ArgumentError("states must be unique"))
+    end
+    if !(initial_state in state_vec)
+      throw(ArgumentError("initial must be one of the DFA states"))
+    end
+    if !issubset(accepting_set, state_set)
+      throw(ArgumentError("accepting must be a subset of states"))
+    end
+
+    for (i, table) in enumerate(transition_vec), ((s, a), ns) in table
+      if !(s in state_set)
+        throw(ArgumentError("transition table $(i): unknown source state $(repr(s))"))
+      end
+
+      if !(a in alphabet_set)
+        throw(ArgumentError("transition table $(i): symbol $(repr(a)) is not in the alphabet"))
+      end
+
+      if !(ns in state_set)
+        throw(ArgumentError("transition table $(i): unknown target state $(repr(ns))"))
+      end
+    end
+
+    return new{S,A}(state_vec, alphabet_vec, initial_state, accepting_set, transition_vec)
+  end
 end
 
-"""
-    itensor_from_nonzeros([T], inds, nonzeros)
+function DFA(states, alphabet, initial, accepting, transitions)
+  S = eltype(states)
+  A = eltype(alphabet)
+  return DFA{S,A}(states, alphabet, initial, accepting, transitions)
+end
 
-Build an `ITensor` over `inds` from sparse `(coordinate, value)` entries.
-Coordinates are 1-based tuples matching `inds`.
-"""
-function itensor_from_nonzeros(::Type{T}, inds, nonzeros) where {T}
+DFA(; states, alphabet, initial, accepting, transitions) =
+  DFA(states, alphabet, initial, accepting, transitions)
+
+
+function tensor_from_nonzeros(::Type{T}, inds, nonzeros) where {T}
   ind_tuple = Tuple(inds)
   tensor = ITensors.ITensor(T, ind_tuple...)
 
@@ -48,135 +105,194 @@ function itensor_from_nonzeros(::Type{T}, inds, nonzeros) where {T}
   return tensor
 end
 
-itensor_from_nonzeros(inds, nonzeros) = itensor_from_nonzeros(Float64, inds, nonzeros)
-
-function pass_through_tensor(::Type{T}, site, left_link, right_link) where {T}
-  if isnothing(left_link) && isnothing(right_link)
-    return ITensors.delta(T, site, ITensors.prime(site))
-  end
-
-  inds = mpo_tensor_indices(site, left_link, right_link)
-  num_paths = path_count(left_link, right_link)
-  nonzeros = Tuple{Vector{Int},T}[]
-
-  for path in 1:num_paths, state in 1:ITensors.dim(site)
-    push!(nonzeros, (mpo_coordinate(state, path, left_link, right_link), one(T)))
-  end
-
-  return itensor_from_nonzeros(T, inds, nonzeros)
-end
-
-function path_count(left_link, right_link)
-  if !isnothing(left_link)          # All but first index
-    return ITensors.dim(left_link)
-  elseif !isnothing(right_link)     # First index
-    return ITensors.dim(right_link)
-  else                              # 1-qubit case
-    return 1
-  end
-end
-
-function mpo_tensor_indices(site, left_link, right_link)
+function tensor_indices(site, left_link, right_link)
   return filter(!isnothing, (left_link, site, ITensors.prime(site), right_link))
 end
 
-function mpo_coordinate(state::Integer, path::Integer, left_link, right_link)
-  return filter(!isnothing, [ifnotnothing(left_link, path), state, state, ifnotnothing(right_link, path)])
+function tensor_coordinate(symbol_pos::Integer, left_pos, right_pos, left_link, right_link)
+  coordinate = Int[]
+  !isnothing(left_link) && push!(coordinate, left_pos)
+  push!(coordinate, symbol_pos, symbol_pos)
+  !isnothing(right_link) && push!(coordinate, right_pos)
+  return coordinate
 end
 
-function first_constrained_site(entry, default_site)
-  return isempty(entry.coordinates) ? default_site : minimum(keys(entry.coordinates))
-end
+function dfa_site_tensor(
+  ::Type{T},
+  site,
+  left_link,
+  right_link,
+  dfa::DFA,
+  step::Integer,
+  state_positions,
+) where {T}
+  inds = tensor_indices(site, left_link, right_link)
+  nonzeros = Tuple{Vector{Int},T}[]
+  table = dfa.transitions[step]
 
-function site_is_unconstrained(entries, site_position)
-  return !isempty(entries) && !any(entry -> haskey(entry.coordinates, site_position), entries)
-end
+  source_states = isnothing(left_link) ? (dfa.initial,) : dfa.states
+  for source_state in source_states
+    left_pos = isnothing(left_link) ? nothing : state_positions[source_state]
 
-function site_link(links, link_position)
-  return get(links, link_position, nothing)
-end
+    for (symbol_pos, symbol) in enumerate(dfa.alphabet)
+      next_state = get(table, (source_state, symbol), nothing)
+      isnothing(next_state) && continue
 
-function site_states(entry::SparseTensorEntry, site_position)
-  state = get(entry.coordinates, site_position, (1, 2))
-  return Tuple(state)
-end
-
-function site_coefficient(::Type{T}, entry, site_position, value_site) where {T}
-  return site_position == value_site ? entry.value : one(T)
-end
-
-function projection_site_tensor(::Type{T}, site, left_link, right_link, entries, site_position, value_positions) where {T}
-  if site_is_unconstrained(entries, site_position)
-    return pass_through_tensor(T, site, left_link, right_link)
-  else
-    nonzeros = [
-      (mpo_coordinate(state, path, left_link, right_link),
-       site_coefficient(T, entry, site_position, value_positions[path]))
-      for (path, entry) in enumerate(entries)
-      for state in site_states(entry, site_position)
-    ]
-
-    return itensor_from_nonzeros(
-      T,
-      mpo_tensor_indices(site, left_link, right_link),
-      nonzeros
-    )
-  end
-end
-
-function tensor_to_mpo(::Type{T}, entries, sites) where {T}
-  site_vec = collect(sites)
-
-  if isempty(site_vec)
-    throw(ArgumentError("sites must not be empty"))
-  end
-  if !all(site -> ITensors.dim(site) == 2, site_vec)
-    throw(ArgumentError("projection MPO sites must be binary Qudit indices"))
-  end
-
-  entry_vec = collect(entries)
-  validate_sparse_entries(entry_vec, site_vec)
-
-  num_paths = max(length(entry_vec), 1)
-  links = [ITensors.Index(num_paths, "Link,Projection,l=$i")
-           for i in 1:max(length(site_vec) - 1, 0)
-          ]
-
-  # Each feasible partial assignment gets one path threaded through the MPO links.
-  # Constrained sites write that assignment;
-  # unconstrained sites pass the path and physical basis state through unchanged.
-  value_positions = map(entry -> first_constrained_site(entry, firstindex(site_vec)), entry_vec)
-
-  return ITensorMPS.MPO([
-    projection_site_tensor(
-      T,
-      site_vec[site_position],
-      site_link(links, site_position - 1),
-      site_link(links, site_position),
-      entry_vec,
-      site_position,
-      value_positions,
-    )
-    for site_position in eachindex(site_vec)
-   ])
-end
-
-
-function validate_sparse_entries(entries, sites)
-  for entry in entries
-    for (site_position, coordinate) in entry.coordinates
-      checkbounds(sites, site_position)
-      1 <= coordinate <= ITensors.dim(sites[site_position]) ||
-        throw(BoundsError(1:ITensors.dim(sites[site_position]), coordinate))
+      if isnothing(right_link)
+        next_state in dfa.accepting || continue
+        push!(
+          nonzeros,
+          (tensor_coordinate(symbol_pos, left_pos, nothing, left_link, right_link), one(T)),
+        )
+      else
+        right_pos = state_positions[next_state]
+        push!(
+          nonzeros,
+          (tensor_coordinate(symbol_pos, left_pos, right_pos, left_link, right_link), one(T)),
+        )
+      end
     end
   end
 
-  return nothing
+  return tensor_from_nonzeros(T, inds, nonzeros)
 end
 
-# Enumerate feasible assignments on the sites touched by `constraint`. The
-# resulting sparse entries intentionally omit untouched sites; `tensor_to_mpo`
-# expands those missing coordinates into pass-through tensors.
+function validate_dfa_sites(dfa::DFA, sites)
+  if isempty(sites)
+    throw(ArgumentError("sites must not be empty"))
+  end
+  if any(site -> ITensors.dim(site) != length(dfa.alphabet), sites)
+    throw(DimensionMismatch("each site dimension must match the DFA alphabet size"))
+  end
+  if length(sites) != length(dfa.transitions)
+    throw(DimensionMismatch("DFA transition tables must match the number of sites"))
+  end
+end
+
+"""
+    dfa_to_mpo([T], dfa, sites)
+
+Build an exact diagonal projection MPO from a step-dependent DFA.
+
+The physical index basis positions are matched against `dfa.alphabet` in order:
+`alphabet[k]` corresponds to local basis state `k`.
+
+The MPO bond dimension equals `length(dfa.states)`.
+"""
+function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where {T}
+  validate_dfa_sites(dfa, sites)
+
+  state_positions = Dict(state => i for (i, state) in enumerate(dfa.states))
+  links = [
+    ITensors.Index(length(dfa.states), "Link,DFA,l=$i")
+    for i in 1:max(length(sites) - 1, 0)
+  ]
+
+  tensors = Vector{ITensors.ITensor}(undef, length(sites))
+  for site_position in eachindex(sites)
+    left_link  = site_position == firstindex(sites) ? nothing : links[site_position - 1]
+    right_link = site_position == lastindex(sites)  ? nothing : links[site_position]
+
+    tensors[site_position] = dfa_site_tensor(
+      T,
+      sites[site_position],
+      left_link,
+      right_link,
+      dfa,
+      site_position,
+      state_positions,
+    )
+  end
+
+  return ITensorMPS.MPO(tensors)
+end
+
+dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
+
+"""
+    projection_mpo([T], constraint, sites)
+
+Build a projection MPO over the binary Qudit register `sites`.
+
+The diagonal entry is `one(T)` for computational basis states whose bits satisfy
+`constraint`, and zero otherwise. Constraint site numbers use the same 1-based
+register indexing as `sites`. The generic construction is exact and
+uncompressed: each feasible assignment of the constrained sites is represented
+as one MPO path.
+
+The construction is exact and uncompressed. Constraint site numbers use the same
+1-based register indexing as `sites`.
+
+# Known constraints
+
+- `SumConstraint` uses a specialized exact integer partial-sum automaton.
+For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
+"""
+function projection_mpo end
+
+
+function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
+  return dfa_to_mpo(T, constraint_to_dfa(constraint, sites), sites)
+end
+
+projection_mpo(constraint::AbstractConstraint, sites) =
+  projection_mpo(Float64, constraint, sites)
+
+"""
+    projection_mpos([T], constraints, sites)
+
+Build one projection MPO per constraint over the shared binary Qudit register
+`sites`.
+
+This is a convenience wrapper around [`projection_mpo`](@ref).
+`T` controls the numeric
+element type of the assembled MPO tensors.
+"""
+function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
+  return [projection_mpo(T, constraint, sites) for constraint in constraints]
+end
+
+projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
+  projection_mpos(Float64, constraints, sites)
+
+
+##############################################
+# Generic constraint construction path
+##############################################
+
+"""
+    SparseTensorEntry{T}
+
+One nonzero term in the sparse representation used to assemble a projection
+MPO. `coordinates` maps 1-based register sites to 1-based local basis states;
+sites omitted from the dictionary are unconstrained by this entry. `value` is
+the coefficient carried by that partial assignment.
+"""
+struct SparseTensorEntry{T}
+  coordinates::Dict{Int,Int}
+  value::T
+end
+
+function validate_projection_sites(sites)
+  if isempty(sites)
+    throw(ArgumentError("sites must not be empty"))
+  end
+  if any(site -> ITensors.dim(site) != 2, sites)
+    throw(ArgumentError("projection MPO construction only supports Qudit sites with dim=2"))
+  end
+end
+
+function validate_constraint_site_bounds(constraint_sites, sites)
+  if !all(site -> 1 <= site <= length(sites), constraint_sites)
+    throw(BoundsError(sites, maximum(constraint_sites)))
+  end
+end
+
+"""
+    projection_entries(::Type{T}, constraint::AbstractConstraint)
+
+Enumerate feasible assignments on the sites touched by `constraint`.
+"""
 function projection_entries(::Type{T}, constraint::AbstractConstraint) where {T}
   cs = constraint_sites(constraint)
   assignments = Iterators.product(fill(0:1, length(cs))...)
@@ -199,42 +315,102 @@ function projection_entries(::Type{T}, constraint::AbstractConstraint) where {T}
   return entries
 end
 
-"""
-    projection_mpo([T], constraint, sites)
+function projection_entries_to_dfa(entries, num_sites::Integer, constrained_sites)
+  constrained_positions = sort(collect(constrained_sites))
+  position_to_depth = Dict(site_position => depth for (depth, site_position) in enumerate(constrained_positions))
 
-Build a diagonal projection MPO over the binary Qudit register `sites`.
-
-The diagonal entry is `one(T)` for computational basis states whose bits satisfy
-`constraint`, and zero otherwise. Constraint site numbers use the same 1-based
-register indexing as `sites`. The construction is exact and uncompressed: each
-feasible assignment of the constrained sites is represented as one MPO path.
-"""
-function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
-  cs = constraint_sites(constraint)
-
-  if !all(site -> 1 <= site <= length(sites), cs)
-    throw(BoundsError(sites, maximum(cs)))
+  children = [Dict{Int,Int}()]
+  states_by_depth = Vector{Vector{Int}}(undef, length(constrained_positions) + 1)
+  states_by_depth[1] = [1]
+  for depth in 2:length(states_by_depth)
+    states_by_depth[depth] = Int[]
   end
 
-  return tensor_to_mpo(T, projection_entries(T, constraint), sites)
+  accepting = Set{Int}()
+
+  for entry in entries
+    node = 1
+    for (depth, site_position) in enumerate(constrained_positions)
+      bit = get(entry.coordinates, site_position, 1) - 1
+      child = get(children[node], bit, 0)
+
+      if child == 0
+        child = length(children) + 1
+        push!(children, Dict{Int,Int}())
+        push!(states_by_depth[depth + 1], child)
+        children[node][bit] = child
+      end
+
+      node = child
+    end
+
+    push!(accepting, node)
+  end
+
+  states = eachindex(children)
+  transitions = [Dict{Tuple{Int,Int},Int}() for _ in 1:num_sites]
+
+  for site_position in 1:num_sites
+    if !haskey(position_to_depth, site_position)
+      for state in states
+        transitions[site_position][(state, 0)] = state
+        transitions[site_position][(state, 1)] = state
+      end
+      continue
+    end
+
+    depth = position_to_depth[site_position]
+    for state in states_by_depth[depth]
+      for bit in 0:1
+        child = get(children[state], bit, 0)
+        child == 0 && continue
+        transitions[site_position][(state, bit)] = child
+      end
+    end
+  end
+
+  return DFA(states, [0, 1], 1, accepting, transitions)
 end
 
-projection_mpo(constraint::AbstractConstraint, sites) =
-  projection_mpo(Float64, constraint, sites)
+##############################################
+# Constraint to DFA
+##############################################
 
 """
-    projection_mpos([T], constraints, sites)
+    constraint_to_dfa(constraint, sites)
 
-Build one projection MPO per constraint over the shared binary Qudit register
-`sites`.
-
-This is a convenience wrapper around [`projection_mpo`](@ref) that reuses the
-same collected site register for every constraint. `T` controls the numeric
-element type of the assembled MPO tensors.
+Build a DFA for `constraint` over `sites`.
 """
-function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
-  return [projection_mpo(T, constraint, sites) for constraint in constraints]
+function constraint_to_dfa(constraint::AbstractConstraint, sites)
+  validate_projection_sites(sites)
+
+  cs = constraint_sites(constraint)
+  validate_constraint_site_bounds(cs, sites)
+
+  return projection_entries_to_dfa(
+    projection_entries(Bool, constraint),
+    length(sites),
+    cs,
+  )
 end
 
-projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
-  projection_mpos(Float64, constraints, sites)
+function constraint_to_dfa(constraint::SumConstraint{S}, sites) where {S}
+  (; weights, rhs, relation) = constraint
+
+  beyond    = rhs + one(S)
+  states    = zero(S):beyond
+  alphabet  = [0, 1]
+  accepting = Set(q for q in states if relation_holds(q, relation, rhs))
+
+  transitions = [
+    let weight = get(weights, i, zero(S))
+      Dict(
+        (q, a) => min(q + weight * S(a), beyond)
+        for q in states, a in alphabet
+      )
+    end
+    for i in eachindex(sites)
+  ]
+
+  return DFA(states, alphabet, zero(S), accepting, transitions)
+end
