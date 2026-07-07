@@ -70,6 +70,7 @@ end
     NotEqualsConstraint([1, 3, 2, 4], Bool[1, 0, 0, 1]),
     ExactlyOneConstraint([1, 2, 3], 1),
     ExactlyOneConstraint([1, 2, 3], 0),
+    ExactlyOneConstraint([2, 4, 3], 0),
     RelationConstraint(4, :(<=), 2),
   ]
 
@@ -213,6 +214,17 @@ end
       H = assert_projection_matches_feasibility(constraint, sites)
       @test ITensorMPS.maxlinkdim(H) <= 2
     end
+  end
+
+  @testset "ExactlyOneConstraint projection" begin
+    sites = ITensors.siteinds("Qudit", 4; dim=2)
+
+    exact_one = ExactlyOneConstraint([1, 3], 1)
+    dfa = TenSolver.constraint_to_dfa(exact_one, sites)
+    H = assert_projection_matches_feasibility(exact_one, sites)
+
+    @test length(dfa.states) == 2
+    @test ITensorMPS.maxlinkdim(H) <= 2
   end
 
   @testset "SumConstraint floating-point lowering" begin

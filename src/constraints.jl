@@ -113,27 +113,30 @@ function NotEqualsConstraint(sites, values)
 end
 
 """
-    ExactlyOneConstraint <: AbstractConstraint
-    ExactlyOneConstraint(sites)
+    ExactlyOneConstraint{T} <: AbstractConstraint
     ExactlyOneConstraint(sites, value)
 
-Requires exactly one constrained entry to equal the target binary `value`:
+Requires exactly one site in `sites` to satisfy `x[site] == value`, i.e.,
 
     count(x[site] == value for site in sites) == 1.
 
-`value` defaults to `1`. `sites` must be unique positive integers, and `value`
-must be `0` or `1`.
+`sites` must be unique positive integers, and `value` must be `0` or `1`.
 """
-struct ExactlyOneConstraint <: AbstractConstraint
+struct ExactlyOneConstraint{T<:Real} <: AbstractConstraint
   sites::Vector{Int}
-  value::Int
+  value::T
 
-  function ExactlyOneConstraint(sites, value)
-    return new(validate_sites(sites), validate_binary_value(value, "value"))
+  function ExactlyOneConstraint{T}(sites, value::T) where {T<:Real}
+    site_vec = validate_sites(sites)
+    value    = validate_binary_value(value, "value")
+
+    return new{T}(site_vec, value)
   end
 end
 
-ExactlyOneConstraint(sites) = ExactlyOneConstraint(sites, 1)
+function ExactlyOneConstraint(sites, value::T) where T
+  return ExactlyOneConstraint{T}(sites, value)
+end
 
 """
     RelationConstraint <: AbstractConstraint
@@ -180,7 +183,7 @@ function is_feasible(x::AbstractVector, constraint::NotEqualsConstraint)
 end
 
 function is_feasible(x::AbstractVector, constraint::ExactlyOneConstraint)
-  return count(binary_at(x, site) == constraint.value for site in constraint.sites) == 1
+  return count(site -> binary_at(x, site) == constraint.value, constraint.sites) == 1
 end
 
 function is_feasible(x::AbstractVector, constraint::RelationConstraint)
