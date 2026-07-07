@@ -445,7 +445,7 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, sites) where {S}
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::ExactlyOneConstraint, sites)
+function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, sites) where {S}
   validate_projection_sites(sites)
 
   cs = constraint_sites(constraint)
@@ -453,11 +453,13 @@ function constraint_to_dfa(constraint::ExactlyOneConstraint, sites)
 
   target = constraint.value
   constrained_sites = Set(cs)
+  not_seen = zero(S)
+  seen_once = one(S)
 
-  not_seen = 0
-  seen_once = 1
-  states = [not_seen, seen_once]
-  alphabet = [0, 1]
+  states    = S[not_seen, seen_once]
+  alphabet  = S[0, 1]
+  initial   = not_seen
+  accepting = Set([seen_once])
 
   transitions = [
     if i in constrained_sites
@@ -472,7 +474,7 @@ function constraint_to_dfa(constraint::ExactlyOneConstraint, sites)
     for i in eachindex(sites)
   ]
 
-  return DFA(states, alphabet, not_seen, Set([seen_once]), transitions)
+  return DFA(states, alphabet, initial, accepting, transitions)
 end
 
 function constraint_to_dfa(constraint::RelationConstraint, sites)

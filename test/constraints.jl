@@ -24,8 +24,8 @@
     @test TenSolver.constraint_sites(float_not_equals) == [1, 2]
     @test float_not_equals.values == Dict(1 => 1.0, 2 => 0.0)
 
-    exactly_one = ExactlyOneConstraint(2:4)
-    @test exactly_one isa ExactlyOneConstraint
+    exactly_one = ExactlyOneConstraint(2:4, 1)
+    @test exactly_one isa ExactlyOneConstraint{Int}
     @test exactly_one isa AbstractConstraint
     @test exactly_one.sites == [2, 3, 4]
     @test exactly_one.value == 1
@@ -44,10 +44,10 @@
   end
 
   @testset "Constructor validation" begin
-    @test_throws ArgumentError ExactlyOneConstraint(Int[])
-    @test_throws ArgumentError ExactlyOneConstraint([0])
-    @test_throws ArgumentError ExactlyOneConstraint([1, 1])
-    @test_throws ArgumentError ExactlyOneConstraint([1.0])
+    @test_throws ArgumentError ExactlyOneConstraint(Int[], 1)
+    @test_throws ArgumentError ExactlyOneConstraint([0], 1)
+    @test_throws ArgumentError ExactlyOneConstraint([1, 1], 1)
+    @test_throws ArgumentError ExactlyOneConstraint([1.0], 1)
     @test_throws ArgumentError ExactlyOneConstraint([1], -1)
     @test_throws ArgumentError ExactlyOneConstraint([1], 2)
     @test_throws ArgumentError ExactlyOneConstraint([1], 1.5)
@@ -91,7 +91,7 @@
     @test !is_feasible([1, 1, 0], not_equals)
     @test is_feasible([1, 1, 1], not_equals)
 
-    exactly_one = ExactlyOneConstraint([2, 3, 4])
+    exactly_one = ExactlyOneConstraint([2, 3, 4], 1)
     @test is_feasible([0, 1, 0, 0], exactly_one)
     @test !is_feasible([0, 1, 1, 0], exactly_one)
 
