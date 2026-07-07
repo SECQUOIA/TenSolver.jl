@@ -261,6 +261,76 @@ end
 projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
   projection_mpos(Float64, constraints, sites)
 
+"""
+    project_hamiltonian(H, projections; cutoff=1e-8, kwargs...)
+
+Apply one or more diagonal projection MPOs to a Hamiltonian MPO.
+
+For projection MPOs `P`, this builds the CoTenN-style effective Hamiltonian
+`P' * H * P`. The projection MPOs produced by [`projection_mpo`](@ref) are
+real diagonal projectors, so the implementation composes them as `P * H * P`
+using ITensorMPS' `apply` helper to contract the MPOs and restore the usual
+unprimed/primed site-index structure expected by DMRG. The resulting bond
+dimension can grow with the product of `H`'s links and the projection links.
+"""
+function project_hamiltonian(H::ITensorMPS.MPO, projections; cutoff=1e-8, kwargs...)
+  projection_tuple = projection_sequence(projections)
+  target_sites = projection_target_sites(H)
+  validate_projection_sequence(target_sites, projection_tuple)
+
+  H_eff = H
+  for P in projection_tuple
+    H_eff = ITensors.apply(P, H_eff; cutoff, kwargs...)
+    H_eff = ITensors.apply(H_eff, P; cutoff, kwargs...)
+  end
+
+  return H_eff
+end
+
+"""
+    project_state(psi, projections; cutoff=1e-8, kwargs...)
+
+Apply one or more diagonal projection MPOs to an MPS.
+
+The result has zero amplitude on basis states rejected by any projection, while
+keeping the original unprimed site indices so it can be used as a DMRG input
+state.
+"""
+function project_state(psi::ITensorMPS.MPS, projections; cutoff=1e-8, kwargs...)
+  projection_tuple = projection_sequence(projections)
+  target_sites = projection_target_sites(psi)
+  validate_projection_sequence(target_sites, projection_tuple)
+
+  projected = psi
+  for P in projection_tuple
+    projected = ITensors.apply(P, projected; cutoff, kwargs...)
+  end
+
+  return projected
+end
+
+projection_sequence(projection::ITensorMPS.MPO) = (projection,)
+projection_sequence(projections::Tuple{Vararg{ITensorMPS.MPO}}) = projections
+projection_sequence(projections::AbstractVector{<:ITensorMPS.MPO}) = Tuple(projections)
+
+projection_target_sites(H::ITensorMPS.MPO) = ITensorMPS.siteinds(first, H; plev=0)
+projection_target_sites(psi::ITensorMPS.MPS) = ITensorMPS.siteinds(psi)
+
+function validate_projection_sequence(target_sites, projections)
+  for (i, P) in enumerate(projections)
+    if length(P) != length(target_sites)
+      msg = "projection MPO $(i) has length $(length(P)); expected $(length(target_sites))"
+      throw(DimensionMismatch(msg))
+    end
+
+    projection_sites = ITensorMPS.siteinds(first, P; plev=0)
+    if projection_sites != target_sites
+      msg = "projection MPO $(i) must share the target's unprimed site indices"
+      throw(DimensionMismatch(msg))
+    end
+  end
+end
+
 
 ##############################################
 # Generic constraint construction path
