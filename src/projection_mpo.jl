@@ -417,22 +417,21 @@ function constraint_to_dfa(constraint::SumConstraint{S}, sites) where {S}
   return DFA(states, alphabet, zero(S), accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint, sites)
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, sites) where {S}
   validate_projection_sites(sites)
 
   cs = constraint_sites(constraint)
   validate_constraint_site_bounds(cs, sites)
 
-  value_map = Dict(site => value for (site, value) in zip(constraint.sites, constraint.values))
-  states    = [0, 1]
+  states    = S.([0, 1])
   alphabet  = [0, 1]
   initial   = 1
-  accepting = Set([0])
+  accepting = Set(0)
 
   transitions = [
-    let target = get(value_map, i, nothing)
+    let target = get(constraint.values, i, nothing)
       Dict{Tuple{Int,Int},Int}(
-        (q, a) => isnothing(target) | a == target ? q : 0
+        (q, a) => isnothing(target) || S(a) == target ? q : 0
         for q in states, a in alphabet
       )
     end

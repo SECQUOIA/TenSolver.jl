@@ -14,10 +14,15 @@
     @test keyword_sum.rhs == 2.0
 
     not_equals = NotEqualsConstraint([1, 2], [1, 0])
-    @test not_equals isa NotEqualsConstraint
+    @test not_equals isa NotEqualsConstraint{Int}
     @test not_equals isa AbstractConstraint
-    @test not_equals.sites == [1, 2]
-    @test not_equals.values == [1, 0]
+    @test TenSolver.constraint_sites(not_equals) == [1, 2]
+    @test not_equals.values == Dict(1 => 1, 2 => 0)
+
+    float_not_equals = NotEqualsConstraint([1, 2], [1.0, 0.0])
+    @test float_not_equals isa NotEqualsConstraint{Float64}
+    @test TenSolver.constraint_sites(float_not_equals) == [1, 2]
+    @test float_not_equals.values == Dict(1 => 1.0, 2 => 0.0)
 
     exactly_one = ExactlyOneConstraint(2:4)
     @test exactly_one isa ExactlyOneConstraint
