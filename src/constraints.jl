@@ -228,7 +228,7 @@ function validate_site(site, name)
 end
 
 function validate_sites(sites)
-  if isempty(sites) 
+  if isempty(sites)
     throw(ArgumentError("sites must not be empty"))
   end
 
