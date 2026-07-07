@@ -227,6 +227,9 @@ The construction is exact and uncompressed. Constraint site numbers use the same
 
 - `SumConstraint` uses a specialized exact integer partial-sum automaton.
 For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
+- `NotEqualsConstraint` uses the generic exact assignment enumeration path.
+  It is a bounded-size local constraint: the diagonal MPO entries are `one(T)`
+  for assignments that avoid the forbidden tuple, and zero otherwise.
 """
 function projection_mpo end
 

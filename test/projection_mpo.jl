@@ -8,6 +8,17 @@ function mpo_diagonal(H, sites, bits)
   return real(ITensors.inner(psi', H, psi))
 end
 
+function assert_projection_matches_feasibility(constraint, sites)
+  H = TenSolver.projection_mpo(constraint, sites)
+
+  for bits in all_bitstrings(sites)
+    expected = Float64(is_feasible(collect(bits), constraint))
+    @test mpo_diagonal(H, sites, bits) == expected
+  end
+
+  return H
+end
+
 function dfa_accepts(dfa, input)
   state = dfa.initial
 
@@ -54,6 +65,7 @@ end
     SumConstraint([1, 2, 4], [1, 2, 3], :(==), 3),
     SumConstraint([2, 4], [2, 3], :(>=), 3),
     SumConstraint([1, 2, 4], [1, 2, 3], :(!=), 3),
+    NotEqualsConstraint([1, 3], [1, 0]),
   ]
 
   @testset "DFA correctness" begin
@@ -117,12 +129,41 @@ end
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
     for constraint in TEST_CONSTRAINTS
-      H = TenSolver.projection_mpo(constraint, sites)
+      assert_projection_matches_feasibility(constraint, sites)
+    end
+  end
+
+  @testset "NotEqualsConstraint projection" begin
+    sites = ITensors.siteinds("Qudit", 4; dim=2)
+
+    forbidden_tuple = NotEqualsConstraint([1, 3, 4], [1, 0, 1])
+    H = assert_projection_matches_feasibility(forbidden_tuple, sites)
+
+    for bits in all_bitstrings(sites)
+      forbidden = bits[1] == 1 && bits[3] == 0 && bits[4] == 1
+      @test mpo_diagonal(H, sites, bits) == Float64(!forbidden)
+    end
+    @test ITensorMPS.maxlinkdim(H) <= 14
+
+    local_exclusions = [
+      NotEqualsConstraint([i, i + 1], [1, 1])
+      for i in 1:3
+    ]
+    Hs = TenSolver.projection_mpos(local_exclusions, sites)
+
+    for (constraint, local_H) in zip(local_exclusions, Hs)
+      left, right = TenSolver.constraint_sites(constraint)
 
       for bits in all_bitstrings(sites)
-        expected = Float64(is_feasible(collect(bits), constraint))
-        @test mpo_diagonal(H, sites, bits) ≈ expected
+        forbidden = bits[left] == 1 && bits[right] == 1
+        @test mpo_diagonal(local_H, sites, bits) == Float64(!forbidden)
       end
+      @test ITensorMPS.maxlinkdim(local_H) <= 6
+    end
+
+    for bits in all_bitstrings(sites)
+      has_adjacent_ones = any(i -> bits[i] == 1 && bits[i + 1] == 1, 1:3)
+      @test is_feasible(collect(bits), local_exclusions) == !has_adjacent_ones
     end
   end
 
