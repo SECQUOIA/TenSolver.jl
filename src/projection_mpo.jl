@@ -229,6 +229,8 @@ The construction is exact and uncompressed. Constraint site numbers use the same
 For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
 - [`NotEqualsConstraint`](@ref) uses a specialized MPO with bond dimension `2`,
   independently of the rhs.
+- [`ExactlyOneConstraint`](@ref) uses a specialized MPO with bond dimension `2`
+  that tracks whether the target value has been seen exactly once.
 - [`RelationConstraint`](@ref) uses a specialized MPO with bond dimension `2`,
   independently of the compared site positions.
 """
@@ -441,6 +443,36 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, sites) where {S}
   ]
 
   return DFA(states, alphabet, initial, accepting, transitions)
+end
+
+function constraint_to_dfa(constraint::ExactlyOneConstraint, sites)
+  validate_projection_sites(sites)
+
+  cs = constraint_sites(constraint)
+  validate_constraint_site_bounds(cs, sites)
+
+  target = constraint.value
+  constrained_sites = Set(cs)
+
+  not_seen = 0
+  seen_once = 1
+  states = [not_seen, seen_once]
+  alphabet = [0, 1]
+
+  transitions = [
+    if i in constrained_sites
+      Dict{Tuple{Int,Int},Int}(
+        (q, a) => (a == target ? seen_once : q)
+        for q in states, a in alphabet
+        if !(q == seen_once && a == target)
+      )
+    else
+      Dict{Tuple{Int,Int},Int}((q, a) => q for q in states, a in alphabet)
+    end
+    for i in eachindex(sites)
+  ]
+
+  return DFA(states, alphabet, not_seen, Set([seen_once]), transitions)
 end
 
 function constraint_to_dfa(constraint::RelationConstraint, sites)

@@ -28,6 +28,12 @@
     @test exactly_one isa ExactlyOneConstraint
     @test exactly_one isa AbstractConstraint
     @test exactly_one.sites == [2, 3, 4]
+    @test exactly_one.value == 1
+
+    exactly_one_zero = ExactlyOneConstraint(2:4, 0)
+    @test exactly_one_zero isa ExactlyOneConstraint
+    @test exactly_one_zero.sites == [2, 3, 4]
+    @test exactly_one_zero.value == 0
 
     relation = RelationConstraint(1, Symbol(">="), 2)
     @test relation isa RelationConstraint
@@ -42,6 +48,9 @@
     @test_throws ArgumentError ExactlyOneConstraint([0])
     @test_throws ArgumentError ExactlyOneConstraint([1, 1])
     @test_throws ArgumentError ExactlyOneConstraint([1.0])
+    @test_throws ArgumentError ExactlyOneConstraint([1], -1)
+    @test_throws ArgumentError ExactlyOneConstraint([1], 2)
+    @test_throws ArgumentError ExactlyOneConstraint([1], 1.5)
 
     @test_throws DimensionMismatch SumConstraint([1, 2], [1], Symbol("=="), 1)
     @test_throws ArgumentError SumConstraint([1], [-1], Symbol("=="), 0)
@@ -86,6 +95,10 @@
     @test is_feasible([0, 1, 0, 0], exactly_one)
     @test !is_feasible([0, 1, 1, 0], exactly_one)
 
+    exactly_one_zero = ExactlyOneConstraint([2, 3, 4], 0)
+    @test is_feasible([1, 0, 1, 1], exactly_one_zero)
+    @test !is_feasible([1, 0, 1, 0], exactly_one_zero)
+
     relation = RelationConstraint(1, Symbol("<="), 2)
     @test is_feasible([0, 1], relation)
     @test !is_feasible([1, 0], relation)
@@ -97,6 +110,14 @@
     @test is_feasible([1, 0], constraints)
     @test !is_feasible([0, 1], constraints)
     @test is_feasible([1, 0], AbstractConstraint[])
+
+    mixed_constraints = AbstractConstraint[
+      ExactlyOneConstraint([1, 2], 0),
+      RelationConstraint(1, Symbol(">="), 2),
+    ]
+    @test is_feasible([1, 0], mixed_constraints)
+    @test !is_feasible([0, 1], mixed_constraints)
+    @test !is_feasible([1, 1], mixed_constraints)
 
     @test_throws ArgumentError is_feasible([0, 2], exactly_one)
     @test_throws BoundsError is_feasible([1], RelationConstraint(1, Symbol("=="), 2))
