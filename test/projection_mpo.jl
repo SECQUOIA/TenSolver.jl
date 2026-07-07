@@ -8,6 +8,17 @@ function mpo_diagonal(H, sites, bits)
   return real(ITensors.inner(psi', H, psi))
 end
 
+function mpo_matrix_element(H, sites, bra_bits, ket_bits)
+  bra = ITensorMPS.MPS(sites, string.(bra_bits))
+  ket = ITensorMPS.MPS(sites, string.(ket_bits))
+  return real(ITensors.inner(bra', H, ket))
+end
+
+function mps_amplitude(psi, sites, bits)
+  basis = ITensorMPS.MPS(sites, string.(bits))
+  return real(ITensors.inner(basis, psi))
+end
+
 function assert_projection_matches_feasibility(constraint, sites)
   H = TenSolver.projection_mpo(constraint, sites)
 
@@ -136,6 +147,73 @@ end
 
     for constraint in TEST_CONSTRAINTS
       assert_projection_matches_feasibility(constraint, sites)
+    end
+  end
+
+  @testset "Projected Hamiltonian and state utilities" begin
+    Q = [
+       1.0   0.25 -0.50
+       0.25 -2.00  0.75
+      -0.50  0.75  3.00
+    ]
+    H = TenSolver.tensorize(Q)
+    sites = ITensorMPS.siteinds(first, H; plev=0)
+
+    constraints = AbstractConstraint[
+      NotEqualsConstraint([1, 2], [1, 1]),
+      ExactlyOneConstraint([1, 3], 0),
+    ]
+    projections = TenSolver.projection_mpos(constraints, sites)
+
+    @test ITensorMPS.maxlinkdim(projections[1]) <= 2
+
+    H_eff = TenSolver.project_hamiltonian(H, projections; cutoff=1e-12)
+    expected_maxlink = ITensorMPS.maxlinkdim(H) * prod(ITensorMPS.maxlinkdim, projections)
+    @test ITensorMPS.maxlinkdim(H_eff) <= expected_maxlink
+
+    psi = ITensorMPS.MPS(sites, fill("full", length(sites)))
+    projected_psi = TenSolver.project_state(psi, projections; cutoff=1e-12)
+
+    @test ITensorMPS.siteinds(first, H_eff; plev=0) == sites
+    @test ITensorMPS.siteinds(first, H_eff; plev=1) == ITensors.prime.(sites)
+    @test all(isempty, ITensorMPS.siteinds(all, H_eff; plev=2))
+    @test ITensorMPS.siteinds(projected_psi) == sites
+
+    for bra_bits in all_bitstrings(sites), ket_bits in all_bitstrings(sites)
+      bra_feasible = is_feasible(collect(bra_bits), constraints)
+      ket_feasible = is_feasible(collect(ket_bits), constraints)
+      expected = bra_feasible && ket_feasible ?
+        mpo_matrix_element(H, sites, bra_bits, ket_bits) :
+        0.0
+
+      @test mpo_matrix_element(H_eff, sites, bra_bits, ket_bits) ≈ expected atol=1e-10
+    end
+
+    for bits in all_bitstrings(sites)
+      expected = is_feasible(collect(bits), constraints) ?
+        mps_amplitude(psi, sites, bits) :
+        0.0
+
+      @test mps_amplitude(projected_psi, sites, bits) ≈ expected atol=1e-10
+    end
+  end
+
+  @testset "Infeasible projections remain zero" begin
+    H = TenSolver.tensorize([1.0 0.5; 0.5 2.0])
+    sites = ITensorMPS.siteinds(first, H; plev=0)
+    impossible = SumConstraint([1, 2], [1, 1], :(==), 3)
+    P = TenSolver.projection_mpo(impossible, sites)
+
+    H_eff = TenSolver.project_hamiltonian(H, P; cutoff=1e-12)
+    psi = ITensorMPS.MPS(sites, fill("full", length(sites)))
+    projected_psi = TenSolver.project_state(psi, P; cutoff=1e-12)
+
+    for bra_bits in all_bitstrings(sites), ket_bits in all_bitstrings(sites)
+      @test mpo_matrix_element(H_eff, sites, bra_bits, ket_bits) == 0.0
+    end
+
+    for bits in all_bitstrings(sites)
+      @test mps_amplitude(projected_psi, sites, bits) == 0.0
     end
   end
 
