@@ -175,9 +175,9 @@ end
 
   @testset "ExactlyOneConstraint projection" begin
     cases = [
-      (ExactlyOneConstraint(1:2),    ITensors.siteinds("Qudit", 2; dim=2)),
+      (ExactlyOneConstraint(1:2, 1), ITensors.siteinds("Qudit", 2; dim=2)),
       (ExactlyOneConstraint(1:3, 0), ITensors.siteinds("Qudit", 3; dim=2)),
-      (ExactlyOneConstraint(1:5),    ITensors.siteinds("Qudit", 5; dim=2)),
+      (ExactlyOneConstraint(1:5, 1), ITensors.siteinds("Qudit", 5; dim=2)),
     ]
 
     for (constraint, sites) in cases
