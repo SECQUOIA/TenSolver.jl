@@ -181,14 +181,14 @@ end
 
     for constraint in relation_cases
       dfa = TenSolver.constraint_to_dfa(constraint, sites)
-      @test length(dfa.states) == 3
+      @test length(dfa.states) <= 2
 
       for bits in all_bitstrings(sites)
         @test dfa_accepts(dfa, bits) == is_feasible(collect(bits), constraint)
       end
 
       H = assert_projection_matches_feasibility(constraint, sites)
-      @test ITensorMPS.maxlinkdim(H) <= 3
+      @test ITensorMPS.maxlinkdim(H) <= 2
     end
   end
 
