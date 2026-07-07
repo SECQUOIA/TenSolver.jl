@@ -47,8 +47,9 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
     rhs        = validate_rhs(rhs)
 
     weight_map = Dict(site => weight for (site, weight) in zip(site_vec, weight_vec))
-    length(weight_map) == length(site_vec) ||
+    if length(weight_map) != length(site_vec)
       throw(ArgumentError("sites must be unique"))
+    end
 
     return new{T}(weight_map, relation, rhs)
   end
@@ -84,17 +85,31 @@ Excludes a single assignment over a binary vector `x`: at least one component of
 `sites` must be unique positive integers, and `values` must contain only binary
 values (`0` or `1`) with the same length as `sites`.
 """
-struct NotEqualsConstraint <: AbstractConstraint
-  sites::Vector{Int}
-  values::Vector{Int}
+struct NotEqualsConstraint{T<:Real} <: AbstractConstraint
+  values::Dict{Int, T}
 
-  function NotEqualsConstraint(sites, values)
-    site_vec = validate_sites(sites)
+  function NotEqualsConstraint{T}(sites, values::AbstractVector{T}) where {T<:Real}
+    site_vec  = validate_sites(sites)
     value_vec = validate_binary_values(values, "values")
     validate_same_length(site_vec, value_vec, "sites", "values")
 
-    return new(site_vec, value_vec)
+    value_map = Dict{Int,T}(site => value for (site, value) in zip(site_vec, value_vec))
+    if length(value_map) != length(site_vec)
+      throw(ArgumentError("sites must be unique"))
+    end
+
+    return new{T}(value_map)
   end
+end
+
+function NotEqualsConstraint(sites, values)
+  raw_values = collect(values)
+  isempty(raw_values) && throw(ArgumentError("values must not be empty"))
+
+  T = promote_type(map(typeof, raw_values)...)
+  T <: Real || throw(ArgumentError("values must be real-valued"))
+
+  return NotEqualsConstraint{T}(sites, T.(raw_values))
 end
 
 """
@@ -153,10 +168,7 @@ function is_feasible(x::AbstractVector, constraint::SumConstraint)
 end
 
 function is_feasible(x::AbstractVector, constraint::NotEqualsConstraint)
-  return any(
-    binary_at(x, constraint.sites[i]) != constraint.values[i]
-    for i in eachindex(constraint.sites, constraint.values)
-  )
+  return any(binary_at(x, site) != value for (site, value) in constraint.values)
 end
 
 function is_feasible(x::AbstractVector, constraint::ExactlyOneConstraint)
@@ -197,7 +209,7 @@ function constraint_sites(constraint::SumConstraint)
 end
 
 function constraint_sites(constraint::NotEqualsConstraint)
-  return constraint.sites
+  return sort!(collect(keys(constraint.values)))
 end
 
 function constraint_sites(constraint::ExactlyOneConstraint)
@@ -294,7 +306,7 @@ function validate_binary_values(values, name)
     throw(ArgumentError("$name must contain only binary values 0 or 1"))
   end
 
-  return Int.(values)
+  return values
 end
 
 function binary_at(x, site)

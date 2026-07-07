@@ -66,6 +66,8 @@ end
     SumConstraint([2, 4], [2, 3], :(>=), 3),
     SumConstraint([1, 2, 4], [1, 2, 3], :(!=), 3),
     NotEqualsConstraint([1, 3], [1, 0]),
+    NotEqualsConstraint([1, 2], [1.0, 0.0]),
+    NotEqualsConstraint([1, 3, 2, 4], Bool[1, 0, 0, 1]),
   ]
 
   @testset "DFA correctness" begin
@@ -158,7 +160,7 @@ end
         forbidden = bits[left] == 1 && bits[right] == 1
         @test mpo_diagonal(local_H, sites, bits) == Float64(!forbidden)
       end
-      @test ITensorMPS.maxlinkdim(local_H) <= 6
+      @test ITensorMPS.maxlinkdim(local_H) <= 2
     end
 
     for bits in all_bitstrings(sites)
