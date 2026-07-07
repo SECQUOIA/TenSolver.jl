@@ -229,6 +229,8 @@ The construction is exact and uncompressed. Constraint site numbers use the same
 For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
 - [`NotEqualsConstraint`](@ref) uses a specialized MPO with bond dimension `2`,
   independently of the rhs.
+- [`RelationConstraint`](@ref) uses a specialized MPO with bond dimension `3`,
+  independently of the compared site positions.
 """
 function projection_mpo end
 
@@ -439,4 +441,50 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, sites) where {S}
   ]
 
   return DFA(states, alphabet, initial, accepting, transitions)
+end
+
+function constraint_to_dfa(constraint::RelationConstraint, sites)
+  validate_projection_sites(sites)
+
+  cs = constraint_sites(constraint)
+  validate_constraint_site_bounds(cs, sites)
+
+  (; left_site, relation, right_site) = constraint
+  first_site = min(left_site, right_site)
+  second_site = max(left_site, right_site)
+  left_is_first = left_site == first_site
+
+  pass = 0
+  seen_zero = 1
+  seen_one = 2
+  seen_states = ((seen_zero, 0), (seen_one, 1))
+
+  states = [pass, seen_zero, seen_one]
+  alphabet = [0, 1]
+
+  # The step-dependent DFA reuses `pass` before the first relation endpoint and
+  # after the relation has accepted. Between endpoints it stores the first bit.
+  transitions = [
+    if i == first_site
+      Dict{Tuple{Int,Int},Int}(
+        (pass, a) => (a == 0 ? seen_zero : seen_one)
+        for a in alphabet
+      )
+    elseif i == second_site
+      Dict{Tuple{Int,Int},Int}(
+        (seen_state, a) => pass
+        for (seen_state, first_value) in seen_states, a in alphabet
+        if relation_holds(
+          left_is_first ? first_value : a,
+          relation,
+          left_is_first ? a : first_value,
+        )
+      )
+    else
+      Dict{Tuple{Int,Int},Int}((q, a) => q for q in states, a in alphabet)
+    end
+    for i in eachindex(sites)
+  ]
+
+  return DFA(states, alphabet, pass, Set([pass]), transitions)
 end

@@ -68,6 +68,7 @@ end
     NotEqualsConstraint([1, 3], [1, 0]),
     NotEqualsConstraint([1, 2], [1.0, 0.0]),
     NotEqualsConstraint([1, 3, 2, 4], Bool[1, 0, 0, 1]),
+    RelationConstraint(4, :(<=), 2),
   ]
 
   @testset "DFA correctness" begin
@@ -166,6 +167,28 @@ end
     for bits in all_bitstrings(sites)
       has_adjacent_ones = any(i -> bits[i] == 1 && bits[i + 1] == 1, 1:3)
       @test is_feasible(collect(bits), local_exclusions) == !has_adjacent_ones
+    end
+  end
+
+  @testset "RelationConstraint projection" begin
+    sites = ITensors.siteinds("Qudit", 5; dim=2)
+
+    relation_cases = [
+      RelationConstraint(left, relation, right)
+      for relation in (:(==), :(!=), :(<=), :(>=))
+      for (left, right) in ((1, 4), (4, 1), (2, 5), (5, 2))
+    ]
+
+    for constraint in relation_cases
+      dfa = TenSolver.constraint_to_dfa(constraint, sites)
+      @test length(dfa.states) == 3
+
+      for bits in all_bitstrings(sites)
+        @test dfa_accepts(dfa, bits) == is_feasible(collect(bits), constraint)
+      end
+
+      H = assert_projection_matches_feasibility(constraint, sites)
+      @test ITensorMPS.maxlinkdim(H) <= 3
     end
   end
 
