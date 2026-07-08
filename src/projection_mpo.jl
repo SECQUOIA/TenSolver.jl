@@ -267,11 +267,8 @@ projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
 Apply one or more diagonal projection MPOs to a Hamiltonian MPO.
 
 For projection MPOs `P`, this builds the CoTenN-style effective Hamiltonian
-`P' * H * P`. The projection MPOs produced by [`projection_mpo`](@ref) are
-real diagonal projectors, so the implementation composes them as `P * H * P`
-using ITensorMPS' `apply` helper to contract the MPOs and restore the usual
-unprimed/primed site-index structure expected by DMRG. The resulting bond
-dimension can grow with the product of `H`'s links and the projection links.
+`P' * H * P`. The resulting bond dimension can grow with the product of
+`H`'s links and the projection links.
 """
 function project_hamiltonian(H::ITensorMPS.MPO, projections; cutoff=1e-8, kwargs...)
   projection_tuple = projection_sequence(projections)
@@ -280,7 +277,7 @@ function project_hamiltonian(H::ITensorMPS.MPO, projections; cutoff=1e-8, kwargs
 
   H_eff = H
   for P in projection_tuple
-    H_eff = ITensors.apply(P, H_eff; cutoff, kwargs...)
+    H_eff = ITensors.apply(ITensors.dag(P), H_eff; cutoff, kwargs...)
     H_eff = ITensors.apply(H_eff, P; cutoff, kwargs...)
   end
 
@@ -292,9 +289,9 @@ end
 
 Apply one or more diagonal projection MPOs to an MPS.
 
-The result has zero amplitude on basis states rejected by any projection, while
-keeping the original unprimed site indices so it can be used as a DMRG input
-state.
+The result has zero amplitude on basis states rejected by any projection,
+while keeping the original unprimed site indices
+so it can be used as a DMRG input state.
 """
 function project_state(psi::ITensorMPS.MPS, projections; cutoff=1e-8, kwargs...)
   projection_tuple = projection_sequence(projections)

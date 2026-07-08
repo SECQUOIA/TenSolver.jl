@@ -27,3 +27,14 @@ function brute_force(f::Function, T, n::Int64)
 
   return min_now, solution
 end
+
+function mpo_matrix_element(H, sites, bra_bits, ket_bits)
+  bra = ITensorMPS.MPS(sites, string.(bra_bits))
+  ket = ITensorMPS.MPS(sites, string.(ket_bits))
+  return real(ITensors.inner(bra', H, ket))
+end
+
+function mps_amplitude(psi, sites, bits)
+  basis = ITensorMPS.MPS(sites, string.(bits))
+  return real(ITensors.inner(basis, psi))
+end
