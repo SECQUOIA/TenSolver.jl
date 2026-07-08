@@ -261,12 +261,18 @@ end
 projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
   projection_mpos(Float64, constraints, sites)
 
-# Apply one or more diagonal projection MPOs to a Hamiltonian MPO. For
-# projection MPOs P, this builds the CoTenN-style effective Hamiltonian P' H P.
-# The projection MPOs produced above are real diagonal projectors, so the
-# implementation composes them as P H P using ITensorMPS.apply to restore the
-# unprimed/primed site-index structure expected by DMRG. The resulting bond
-# dimension can grow with the product of H's links and the projection links.
+"""
+    project_hamiltonian(H, projections; cutoff=1e-8, kwargs...)
+
+Apply one or more diagonal projection MPOs to a Hamiltonian MPO.
+
+For projection MPOs `P`, this builds the CoTenN-style effective Hamiltonian
+`P' * H * P`. The projection MPOs produced by [`projection_mpo`](@ref) are
+real diagonal projectors, so the implementation composes them as `P * H * P`
+using ITensorMPS' `apply` helper to contract the MPOs and restore the usual
+unprimed/primed site-index structure expected by DMRG. The resulting bond
+dimension can grow with the product of `H`'s links and the projection links.
+"""
 function project_hamiltonian(H::ITensorMPS.MPO, projections; cutoff=1e-8, kwargs...)
   projection_tuple = projection_sequence(projections)
   target_sites = projection_target_sites(H)
@@ -281,9 +287,15 @@ function project_hamiltonian(H::ITensorMPS.MPO, projections; cutoff=1e-8, kwargs
   return H_eff
 end
 
-# Apply one or more diagonal projection MPOs to an MPS. The result has zero
-# amplitude on basis states rejected by any projection, while keeping the
-# original unprimed site indices so it can be used as a DMRG input state.
+"""
+    project_state(psi, projections; cutoff=1e-8, kwargs...)
+
+Apply one or more diagonal projection MPOs to an MPS.
+
+The result has zero amplitude on basis states rejected by any projection, while
+keeping the original unprimed site indices so it can be used as a DMRG input
+state.
+"""
 function project_state(psi::ITensorMPS.MPS, projections; cutoff=1e-8, kwargs...)
   projection_tuple = projection_sequence(projections)
   target_sites = projection_target_sites(psi)
