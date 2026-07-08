@@ -82,6 +82,13 @@ TenSolver.SparseTensorEntry
 TenSolver.projection_entries
 ```
 
+### Projected Hamiltonian Construction
+
+```@docs
+TenSolver.project_hamiltonian
+TenSolver.project_state
+```
+
 ## Index
 
 ```@index
