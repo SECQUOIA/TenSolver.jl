@@ -8,17 +8,6 @@ function mpo_diagonal(H, sites, bits)
   return real(ITensors.inner(psi', H, psi))
 end
 
-function mpo_matrix_element(H, sites, bra_bits, ket_bits)
-  bra = ITensorMPS.MPS(sites, string.(bra_bits))
-  ket = ITensorMPS.MPS(sites, string.(ket_bits))
-  return real(ITensors.inner(bra', H, ket))
-end
-
-function mps_amplitude(psi, sites, bits)
-  basis = ITensorMPS.MPS(sites, string.(bits))
-  return real(ITensors.inner(basis, psi))
-end
-
 function assert_projection_matches_feasibility(constraint, sites)
   H = TenSolver.projection_mpo(constraint, sites)
 
