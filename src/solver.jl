@@ -170,8 +170,8 @@ for maximization.
     max  b'Qb + l'b + c
     s.t. b_i in {0, 1}
 
-The same `constraints` keyword accepted by [`minimize`](@ref) can be used to
-solve constrained maximization problems.
+The same `constraints` and `feasible_sample_retries` keywords accepted by
+[`minimize`](@ref) can be used to solve constrained maximization problems.
 
 See also [`minimize`](@ref).
 """

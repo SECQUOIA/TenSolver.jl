@@ -118,6 +118,41 @@ end
     assert_constrained_solution(E, psi, obj, all_constraint_types, expected_energy, expected_sample)
   end
 
+  @testset "Single-variable constrained problems use the scalar fast path" begin
+    Q = zeros(1, 1)
+    l = [-1.0]
+    force_zero = AbstractConstraint[SumConstraint([1], [1], 0; relation=:(==))]
+    obj(x) = dot(x, Q, x) + dot(l, x)
+
+    E, psi = minimize(
+      Q,
+      l;
+      constraints=force_zero,
+      iterations=3,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+    )
+
+    assert_constrained_solution(E, psi, obj, force_zero, 0.0, [0])
+
+    ConstrainedSolveDP.@polyvar z
+    p = -2.0z + 0.0
+    force_one = AbstractConstraint[ExactlyOneConstraint([1], 1)]
+    poly_obj(x) = p([z] => x)
+
+    E_poly, psi_poly = minimize(
+      p;
+      constraints=force_one,
+      iterations=3,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+    )
+
+    assert_constrained_solution(E_poly, psi_poly, poly_obj, force_one, -2.0, [1])
+  end
+
   @testset "Callbacks and stats remain available" begin
     Q = zeros(2, 2)
     l = [-1.0, -2.0]

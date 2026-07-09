@@ -208,6 +208,8 @@ function constrained_projection_problem(::Type{T}, H, constraints; cutoff) where
   return H_eff, initial_state, projections
 end
 
+# Structural check for freshly tensorized zero objectives; this is not a
+# semantic zero-operator test after arbitrary MPO algebra.
 is_zero_mpo(H::MPO) = all(iszero, H)
 
 function constrained_initial_state(sites, projections; cutoff)
@@ -326,18 +328,33 @@ function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
 end
 
 
-function single_variable_minimize(::Type{T}, sites, obj, initial_time; device, verbosity, on_iteration, callback_every) where {T}
-  x0 = [0]
-  x1 = [1]
-  e0 = obj(x0)
-  e1 = obj(x1)
+function single_variable_minimize(
+  ::Type{T},
+  sites,
+  obj,
+  initial_time;
+  device,
+  verbosity,
+  on_iteration,
+  callback_every,
+  sample_validator=nothing,
+) where {T}
+  feasible_samples = [
+    x for x in ([0], [1])
+    if isnothing(sample_validator) || sample_validator(x)
+  ]
 
-  energy, state = if e0 == e1
-    (T(e0), ["full"])
-  elseif e0 < e1
-    (T(e0), string.(x0))
+  if isempty(feasible_samples)
+    throw(ArgumentError("constraints define an empty feasible subspace; no binary vector satisfies all constraints"))
+  end
+
+  feasible_values = [obj(x) for x in feasible_samples]
+
+  energy, state = if length(feasible_samples) == 2 && feasible_values[1] == feasible_values[2]
+    (T(feasible_values[1]), ["full"])
   else
-    (T(e1), string.(x1))
+    idx = argmin(feasible_values)
+    (T(feasible_values[idx]), string.(feasible_samples[idx]))
   end
 
   psi = ITensorMPS.MPS(sites, state) |> device
@@ -398,8 +415,18 @@ function minimize_mpo( H :: MPO
   solution_permutation = isempty(permutation) ? collect(1:length(sites)) : permutation
   solution_projections = isnothing(solution_projection) ? nothing : map(device, projection_sequence(solution_projection))
 
-  if length(sites) == 1 && isnothing(initial_state) && isnothing(solution_projections)
-    return single_variable_minimize(T, sites, obj, initial_time; device, verbosity, on_iteration, callback_every)
+  if length(sites) == 1
+    return single_variable_minimize(
+      T,
+      sites,
+      obj,
+      initial_time;
+      device,
+      verbosity,
+      on_iteration,
+      callback_every,
+      sample_validator,
+    )
   end
 
   H     = device(H)
