@@ -63,13 +63,32 @@ function minimize(
   ;
   cutoff=1e-8,
   preprocess::Bool=false,
+  constraints=AbstractConstraint[],
   kwargs...,
 ) where T
+  constraint_vec = normalize_constraints(constraints)
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
   H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
 
-  return minimize_mpo(H, c, obj; cutoff, permutation, kwargs...)
+  if isempty(constraint_vec)
+    return minimize_mpo(H, c, obj; cutoff, permutation, kwargs...)
+  end
+
+  tensor_constraints = tensor_order_constraints(constraint_vec, permutation)
+  H_eff, initial_state, projections = constrained_projection_problem(T, H, tensor_constraints; cutoff)
+
+  return minimize_mpo(
+    H_eff,
+    c,
+    obj;
+    cutoff,
+    permutation,
+    initial_state,
+    solution_projection=projections,
+    sample_validator=x -> is_feasible(x, constraint_vec),
+    kwargs...,
+  )
 end
 
 """
@@ -82,17 +101,153 @@ Solve the Polynomial Unconstrained Binary Optimization problem
 
 See also [`maximize`](@ref).
 """
-function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
+function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, constraints=AbstractConstraint[], kwargs...) where T
+  constraint_vec = normalize_constraints(constraints)
   H   = tensorize(p)
   cte = constant(p)
   vs = variables(p)
-  return minimize_mpo(H, cte, a -> p(vs => a); cutoff, kwargs...)
+
+  if isempty(constraint_vec)
+    return minimize_mpo(H, cte, a -> p(vs => a); cutoff, kwargs...)
+  end
+
+  H_eff, initial_state, projections = constrained_projection_problem(T, H, constraint_vec; cutoff)
+
+  return minimize_mpo(
+    H_eff,
+    cte,
+    a -> p(vs => a);
+    cutoff,
+    initial_state,
+    solution_projection=projections,
+    sample_validator=x -> is_feasible(x, constraint_vec),
+    kwargs...,
+  )
 end
 
 
 #----------------------------------------------------------#
 # The actual computations                                  #
 #----------------------------------------------------------#
+
+function normalize_constraints(constraints)
+  constraints isa AbstractVector ||
+    throw(ArgumentError("`constraints` must be an AbstractVector of AbstractConstraint values"))
+
+  constraint_vec = AbstractConstraint[]
+  for (i, constraint) in pairs(constraints)
+    constraint isa AbstractConstraint ||
+      throw(ArgumentError("constraints[$i] must be an AbstractConstraint, got $(typeof(constraint))"))
+    push!(constraint_vec, constraint)
+  end
+
+  return constraint_vec
+end
+
+function tensor_order_constraints(constraints::AbstractVector{<:AbstractConstraint}, permutation)
+  is_identity_permutation(permutation) && return constraints
+
+  original_to_tensor = invperm(permutation)
+  return AbstractConstraint[
+    tensor_order_constraint(constraint, original_to_tensor)
+    for constraint in constraints
+  ]
+end
+
+function tensor_site(site, original_to_tensor)
+  checkbounds(original_to_tensor, site)
+  return original_to_tensor[site]
+end
+
+function tensor_order_constraint(constraint::SumConstraint, original_to_tensor)
+  sites = constraint_sites(constraint)
+  return SumConstraint(
+    [tensor_site(site, original_to_tensor) for site in sites],
+    [constraint.weights[site] for site in sites],
+    constraint.relation,
+    constraint.rhs,
+  )
+end
+
+function tensor_order_constraint(constraint::NotEqualsConstraint, original_to_tensor)
+  sites = constraint_sites(constraint)
+  return NotEqualsConstraint(
+    [tensor_site(site, original_to_tensor) for site in sites],
+    [constraint.values[site] for site in sites],
+  )
+end
+
+function tensor_order_constraint(constraint::ExactlyOneConstraint, original_to_tensor)
+  return ExactlyOneConstraint(
+    [tensor_site(site, original_to_tensor) for site in constraint.sites],
+    constraint.value,
+  )
+end
+
+function tensor_order_constraint(constraint::RelationConstraint, original_to_tensor)
+  return RelationConstraint(
+    tensor_site(constraint.left_site, original_to_tensor),
+    constraint.relation,
+    tensor_site(constraint.right_site, original_to_tensor),
+  )
+end
+
+function constrained_projection_problem(::Type{T}, H, constraints; cutoff) where {T}
+  sites = ITensorMPS.siteinds(first, H; plev=0)
+  projections = projection_mpos(T, constraints, sites)
+  initial_state = constrained_initial_state(sites, projections; cutoff)
+  H_eff = is_zero_mpo(H) ? H : project_hamiltonian(H, projections; cutoff)
+
+  @debug(
+    "Constraint projection MPO construction finished",
+    projection_max_bond=map(ITensorMPS.maxlinkdim, projections),
+    projected_hamiltonian_max_bond=ITensorMPS.maxlinkdim(H_eff),
+    projected_initial_max_bond=ITensorMPS.maxlinkdim(initial_state),
+  )
+
+  return H_eff, initial_state, projections
+end
+
+is_zero_mpo(H::MPO) = all(iszero, H)
+
+function constrained_initial_state(sites, projections; cutoff)
+  psi = ITensorMPS.MPS(sites, fill("full", length(sites)))
+  return project_feasible_state(
+    psi,
+    projections;
+    cutoff,
+    error_type=ArgumentError,
+    message="constraints define an empty feasible subspace; no binary vector satisfies all constraints",
+  )
+end
+
+function project_feasible_state(psi::MPS, projections; cutoff, error_type, message)
+  projected = project_state(psi, projections; cutoff)
+
+  if iszero(norm(projected))
+    throw(error_type(message))
+  end
+
+  return normalize(projected)
+end
+
+function sampled_objective(dist, obj; sample_validator, feasible_sample_retries)
+  feasible_sample_retries >= 1 ||
+    throw(ArgumentError("`feasible_sample_retries` must be >= 1, got $feasible_sample_retries"))
+
+  if isnothing(sample_validator)
+    return obj(sample(dist))
+  end
+
+  local last_sample
+  for _ in 1:feasible_sample_retries
+    x = sample(dist)
+    sample_validator(x) && return obj(x)
+    last_sample = x
+  end
+
+  throw(ErrorException("failed to sample a feasible constrained solution after $(feasible_sample_retries) attempts; last sample was $(last_sample)"))
+end
 
 
 # Strict upper triangular part of an array
@@ -225,8 +380,14 @@ function minimize_mpo( H :: MPO
                      , on_iteration :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
                      , permutation :: Vector{Int} = Int[]
+                     , initial_state :: Union{Nothing, MPS} = nothing
+                     , solution_projection = nothing
+                     , sample_validator = nothing
+                     , feasible_sample_retries :: Integer = 100
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
+  feasible_sample_retries >= 1 ||
+    throw(ArgumentError("`feasible_sample_retries` must be >= 1, got $feasible_sample_retries"))
   initial_time      = time()
   energies_log      = T[]
   bond_dims_log     = Int[]
@@ -235,13 +396,15 @@ function minimize_mpo( H :: MPO
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
   solution_permutation = isempty(permutation) ? collect(1:length(sites)) : permutation
+  solution_projections = isnothing(solution_projection) ? nothing : map(device, projection_sequence(solution_projection))
 
-  if length(sites) == 1
+  if length(sites) == 1 && isnothing(initial_state) && isnothing(solution_projections)
     return single_variable_minimize(T, sites, obj, initial_time; device, verbosity, on_iteration, callback_every)
   end
 
   H     = device(H)
-  psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
+  psi   = isnothing(initial_state) ? ITensorMPS.random_mps(T, sites; linkdims=inidim) : initial_state
+  psi   = device(psi)
 
   @debug("MPO construction finished",
     time=(time() - initial_time),
@@ -267,6 +430,17 @@ function minimize_mpo( H :: MPO
                       , eigsolve_maxiter
                       , eigsolve_verbosity = 0
                  )
+
+    if !isnothing(solution_projections)
+      psi = project_feasible_state(
+        psi,
+        solution_projections;
+        cutoff,
+        error_type=ErrorException,
+        message="constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
+      )
+      energy = real(expectation(H, psi))
+    end
 
     # Get metadata #
     if i % check_variance_every_iteration == 0
@@ -314,8 +488,12 @@ function minimize_mpo( H :: MPO
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
   dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, solution_permutation)
-  x    = sample(dist)
-  optimal = obj(x)
+  optimal = sampled_objective(
+    dist,
+    obj;
+    sample_validator,
+    feasible_sample_retries,
+  )
   elapsed_time = time() - initial_time
 
   iterlog_footer(verbosity, optimal, elapsed_time)

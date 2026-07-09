@@ -12,6 +12,11 @@ Any concrete subtype is expected to implement
 - [`is_feasible`](@ref).
 - [`constraint_sites`](@ref).
 
+Native constraint types are experimental. They currently provide TenSolver's
+Julia lowering target for projection-MPO constrained solves; future JuMP/MOI
+integration may change which constraint abstraction is considered stable public
+API.
+
 See also [`SumConstraint`](@ref), [`NotEqualsConstraint`](@ref),
 [`ExactlyOneConstraint`](@ref), and [`RelationConstraint`](@ref).
 """
