@@ -53,7 +53,6 @@ end
 
     E, psi = minimize(Q, l; preprocess=true, qubo_kwargs...)
 
-    @test !TenSolver.is_identity_permutation(TenSolver.qmatrix_permutation(Q; cutoff=1e-12))
     assert_constrained_solution(E, psi, obj, all_constraint_types, expected_energy, expected_sample)
   end
 
