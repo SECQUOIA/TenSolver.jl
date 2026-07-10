@@ -252,7 +252,8 @@ function projection_mpo(::Type{T}
                        , constraint::AbstractConstraint
                        , sites
                        ; permutation = 1:length(sites)) where {T}
-  dfa = permute_dfa!(constraint_to_dfa(constraint, length(sites)), permutation)
+  domain = [0, 1] # Fixed for now. In the future, we may upgrade.
+  dfa = permute_dfa!(constraint_to_dfa(constraint, length(sites), domain), permutation)
   return dfa_to_mpo(T, dfa, sites)
 end
 
@@ -460,7 +461,7 @@ function projection_entries_to_dfa(entries, num_sites::Integer, constrained_site
   return DFA(states, [0, 1], 1, accepting, transitions)
 end
 
-function default_constraint_to_dfa(constraint::AbstractConstraint, sites)
+function default_constraint_to_dfa(constraint::AbstractConstraint, sites, alphabet=[0,1])
   validate_projection_sites(sites)
 
   cs = constraint_sites(constraint)
@@ -478,18 +479,22 @@ end
 ##############################################
 
 """
-    constraint_to_dfa(constraint, n)
+    constraint_to_dfa(constraint, n, alphabet)
 
 Build a [`DFA`](@ref) recognizing `constraint` with transitions for `n` steps.
+The `alphabet` parameter represents the domain for a constraint's variables.
 """
 function constraint_to_dfa end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer) where {S}
-  (; weights, rhs, relation) = constraint
+function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
+  if minimum(alphabet) < 0
+    throw(ArgumentError("SumConstraint only supports nonnegative domains."))
+  end
 
+  (; weights, rhs, relation) = constraint
   beyond    = rhs + one(S)
+
   states    = zero(S):beyond
-  alphabet  = S[0, 1]
   initial   = zero(S)
   accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
@@ -497,10 +502,8 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer) where 
   transitions = fill(id_dict, nsites)
 
   for site in constraint_sites(constraint)
-    weight = weights[site]
-
     transitions[site] = Dict(
-      (q, a) => min(q + weight * a, beyond)
+      (q, a) => min(q + weights[site] * a, beyond)
       for q in states, a in alphabet
     )
   end
@@ -508,11 +511,10 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer) where 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Int) where {S}
-  states    = S[0, 1]
-  alphabet  = S[0, 1]
-  initial   = one(S)
-  accepting = Set([zero(S)])
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
+  states    = [:mismatch, :all_matched]
+  initial   = :all_matched
+  accepting = Set([:mismatch])
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
   transitions = fill(id_dict, nsites)
@@ -521,7 +523,7 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Int) wher
     target = constraint.values[site]
 
     transitions[site] = Dict(
-      (q, a) => S(a) == target ? q : zero(S)
+      (q, a) => S(a) == target ? q : :mismatch
       for q in states, a in alphabet
     )
   end
@@ -529,31 +531,28 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Int) wher
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer) where {S}
+function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
   target = constraint.value
-  not_seen  = zero(S)
-  seen_once = one(S)
 
-  states    = S[not_seen, seen_once]
-  alphabet  = S[0, 1]
-  initial   = not_seen
-  accepting = Set([seen_once])
+  states    = [:not_seen, :seen_once]
+  initial   = :not_seen
+  accepting = Set([:seen_once])
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
   transitions = fill(id_dict, nsites)
 
   for site in constraint_sites(constraint)
     transitions[site] = Dict(
-      (q, a) => (a == target ? seen_once : q)
+      (q, a) => (a == target ? :seen_once : q)
       for q in states, a in alphabet
-      if !(q == seen_once && a == target)
+      if !(q == :seen_once && a == target)
     )
   end
 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer)
+function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alphabet=[0,1])
   left  = constraint.left_site
   right = constraint.right_site
 
@@ -561,17 +560,14 @@ function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer)
   second_site   = max(left, right)
   left_is_first = left == first_site
 
-  states    = [0, 1]
-  alphabet  = [0, 1]
-  initial   = 1
+  states    = alphabet
+  initial   = last(states)
   accepting = Set(states)
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
   transitions = fill(id_dict, nsites)
 
-  transitions[first_site] = Dict(
-    (q, a) => a for q in states, a in alphabet
-  )
+  transitions[first_site] = Dict((q, a) => a for q in states, a in alphabet)
 
   transitions[second_site] = Dict(
     (q, a) => q

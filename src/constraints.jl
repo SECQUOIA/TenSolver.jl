@@ -12,6 +12,9 @@ Any concrete subtype is expected to implement
 - [`is_feasible`](@ref).
 - [`constraint_sites`](@ref).
 
+For turning a constraint into an MPO,
+you must implement [`constraint_to_dfa`](@ref) or [`projection_mpo`](@ref).
+
 Constraint types are experimental. They currently provide TenSolver's
 Julia lowering target for projection-MPO constrained solves; future JuMP/MOI
 integration may change which constraint abstraction is considered stable public
@@ -179,21 +182,21 @@ if a constraint references a site outside `x`.
 function is_feasible end
 
 function is_feasible(x::AbstractVector, constraint::SumConstraint)
-  lhs = sum(weight * binary_at(x, site) for (site, weight) in constraint.weights)
+  lhs = sum(weight * x[site] for (site, weight) in constraint.weights)
   return relation_holds(lhs, constraint.relation, constraint.rhs)
 end
 
 function is_feasible(x::AbstractVector, constraint::NotEqualsConstraint)
-  return any(binary_at(x, site) != value for (site, value) in constraint.values)
+  return any(x[site] != value for (site, value) in constraint.values)
 end
 
 function is_feasible(x::AbstractVector, constraint::ExactlyOneConstraint)
-  return count(site -> binary_at(x, site) == constraint.value, constraint.sites) == 1
+  return count(site -> x[site] == constraint.value, constraint.sites) == 1
 end
 
 function is_feasible(x::AbstractVector, constraint::RelationConstraint)
-  lhs = binary_at(x, constraint.left_site)
-  rhs = binary_at(x, constraint.right_site)
+  lhs = x[constraint.left_site]
+  rhs = x[constraint.right_site]
 
   return relation_holds(lhs, constraint.relation, rhs)
 end
@@ -327,16 +330,6 @@ end
 function validate_binary_value(value, name)
   if !(isequal(value, 0) || isequal(value, 1))
     throw(ArgumentError("$name must be a binary value 0 or 1"))
-  end
-
-  return Int(value)
-end
-
-function binary_at(x, site)
-  checkbounds(x, site)
-  value = x[site]
-  if !(value in (0, 1))
-    throw(ArgumentError("x must contain only binary values 0 or 1"))
   end
 
   return Int(value)
