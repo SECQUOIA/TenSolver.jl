@@ -2,85 +2,72 @@ function issquare(a :: AbstractArray)
   return allequal(size(a))
 end
 
-function edge_key(i::Integer, j::Integer)
-  return i < j ? (Int(i), Int(j)) : (Int(j), Int(i))
-end
-
 function qmatrix_adjacency(Q::AbstractMatrix, cutoff)
   n = size(Q, 1)
   adjacency = [Int[] for _ in 1:n]
   weights = Dict{Tuple{Int, Int}, Float64}()
-  candidate_edges = Set{Tuple{Int, Int}}()
 
-  for ci in findall(!iszero, Q)
-    i, j = Tuple(ci)
-    i == j && continue
-    push!(candidate_edges, edge_key(i, j))
-  end
+  for i in 1:n-1, j in i+1:n
+    coeff = abs(Q[i, j] + Q[j, i])
 
-  for (i, j) in sort!(collect(candidate_edges))
-    coeff = Q[i, j] + Q[j, i]
-
-    if abs(coeff) > cutoff
+    if coeff > cutoff
       push!(adjacency[i], j)
       push!(adjacency[j], i)
-      weights[(i, j)] = Float64(abs(coeff))
+      weights[(i, j)] = Float64(coeff)
     end
   end
 
   return adjacency, weights
 end
 
-function reverse_cuthill_mckee(adjacency, weights)
-  n = length(adjacency)
-  degrees = length.(adjacency)
-  weighted_degrees = [
-    sum(weights[edge_key(i, j)] for j in adjacency[i]; init = 0.0)
-    for i in 1:n
-  ]
-
-  visited = falses(n)
+function breadth_first_search(start, next_nodes, visited)
+  frontier = [start]
+  visited[start] = true
   order = Int[]
 
-  while true
-    start = nothing
-    best = nothing
+  while !isempty(frontier)
+    append!(order, frontier)
 
-    for i in 1:n
-      if !visited[i] && degrees[i] > 0
-        candidate = (degrees[i], -weighted_degrees[i], i)
-        if isnothing(best) || candidate < best
-          start = i
-          best = candidate
-        end
-      end
+    next_frontier = Int[]
+    for i in frontier, j in next_nodes(i)
+      visited[j] = true
+      push!(next_frontier, j)
     end
 
-    isnothing(start) && break
-
-    queue = [start]
-    visited[start] = true
-    head = 1
-
-    while head <= length(queue)
-      i = queue[head]
-      head += 1
-      push!(order, i)
-
-      neighbors = [j for j in adjacency[i] if !visited[j]]
-      sort!(neighbors; by = j -> (degrees[j], -weights[edge_key(i, j)], j))
-
-      for j in neighbors
-        visited[j] = true
-        push!(queue, j)
-      end
-    end
+    unique!(next_frontier)
+    frontier = next_frontier
   end
 
-  isempty(order) && return collect(1:n)
+  return order
+end
 
-  isolated = [i for i in 1:n if degrees[i] == 0]
-  return vcat(reverse(order), isolated)
+function reverse_cuthill_mckee(adjacency, weights)
+  degrees = length.(adjacency)
+
+  edge_key(i, j) = (min(i, j), max(i, j))
+  weighted_degrees = map(eachindex(adjacency)) do i
+    sum(weights[edge_key(i, j)] for j in adjacency[i]; init = 0.0)
+  end
+  score(i) = (degrees[i], -weighted_degrees[i], i)
+  neighbor_score(i, j) = (degrees[j], -weights[edge_key(i, j)], j)
+
+  visited = falses(length(adjacency))
+  order = Int[]
+
+  candidates = findall(!iszero, degrees)
+  while !isempty(candidates)
+    start = argmin(score, candidates)
+
+    neighbours(i) = sort(
+      filter(j -> !visited[j], adjacency[i]);
+      by = j -> neighbor_score(i, j),
+    )
+
+    append!(order, breadth_first_search(start, neighbours, visited))
+    candidates = filter(i -> !visited[i], candidates)
+  end
+
+  return vcat(reverse(order), findall(iszero, degrees))
 end
 
 """
@@ -106,17 +93,22 @@ Q = [0.0 0.0 1.0;
 
 permutation = qmatrix_permutation(Q)
 Q[permutation, permutation]
+
+# output
+
+3×3 Matrix{Float64}:
+ 0.0  1.0  0.0
+ 1.0  0.0  0.0
+ 0.0  0.0  0.0
 ```
 """
 function qmatrix_permutation(Q::AbstractMatrix; cutoff = 0)
-  issquare(Q) || throw(DimensionMismatch("Q must be square. Encountered dimensions $(size(Q))."))
+  if !issquare(Q)
+    throw(DimensionMismatch("Q must be square. Encountered dimensions $(size(Q))."))
+  end
 
   adjacency, weights = qmatrix_adjacency(Q, cutoff)
   return reverse_cuthill_mckee(adjacency, weights)
-end
-
-function is_identity_permutation(permutation)
-  return all(i -> permutation[i] == i, eachindex(permutation))
 end
 
 """
@@ -136,9 +128,8 @@ preprocessing.
 """
 function preprocess_qubo(Q, l, cutoff)
   permutation = qmatrix_permutation(Q; cutoff)
-  is_identity_permutation(permutation) && return Q, l, permutation
+  Qp = Q[permutation, permutation]
+  lp = isnothing(l) ? nothing : l[permutation]
 
-  return Q[permutation, permutation],
-         isnothing(l) ? nothing : l[permutation],
-         permutation
+  return Qp, lp, permutation
 end
