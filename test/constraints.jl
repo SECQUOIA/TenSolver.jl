@@ -119,7 +119,7 @@
     @test !is_feasible([0, 1], mixed_constraints)
     @test !is_feasible([1, 1], mixed_constraints)
 
-    @test_throws ArgumentError is_feasible([0, 2], exactly_one)
+    @test_throws BoundsError is_feasible([0, 2], exactly_one)
     @test_throws BoundsError is_feasible([1], RelationConstraint(1, Symbol("=="), 2))
   end
 end
