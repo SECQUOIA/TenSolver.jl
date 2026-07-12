@@ -26,7 +26,7 @@ function test_correctness(dim, obj, args...)
     end
 
     # ~:~ Exact solution ~:~ #
-    e0, x0 = brute_force(Float64, obj, dim)
+    e0, x0 = brute_force(obj, dim)
     # Same minimum value
     @test e ≈ e0
     # Solution is sampleable

@@ -16,7 +16,7 @@ import JuMP
   e = JuMP.objective_value(m)
 
   # ~:~ Exact solution ~:~ #
-  e0, x0 = brute_force(obj, Float64, dim)
+  e0, x0 = brute_force(obj, dim)
   # Same minimum value
   @test e ≈ e0
   # Same solution
