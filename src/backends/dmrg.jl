@@ -274,7 +274,8 @@ function minimize_mpo( H :: MPO
 
   for i in Iterators.countfrom(1)
     energy, psi = groundstate(H, device(psi)
-                      ; nsweeps     = 1
+                      ; projections
+                      , nsweeps     = 1
                       , ishermitian = true
                       , outputlevel = 0
                       , cutoff
@@ -287,6 +288,12 @@ function minimize_mpo( H :: MPO
                       , eigsolve_verbosity = 0
                  )
 
+    # Re-project each iteration so the sampled bitstring is guaranteed feasible.
+    # In exact arithmetic the sweep keeps a feasible start feasible (the local
+    # eigensolver only ever applies P'HP to a feasible state), but the injected
+    # `noise` term and SVD truncation can leak amplitude into the infeasible
+    # subspace. That subspace is the kernel of the projections, where P'HP has
+    # zero energy, so the leaked amplitude is never penalized back out on its own.
     if !isempty(projections)
       psi = project_feasible_state(
         psi,
@@ -355,23 +362,39 @@ function minimize_mpo( H :: MPO
   return optimal, dist
 end
 
-function groundstate(H::MPO, psi0::MPS; kwargs...)
+function groundstate(H::MPO, psi0::MPS; projections=(), cutoff=1e-8, kwargs...)
   if length(psi0) != 1
-    return ITensorMPS.dmrg(H, psi0; kwargs...)
-  else
-    sites = ITensorMPS.siteinds(psi0)
-    b0 = ITensorMPS.MPS(sites, ["0"])
-    b1 = ITensorMPS.MPS(sites, ["1"])
-
-    e0 = real(expectation(H, b0))
-    e1 = real(expectation(H, b1))
-
-    return if e0 ≈ e1
-      e0, ITensorMPS.MPS(sites, ["full"])
-    elseif e0 < e1
-      e0, b0
-    else
-      e1, b1
-    end
+    return ITensorMPS.dmrg(H, psi0; cutoff, kwargs...)
   end
+
+  # ITensorMPS.dmrg does not support single-site systems, so solve the n=1
+  # problem by directly comparing basis states. When constrained, we must
+  # restrict the search to feasible basis states: the projected Hamiltonian
+  # P'HP assigns zero energy to the infeasible subspace (the kernel of the
+  # projections), so picking the global lowest-energy basis state would select
+  # an infeasible one whenever the feasible objective is positive.
+  sites = ITensorMPS.siteinds(psi0)
+  candidates = [ITensorMPS.MPS(sites, [s]) for s in ("0", "1")]
+
+  if !isempty(projections)
+    candidates = filter(
+      b -> !iszero(norm(project_state(b, projections; cutoff))),
+      candidates,
+    )
+    isempty(candidates) && throw(ArgumentError(
+      "constraints define an empty feasible subspace; no binary vector satisfies all constraints",
+    ))
+  end
+
+  energies = map(b -> real(expectation(H, b)), candidates)
+  emin = minimum(energies)
+
+  # Degenerate feasible states: return their uniform superposition so sampling
+  # is unbiased (preserves the previous unconstrained n=1 behavior).
+  if length(candidates) == 2 && all(≈(emin), energies)
+    return emin, ITensorMPS.MPS(sites, ["full"])
+  end
+
+  i = argmin(energies)
+  return energies[i], candidates[i]
 end

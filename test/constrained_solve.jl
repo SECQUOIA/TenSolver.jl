@@ -131,6 +131,42 @@ end
     )
 
     assert_constrained_solution(E_poly, psi_poly, poly_obj, force_one, -2.0, [1])
+
+    # Regression: with a positive feasible objective, the projected Hamiltonian
+    # P'HP assigns zero energy to the (infeasible) rejected basis state, so the
+    # scalar path must still select the feasible one rather than the global
+    # minimum. Previously this threw a misleading "constraints may be infeasible"
+    # error even though the pinned assignment is feasible.
+    Qpos = fill(3.0, 1, 1)
+    force_one_qubo = AbstractConstraint[SumConstraint([1], [1], 1; relation=:(==))]
+    qubo_pos_obj(x) = dot(x, Qpos, x)
+
+    E_qpos, psi_qpos = minimize(
+      Qpos;
+      constraints=force_one_qubo,
+      iterations=3,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+    )
+
+    assert_constrained_solution(E_qpos, psi_qpos, qubo_pos_obj, force_one_qubo, 3.0, [1])
+
+    DynamicPolynomials.@polyvar w
+    p_pos = 2.0w + 0.0
+    force_one_poly = AbstractConstraint[ExactlyOneConstraint([1], 1)]
+    poly_pos_obj(x) = p_pos([w] => x)
+
+    E_ppos, psi_ppos = minimize(
+      p_pos;
+      constraints=force_one_poly,
+      iterations=3,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+    )
+
+    assert_constrained_solution(E_ppos, psi_ppos, poly_pos_obj, force_one_poly, 2.0, [1])
   end
 
   @testset "Callbacks and stats remain available" begin
