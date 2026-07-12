@@ -94,7 +94,7 @@ end
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
     for constraint in TEST_CONSTRAINTS
-      dfa = TenSolver.constraint_to_dfa(constraint, sites)
+      dfa = TenSolver.constraint_to_dfa(constraint, length(sites))
 
       for bits in all_bitstrings(sites)
         expected = is_feasible(collect(bits), constraint)
@@ -248,7 +248,7 @@ end
     ]
 
     for (constraint, sites) in cases
-      dfa = @inferred TenSolver.constraint_to_dfa(constraint, sites)
+      dfa = @inferred TenSolver.constraint_to_dfa(constraint, length(sites))
       @test length(dfa.states) == 2
 
       for bits in all_bitstrings(sites)
@@ -271,7 +271,7 @@ end
     ]
 
     for constraint in relation_cases
-      dfa = TenSolver.constraint_to_dfa(constraint, sites)
+      dfa = TenSolver.constraint_to_dfa(constraint, length(sites))
       @test length(dfa.states) <= 2
 
       for bits in all_bitstrings(sites)
@@ -287,7 +287,7 @@ end
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
     exact_one = ExactlyOneConstraint([1, 3], 1)
-    dfa = TenSolver.constraint_to_dfa(exact_one, sites)
+    dfa = TenSolver.constraint_to_dfa(exact_one, length(sites))
     H = assert_projection_matches_feasibility(exact_one, sites)
 
     @test length(dfa.states) == 2
@@ -305,7 +305,7 @@ end
     ]
 
     for constraint in constraints
-      dfa = TenSolver.constraint_to_dfa(constraint, sites)
+      dfa = TenSolver.constraint_to_dfa(constraint, length(sites))
       H = TenSolver.projection_mpo(constraint, sites)
 
       for bits in all_bitstrings(sites)

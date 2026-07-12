@@ -230,7 +230,7 @@ function minimize_mpo( H :: MPO
                      # Iteration callback
                      , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
-                     , permutation :: Vector{Int} = Int[]
+                     , permutation :: Vector{Int} = collect(1:length(H))
                      , feasible_sample_retries :: Integer = 100
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
@@ -243,11 +243,12 @@ function minimize_mpo( H :: MPO
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
-  solution_permutation = isempty(permutation) ? collect(1:length(sites)) : permutation
 
   # Constraints
-  constraints = constraint_reindex(collect(AbstractConstraint, constraints), permutation)
-  projections = map(device, projection_mpos(T, constraints, sites))
+  projections = map(
+    device,
+    projection_mpos(T, constraints, sites, permutation),
+  )
 
   # Hamiltonian construction
   H = device(H)
@@ -353,7 +354,7 @@ function minimize_mpo( H :: MPO
 
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, solution_permutation)
+  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation)
   optimal = obj(sample(dist))
   elapsed_time = time() - initial_time
 
