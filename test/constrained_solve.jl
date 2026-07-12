@@ -1,24 +1,4 @@
 import DynamicPolynomials
-const ConstrainedSolveDP = DynamicPolynomials
-
-function constrained_brute_force(obj, n, constraints)
-  best = Inf
-  best_x = nothing
-
-  for bits in Iterators.product(fill(0:1, n)...)
-    x = collect(bits)
-    is_feasible(x, constraints) || continue
-
-    value = obj(x)
-    if value < best
-      best = value
-      best_x = x
-    end
-  end
-
-  isnothing(best_x) && throw(ArgumentError("no feasible bitstring"))
-  return best, best_x
-end
 
 function assert_constrained_solution(E, psi, obj, constraints, expected_energy, expected_sample)
   x = TenSolver.sample(psi)
@@ -53,7 +33,7 @@ end
     Q = zeros(3, 3)
     l = [-3.0, -2.0, -1.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
-    expected_energy, expected_sample = constrained_brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
 
     E, psi = minimize(Q, l; qubo_kwargs...)
 
@@ -69,7 +49,7 @@ end
     ]
     l = [-3.0, -2.0, -1.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
-    expected_energy, expected_sample = constrained_brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
 
     E, psi = minimize(Q, l; preprocess=true, qubo_kwargs...)
 
@@ -101,10 +81,10 @@ end
   end
 
   @testset "Polynomial minimize supports constraints" begin
-    ConstrainedSolveDP.@polyvar y[1:3]
+    DynamicPolynomials.@polyvar y[1:3]
     p = -3.0y[1] - 2.0y[2] - 1.0y[3]
     obj(x) = p(y => x)
-    expected_energy, expected_sample = constrained_brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
 
     E, psi = minimize(
       p;
@@ -136,7 +116,7 @@ end
 
     assert_constrained_solution(E, psi, obj, force_zero, 0.0, [0])
 
-    ConstrainedSolveDP.@polyvar z
+    DynamicPolynomials.@polyvar z
     p = -2.0z + 0.0
     force_one = AbstractConstraint[ExactlyOneConstraint([1], 1)]
     poly_obj(x) = p([z] => x)

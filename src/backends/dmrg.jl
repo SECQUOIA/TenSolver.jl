@@ -41,6 +41,12 @@ where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |
 
 Backend-specific keyword arguments:
 
+- `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
+  Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
+  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled bitstring.
+  For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
+- `feasible_sample_retries :: Int` - Maximum attempts to draw a feasible bitstring from a constrained
+  final state before throwing a diagnostic error. Defaults to `100`.
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -75,7 +81,7 @@ function minimize(
     return minimize_mpo(H, c, obj; cutoff, permutation, kwargs...)
   end
 
-  tensor_constraints = tensor_order_constraints(constraint_vec, permutation)
+  tensor_constraints = constraint_reindex(constraint_vec, permutation)
   H_eff, initial_state, projections = constrained_projection_problem(T, H, tensor_constraints; cutoff)
 
   return minimize_mpo(
@@ -131,72 +137,14 @@ end
 #----------------------------------------------------------#
 
 function normalize_constraints(constraints)
-  constraints isa AbstractVector ||
-    throw(ArgumentError("`constraints` must be an AbstractVector of AbstractConstraint values"))
-
-  constraint_vec = AbstractConstraint[]
-  for (i, constraint) in pairs(constraints)
-    constraint isa AbstractConstraint ||
-      throw(ArgumentError("constraints[$i] must be an AbstractConstraint, got $(typeof(constraint))"))
-    push!(constraint_vec, constraint)
-  end
-
-  return constraint_vec
-end
-
-function tensor_order_constraints(constraints::AbstractVector{<:AbstractConstraint}, permutation)
-  is_identity_permutation(permutation) && return constraints
-
-  original_to_tensor = invperm(permutation)
-  return AbstractConstraint[
-    tensor_order_constraint(constraint, original_to_tensor)
-    for constraint in constraints
-  ]
-end
-
-function tensor_site(site, original_to_tensor)
-  checkbounds(original_to_tensor, site)
-  return original_to_tensor[site]
-end
-
-function tensor_order_constraint(constraint::SumConstraint, original_to_tensor)
-  sites = constraint_sites(constraint)
-  return SumConstraint(
-    [tensor_site(site, original_to_tensor) for site in sites],
-    [constraint.weights[site] for site in sites],
-    constraint.relation,
-    constraint.rhs,
-  )
-end
-
-function tensor_order_constraint(constraint::NotEqualsConstraint, original_to_tensor)
-  sites = constraint_sites(constraint)
-  return NotEqualsConstraint(
-    [tensor_site(site, original_to_tensor) for site in sites],
-    [constraint.values[site] for site in sites],
-  )
-end
-
-function tensor_order_constraint(constraint::ExactlyOneConstraint, original_to_tensor)
-  return ExactlyOneConstraint(
-    [tensor_site(site, original_to_tensor) for site in constraint.sites],
-    constraint.value,
-  )
-end
-
-function tensor_order_constraint(constraint::RelationConstraint, original_to_tensor)
-  return RelationConstraint(
-    tensor_site(constraint.left_site, original_to_tensor),
-    constraint.relation,
-    tensor_site(constraint.right_site, original_to_tensor),
-  )
+  return collect(AbstractConstraint, constraints)
 end
 
 function constrained_projection_problem(::Type{T}, H, constraints; cutoff) where {T}
   sites = ITensorMPS.siteinds(first, H; plev=0)
   projections = projection_mpos(T, constraints, sites)
   initial_state = constrained_initial_state(sites, projections; cutoff)
-  H_eff = is_zero_mpo(H) ? H : project_hamiltonian(H, projections; cutoff)
+  H_eff = is_zero_mpo(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
 
   @debug(
     "Constraint projection MPO construction finished",
@@ -210,7 +158,7 @@ end
 
 # Structural check for freshly tensorized zero objectives; this is not a
 # semantic zero-operator test after arbitrary MPO algebra.
-is_zero_mpo(H::MPO) = all(iszero, H)
+is_zero_mpo(H::MPO; cutoff=0) = norm(H) < cutoff
 
 function constrained_initial_state(sites, projections; cutoff)
   psi = ITensorMPS.MPS(sites, fill("full", length(sites)))
