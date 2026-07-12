@@ -9,24 +9,27 @@
 A QUBO solver using a brute force approach instead of Tensor networks.
 Despite being painfully slow, this is useful as a sanity check.
 """
-function brute_force(f::Function, T, n::Int64)
-  min_now  = +Inf
+function brute_force(T::Type, obj, n, constraints = AbstractConstraint[])
+  best = +Inf
   solution = Vector{T}[]
 
-  for i in 0:(2^n-1)
-    # The Boolean vector corresponding to the natural i
-    bs = [convert(T, parse(Bool, d)) for d in last(bitstring(i), n)]
-    z  = f(bs)
+  for bits in Iterators.product(fill(0:1, n)...)
+    x = collect(bits)
 
-    if z < min_now
-      solution = bs
-      min_now  = z
+    if is_feasible(x, constraints)
+      value = obj(x)
+      if value < best
+        best = value
+        solution = x
+      end
     end
-
   end
 
-  return min_now, solution
+  isempty(solution) && throw(ArgumentError("no feasible bitstring"))
+  return best, solution
 end
+
+brute_force(obj, n::Integer, constraints) = brute_force(Float64, obj, n, constraints)
 
 function mpo_matrix_element(H, sites, bra_bits, ket_bits)
   bra = ITensorMPS.MPS(sites, string.(bra_bits))

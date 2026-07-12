@@ -85,13 +85,6 @@ Keyword arguments:
 - `preprocess :: Bool` - Defaults to `false`. If `true`, permute QUBO variables before constructing the MPS Hamiltonian
   so coupled variables are closer in the one-dimensional tensor order. Samples are returned in the
   caller's original variable order. This is an experimental feature and may be subject to changes.
-- `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
-  Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
-  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled bitstring.
-  QUBO constraints are expressed in the caller's original variable order, even when `preprocess=true`.
-  Polynomial constraints are expressed in the effective variable order used by the polynomial Hamiltonian.
-- `feasible_sample_retries :: Int` - Maximum attempts to draw a feasible bitstring from a constrained
-  final state before throwing a diagnostic error. Defaults to `100`.
 - `on_iteration :: Function` - Called after each recorded iteration as
   `f(psi::MPS; iteration, objective, bond_dim, elapsed_time)`.
   `objective` is the expected objective function ⟨ψ|H|ψ⟩ at this iteration.
@@ -170,8 +163,7 @@ for maximization.
     max  b'Qb + l'b + c
     s.t. b_i in {0, 1}
 
-The same `constraints` and `feasible_sample_retries` keywords accepted by
-[`minimize`](@ref) can be used to solve constrained maximization problems.
+All keywords accepted by [`minimize`](@ref) can also be used for maximization problems.
 
 See also [`minimize`](@ref).
 """
