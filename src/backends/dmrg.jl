@@ -11,9 +11,6 @@ ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
 
 ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index) = (d = dim(s); fill(1/sqrt(d), d))
 
-expectation(H, x) = inner(x', H, x)
-variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
-
 #----------------------------------------------------------#
 # Interface                                                #
 #----------------------------------------------------------#
@@ -69,32 +66,13 @@ function minimize(
   ;
   cutoff=1e-8,
   preprocess::Bool=false,
-  constraints=AbstractConstraint[],
   kwargs...,
 ) where T
-  constraint_vec = normalize_constraints(constraints)
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
   H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
 
-  if isempty(constraint_vec)
-    return minimize_mpo(H, c, obj; cutoff, permutation, kwargs...)
-  end
-
-  tensor_constraints = constraint_reindex(constraint_vec, permutation)
-  H_eff, initial_state, projections = constrained_projection_problem(T, H, tensor_constraints; cutoff)
-
-  return minimize_mpo(
-    H_eff,
-    c,
-    obj;
-    cutoff,
-    permutation,
-    initial_state,
-    solution_projection=projections,
-    sample_validator=x -> is_feasible(x, constraint_vec),
-    kwargs...,
-  )
+  return minimize_mpo(H, c, obj ; cutoff, permutation, kwargs...)
 end
 
 """
@@ -107,28 +85,13 @@ Solve the Polynomial Unconstrained Binary Optimization problem
 
 See also [`maximize`](@ref).
 """
-function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, constraints=AbstractConstraint[], kwargs...) where T
-  constraint_vec = normalize_constraints(constraints)
-  H   = tensorize(p)
-  cte = constant(p)
-  vs = variables(p)
+function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
+  H      = tensorize(p)
+  cte    = constant_term(p)
+  vs     = variables(p)
+  obj(x) = p(vs => x)
 
-  if isempty(constraint_vec)
-    return minimize_mpo(H, cte, a -> p(vs => a); cutoff, kwargs...)
-  end
-
-  H_eff, initial_state, projections = constrained_projection_problem(T, H, constraint_vec; cutoff)
-
-  return minimize_mpo(
-    H_eff,
-    cte,
-    a -> p(vs => a);
-    cutoff,
-    initial_state,
-    solution_projection=projections,
-    sample_validator=x -> is_feasible(x, constraint_vec),
-    kwargs...,
-  )
+  return minimize_mpo(H, cte, obj ; cutoff, kwargs...)
 end
 
 
@@ -136,29 +99,27 @@ end
 # The actual computations                                  #
 #----------------------------------------------------------#
 
-function normalize_constraints(constraints)
-  return collect(AbstractConstraint, constraints)
-end
-
-function constrained_projection_problem(::Type{T}, H, constraints; cutoff) where {T}
-  sites = ITensorMPS.siteinds(first, H; plev=0)
-  projections = projection_mpos(T, constraints, sites)
-  initial_state = constrained_initial_state(sites, projections; cutoff)
-  H_eff = is_zero_mpo(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
-
-  @debug(
-    "Constraint projection MPO construction finished",
-    projection_max_bond=map(ITensorMPS.maxlinkdim, projections),
-    projected_hamiltonian_max_bond=ITensorMPS.maxlinkdim(H_eff),
-    projected_initial_max_bond=ITensorMPS.maxlinkdim(initial_state),
-  )
-
-  return H_eff, initial_state, projections
-end
-
 # Structural check for freshly tensorized zero objectives; this is not a
 # semantic zero-operator test after arbitrary MPO algebra.
 is_zero_mpo(H::MPO; cutoff=0) = norm(H) < cutoff
+
+expectation(H::MPO, x::MPS) = inner(x', H, x)
+
+variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
+
+# Strict upper triangular part of an array
+function upper_indices(a)
+  return (Tuple(ci)
+            for ci in CartesianIndices(size(a))
+            if issorted(Tuple(ci); lt = (<=)))
+end
+
+function constant_term(p::AbstractPolynomial{T}) where T
+  ts  = terms(p)
+  idx = findfirst(isconstant, ts)
+
+  return isnothing(idx) ? zero(T) : coefficient(ts[idx])
+end
 
 function constrained_initial_state(sites, projections; cutoff)
   psi = ITensorMPS.MPS(sites, fill("full", length(sites)))
@@ -179,39 +140,6 @@ function project_feasible_state(psi::MPS, projections; cutoff, error_type, messa
   end
 
   return normalize(projected)
-end
-
-function sampled_objective(dist, obj; sample_validator, feasible_sample_retries)
-  feasible_sample_retries >= 1 ||
-    throw(ArgumentError("`feasible_sample_retries` must be >= 1, got $feasible_sample_retries"))
-
-  if isnothing(sample_validator)
-    return obj(sample(dist))
-  end
-
-  local last_sample
-  for _ in 1:feasible_sample_retries
-    x = sample(dist)
-    sample_validator(x) && return obj(x)
-    last_sample = x
-  end
-
-  throw(ErrorException("failed to sample a feasible constrained solution after $(feasible_sample_retries) attempts; last sample was $(last_sample)"))
-end
-
-
-# Strict upper triangular part of an array
-function upper_indices(a)
-  return (Tuple(ci)
-            for ci in CartesianIndices(size(a))
-            if issorted(Tuple(ci); lt = (<=)))
-end
-
-function constant(p::AbstractPolynomial{T}) where T
-  ts  = terms(p)
-  idx = findfirst(isconstant, ts)
-
-  return isnothing(idx) ? zero(T) : coefficient(ts[idx])
 end
 
 
@@ -285,11 +213,11 @@ function single_variable_minimize(
   verbosity,
   on_iteration,
   callback_every,
-  sample_validator=nothing,
+  constraints,
 ) where {T}
   feasible_samples = [
     x for x in ([0], [1])
-    if isnothing(sample_validator) || sample_validator(x)
+    if is_feasible(x, constraints)
   ]
 
   if isempty(feasible_samples)
@@ -325,9 +253,10 @@ end
 function minimize_mpo( H :: MPO
                      , c :: T
                      , obj
-                     ; device     :: Function = cpu
-                     , cutoff     = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
-                     , verbosity  = 1
+                     ; device      = cpu
+                     , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
+                     , verbosity   = 1
+                     , constraints = AbstractConstraint[]
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
@@ -342,12 +271,9 @@ function minimize_mpo( H :: MPO
                      , eigsolve_maxiter   :: Int     = 2
                      , eigsolve_tol       :: Float64 = 1e-14
                      # Iteration callback
-                     , on_iteration :: Union{Nothing, Function} = nothing
+                     , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
                      , permutation :: Vector{Int} = Int[]
-                     , initial_state :: Union{Nothing, MPS} = nothing
-                     , solution_projection = nothing
-                     , sample_validator = nothing
                      , feasible_sample_retries :: Integer = 100
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
@@ -361,7 +287,18 @@ function minimize_mpo( H :: MPO
   # Quantization
   sites = ITensorMPS.siteinds(first, H; plev=0)
   solution_permutation = isempty(permutation) ? collect(1:length(sites)) : permutation
-  solution_projections = isnothing(solution_projection) ? nothing : map(device, projection_sequence(solution_projection))
+
+  # Constraints
+  constraints  = constraint_reindex(collect(AbstractConstraint, constraints), permutation)
+  projections  = projection_mpos(T, constraints, sites)
+  H_eff = is_zero_mpo(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
+
+  # Initial state
+  psi = if isempty(constraints)
+          ITensorMPS.random_mps(T, sites; linkdims=inidim)
+        else
+          constrained_initial_state(sites, projections; cutoff)
+        end
 
   if length(sites) == 1
     return single_variable_minimize(
@@ -373,18 +310,25 @@ function minimize_mpo( H :: MPO
       verbosity,
       on_iteration,
       callback_every,
-      sample_validator,
+      constraints
     )
   end
 
-  H     = device(H)
-  psi   = isnothing(initial_state) ? ITensorMPS.random_mps(T, sites; linkdims=inidim) : initial_state
+  @debug(
+    "Constraint projection MPO construction finished",
+    projection_max_bond = map(ITensorMPS.maxlinkdim, projections),
+    projected_hamiltonian_max_bond = ITensorMPS.maxlinkdim(H_eff),
+    projected_initial_max_bond = ITensorMPS.maxlinkdim(psi),
+  )
+
+  # GPU acceleration
+  H     = device(H_eff)
   psi   = device(psi)
+  projections = map(device, projections)
 
   @debug("MPO construction finished",
     time=(time() - initial_time),
     max_bond = ITensorMPS.maxlinkdim(H),
-    num_coefficients = sum(prod(m) for m in H),
   )
 
   iterlog_header(verbosity)
@@ -406,10 +350,10 @@ function minimize_mpo( H :: MPO
                       , eigsolve_verbosity = 0
                  )
 
-    if !isnothing(solution_projections)
+    if !isempty(projections)
       psi = project_feasible_state(
         psi,
-        solution_projections;
+        projections;
         cutoff,
         error_type=ErrorException,
         message="constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
@@ -463,12 +407,7 @@ function minimize_mpo( H :: MPO
   # The calculated energy has approximation errors compared to the true solution.
   # It makes more sense to sample a solution and calculate the true objective function applied to it.
   dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, solution_permutation)
-  optimal = sampled_objective(
-    dist,
-    obj;
-    sample_validator,
-    feasible_sample_retries,
-  )
+  optimal = obj(sample(dist))
   elapsed_time = time() - initial_time
 
   iterlog_footer(verbosity, optimal, elapsed_time)

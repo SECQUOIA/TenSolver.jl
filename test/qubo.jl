@@ -273,7 +273,7 @@
 
     # ~:~ Exact solution ~:~ #
 
-    e0, x0 = brute_force( Float64, x -> dot(x, Q, x), dim)
+    e0, x0 = brute_force(x -> dot(x, Q, x), dim)
     # Same minimum value
     @test e ≈ e0
     # Same solution
@@ -303,7 +303,7 @@
     end
 
     # ~:~ Exact solution ~:~ #
-    e0, x0 = brute_force(Float64, obj, dim)
+    e0, x0 = brute_force(obj, dim)
     # Same minimum value
     @test e ≈ e0
     # Solution is sampleable
