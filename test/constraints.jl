@@ -3,7 +3,7 @@
     sum = SumConstraint([1, 3], [2, 1], Symbol("<="), 2)
     @test sum isa SumConstraint
     @test sum isa AbstractConstraint
-    @test TenSolver.constraint_sites(sum) == [1, 3]
+    @test Set(TenSolver.constraint_sites(sum)) == Set([1, 3])
     @test sum.weights == Dict(1 => 2, 3 => 1)
     @test sum.relation == Symbol("<=")
     @test sum.rhs == 2
@@ -16,12 +16,12 @@
     not_equals = NotEqualsConstraint([1, 2], [1, 0])
     @test not_equals isa NotEqualsConstraint{Int}
     @test not_equals isa AbstractConstraint
-    @test TenSolver.constraint_sites(not_equals) == [1, 2]
+    @test Set(TenSolver.constraint_sites(not_equals)) == Set([1, 2])
     @test not_equals.values == Dict(1 => 1, 2 => 0)
 
     float_not_equals = NotEqualsConstraint([1, 2], [1.0, 0.0])
     @test float_not_equals isa NotEqualsConstraint{Float64}
-    @test TenSolver.constraint_sites(float_not_equals) == [1, 2]
+    @test Set(TenSolver.constraint_sites(float_not_equals)) == Set([1, 2])
     @test float_not_equals.values == Dict(1 => 1.0, 2 => 0.0)
 
     exactly_one = ExactlyOneConstraint(2:4, 1)

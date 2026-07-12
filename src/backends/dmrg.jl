@@ -247,7 +247,7 @@ function minimize_mpo( H :: MPO
   # Constraints
   projections = map(
     device,
-    projection_mpos(T, constraints, sites, permutation),
+    projection_mpos(T, constraints, sites; permutation),
   )
 
   # Hamiltonian construction
@@ -262,11 +262,7 @@ function minimize_mpo( H :: MPO
     projection_max_bond = map(ITensorMPS.maxlinkdim, projections),
     projected_hamiltonian_max_bond = ITensorMPS.maxlinkdim(H),
     projected_initial_max_bond = ITensorMPS.maxlinkdim(psi),
-  )
-
-  @debug("MPO construction finished",
     time=(time() - initial_time),
-    max_bond = ITensorMPS.maxlinkdim(H),
   )
 
   iterlog_header(verbosity)
