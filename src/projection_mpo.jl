@@ -88,6 +88,17 @@ end
 DFA(; states, alphabet, initial, accepting, transitions) =
   DFA(states, alphabet, initial, accepting, transitions)
 
+function permute_dfa!(dfa::DFA, permutation::AbstractVector{<:Integer})
+  length(permutation) == length(dfa.transitions) ||
+    throw(DimensionMismatch("DFA permutation length must match the number of transition tables"))
+
+  reordered = dfa.transitions[permutation]
+  for i in eachindex(reordered)
+    dfa.transitions[i] = reordered[i]
+  end
+
+  return dfa
+end
 
 function tensor_from_nonzeros(::Type{T}, inds, nonzeros) where {T}
   ind_tuple = Tuple(inds)
@@ -237,17 +248,16 @@ For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
 function projection_mpo end
 
 
-function projection_mpo(
-  ::Type{T},
-  constraint::AbstractConstraint,
-  sites,
-  permutation = 1:length(sites),
-) where {T}
-  return dfa_to_mpo(T, constraint_to_dfa(constraint, invperm(permutation)), sites)
+function projection_mpo(::Type{T}
+                       , constraint::AbstractConstraint
+                       , sites
+                       ; permutation = 1:length(sites)) where {T}
+  dfa = permute_dfa!(constraint_to_dfa(constraint, length(sites)), permutation)
+  return dfa_to_mpo(T, dfa, sites)
 end
 
-projection_mpo(constraint::AbstractConstraint, args...) =
-  projection_mpo(Float64, constraint, args...)
+projection_mpo(constraint::AbstractConstraint, sites; kws...) =
+  projection_mpo(Float64, constraint, sites; kws...)
 
 """
     projection_mpos([T], constraints, sites)
@@ -259,12 +269,12 @@ This is a convenience wrapper around [`projection_mpo`](@ref).
 `T` controls the numeric
 element type of the assembled MPO tensors.
 """
-function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, args...) where {T}
-  return [projection_mpo(T, constraint, args...) for constraint in constraints]
+function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites; kws...) where {T}
+  return [projection_mpo(T, constraint, sites; kws...) for constraint in constraints]
 end
 
-projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, args...) =
-  projection_mpos(Float64, constraints, args...)
+projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites; kws...) =
+  projection_mpos(Float64, constraints, sites; kws...)
 
 """
     project_hamiltonian(H, projections; cutoff=1e-8, kwargs...)
@@ -468,20 +478,13 @@ end
 ##############################################
 
 """
-    constraint_to_dfa(constraint, indices)
+    constraint_to_dfa(constraint, n)
 
-Build a DFA for `constraint` over `sites`.
-
-The argument `indices` is a vector describing the mapping
-variable indices, as specified in the constraints, to tensor site indices.
+Build a [`DFA`](@ref) recognizing `constraint` with transitions for `n` steps.
 """
 function constraint_to_dfa end
 
-function constraint_to_dfa(constraint::AbstractConstraint, nsites::Integer)
-  return constraint_to_dfa(constraint, collect(1:nsites))
-end
-
-function constraint_to_dfa(constraint::SumConstraint{S}, indices::Vector{Int}) where {S}
+function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer) where {S}
   (; weights, rhs, relation) = constraint
 
   beyond    = rhs + one(S)
@@ -491,13 +494,12 @@ function constraint_to_dfa(constraint::SumConstraint{S}, indices::Vector{Int}) w
   accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, length(indices))
+  transitions = fill(id_dict, nsites)
 
   for site in constraint_sites(constraint)
-    tensor_site = indices[site]
     weight = weights[site]
 
-    transitions[tensor_site] = Dict(
+    transitions[site] = Dict(
       (q, a) => min(q + weight * a, beyond)
       for q in states, a in alphabet
     )
@@ -506,20 +508,19 @@ function constraint_to_dfa(constraint::SumConstraint{S}, indices::Vector{Int}) w
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, indices::Vector{Int}) where {S}
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Int) where {S}
   states    = S[0, 1]
   alphabet  = S[0, 1]
   initial   = one(S)
   accepting = Set([zero(S)])
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, length(indices))
+  transitions = fill(id_dict, nsites)
 
   for site in constraint_sites(constraint)
-    tensor_site = indices[site]
     target = constraint.values[site]
 
-    transitions[tensor_site] = Dict(
+    transitions[site] = Dict(
       (q, a) => S(a) == target ? q : zero(S)
       for q in states, a in alphabet
     )
@@ -528,7 +529,7 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, indices::Vector{I
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, indices::Vector{Int}) where {S}
+function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer) where {S}
   target = constraint.value
   not_seen  = zero(S)
   seen_once = one(S)
@@ -539,11 +540,10 @@ function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, indices::Vector{
   accepting = Set([seen_once])
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, length(indices))
+  transitions = fill(id_dict, nsites)
 
   for site in constraint_sites(constraint)
-    tensor_site = indices[site]
-    transitions[tensor_site] = Dict(
+    transitions[site] = Dict(
       (q, a) => (a == target ? seen_once : q)
       for q in states, a in alphabet
       if !(q == seen_once && a == target)
@@ -553,9 +553,10 @@ function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, indices::Vector{
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::RelationConstraint, indices::Vector{Int})
-  left  = indices[constraint.left_site]
-  right = indices[constraint.right_site]
+function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer)
+  left  = constraint.left_site
+  right = constraint.right_site
+
   first_site    = min(left, right)
   second_site   = max(left, right)
   left_is_first = left == first_site
@@ -566,7 +567,7 @@ function constraint_to_dfa(constraint::RelationConstraint, indices::Vector{Int})
   accepting = Set(states)
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, length(indices))
+  transitions = fill(id_dict, nsites)
 
   transitions[first_site] = Dict(
     (q, a) => a for q in states, a in alphabet
