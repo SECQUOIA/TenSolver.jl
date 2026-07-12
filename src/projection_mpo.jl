@@ -237,12 +237,17 @@ For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
 function projection_mpo end
 
 
-function projection_mpo(::Type{T}, constraint::AbstractConstraint, sites) where {T}
-  return dfa_to_mpo(T, constraint_to_dfa(constraint, sites), sites)
+function projection_mpo(
+  ::Type{T},
+  constraint::AbstractConstraint,
+  sites,
+  permutation = 1:length(sites),
+) where {T}
+  return dfa_to_mpo(T, constraint_to_dfa(constraint, invperm(permutation)), sites)
 end
 
-projection_mpo(constraint::AbstractConstraint, sites) =
-  projection_mpo(Float64, constraint, sites)
+projection_mpo(constraint::AbstractConstraint, args...) =
+  projection_mpo(Float64, constraint, args...)
 
 """
     projection_mpos([T], constraints, sites)
@@ -254,12 +259,12 @@ This is a convenience wrapper around [`projection_mpo`](@ref).
 `T` controls the numeric
 element type of the assembled MPO tensors.
 """
-function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites) where {T}
-  return [projection_mpo(T, constraint, sites) for constraint in constraints]
+function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, args...) where {T}
+  return [projection_mpo(T, constraint, args...) for constraint in constraints]
 end
 
-projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites) =
-  projection_mpos(Float64, constraints, sites)
+projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, args...) =
+  projection_mpos(Float64, constraints, args...)
 
 """
     project_hamiltonian(H, projections; cutoff=1e-8, kwargs...)
@@ -445,16 +450,7 @@ function projection_entries_to_dfa(entries, num_sites::Integer, constrained_site
   return DFA(states, [0, 1], 1, accepting, transitions)
 end
 
-##############################################
-# Constraint to DFA
-##############################################
-
-"""
-    constraint_to_dfa(constraint, sites)
-
-Build a DFA for `constraint` over `sites`.
-"""
-function constraint_to_dfa(constraint::AbstractConstraint, sites)
+function default_constraint_to_dfa(constraint::AbstractConstraint, sites)
   validate_projection_sites(sites)
 
   cs = constraint_sites(constraint)
@@ -467,60 +463,74 @@ function constraint_to_dfa(constraint::AbstractConstraint, sites)
   )
 end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, sites) where {S}
+##############################################
+# Constraint to DFA
+##############################################
+
+"""
+    constraint_to_dfa(constraint, indices)
+
+Build a DFA for `constraint` over `sites`.
+
+The argument `indices` is a vector describing the mapping
+variable indices, as specified in the constraints, to tensor site indices.
+"""
+function constraint_to_dfa end
+
+function constraint_to_dfa(constraint::AbstractConstraint, nsites::Integer)
+  return constraint_to_dfa(constraint, collect(1:nsites))
+end
+
+function constraint_to_dfa(constraint::SumConstraint{S}, indices::Vector{Int}) where {S}
   (; weights, rhs, relation) = constraint
 
   beyond    = rhs + one(S)
   states    = zero(S):beyond
-  alphabet  = [0, 1]
+  alphabet  = S[0, 1]
+  initial   = zero(S)
   accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
-  transitions = [
-    let weight = get(weights, i, zero(S))
-      Dict(
-        (q, a) => min(q + weight * S(a), beyond)
-        for q in states, a in alphabet
-      )
-    end
-    for i in eachindex(sites)
-  ]
+  id_dict = Dict((q, a) => q for q in states for a in alphabet)
+  transitions = fill(id_dict, length(indices))
 
-  return DFA(states, alphabet, zero(S), accepting, transitions)
-end
+  for site in constraint_sites(constraint)
+    tensor_site = indices[site]
+    weight = weights[site]
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, sites) where {S}
-  validate_projection_sites(sites)
-
-  cs = constraint_sites(constraint)
-  validate_constraint_site_bounds(cs, sites)
-
-  states    = S.([0, 1])
-  alphabet  = [0, 1]
-  initial   = 1
-  accepting = Set(0)
-
-  transitions = [
-    let target = get(constraint.values, i, nothing)
-      Dict{Tuple{Int,Int},Int}(
-        (q, a) => isnothing(target) || S(a) == target ? q : 0
-        for q in states, a in alphabet
-      )
-    end
-    for i in eachindex(sites)
-  ]
+    transitions[tensor_site] = Dict(
+      (q, a) => min(q + weight * a, beyond)
+      for q in states, a in alphabet
+    )
+  end
 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, sites) where {S}
-  validate_projection_sites(sites)
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, indices::Vector{Int}) where {S}
+  states    = S[0, 1]
+  alphabet  = S[0, 1]
+  initial   = one(S)
+  accepting = Set([zero(S)])
 
-  cs = constraint_sites(constraint)
-  validate_constraint_site_bounds(cs, sites)
+  id_dict = Dict((q, a) => q for q in states for a in alphabet)
+  transitions = fill(id_dict, length(indices))
 
+  for site in constraint_sites(constraint)
+    tensor_site = indices[site]
+    target = constraint.values[site]
+
+    transitions[tensor_site] = Dict(
+      (q, a) => S(a) == target ? q : zero(S)
+      for q in states, a in alphabet
+    )
+  end
+
+  return DFA(states, alphabet, initial, accepting, transitions)
+end
+
+function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, indices::Vector{Int}) where {S}
   target = constraint.value
-  constrained_sites = Set(cs)
-  not_seen = zero(S)
+  not_seen  = zero(S)
   seen_once = one(S)
 
   states    = S[not_seen, seen_once]
@@ -528,54 +538,46 @@ function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, sites) where {S}
   initial   = not_seen
   accepting = Set([seen_once])
 
-  transitions = [
-    if i in constrained_sites
-      Dict{Tuple{Int,Int},Int}(
-        (q, a) => (a == target ? seen_once : q)
-        for q in states, a in alphabet
-        if !(q == seen_once && a == target)
-      )
-    else
-      Dict{Tuple{Int,Int},Int}((q, a) => q for q in states, a in alphabet)
-    end
-    for i in eachindex(sites)
-  ]
+  id_dict = Dict((q, a) => q for q in states for a in alphabet)
+  transitions = fill(id_dict, length(indices))
+
+  for site in constraint_sites(constraint)
+    tensor_site = indices[site]
+    transitions[tensor_site] = Dict(
+      (q, a) => (a == target ? seen_once : q)
+      for q in states, a in alphabet
+      if !(q == seen_once && a == target)
+    )
+  end
 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::RelationConstraint, sites)
-  validate_projection_sites(sites)
-
-  cs = constraint_sites(constraint)
-  validate_constraint_site_bounds(cs, sites)
-
-  (; left_site, relation, right_site) = constraint
-  first_site    = min(left_site, right_site)
-  second_site   = max(left_site, right_site)
-  left_is_first = left_site == first_site
+function constraint_to_dfa(constraint::RelationConstraint, indices::Vector{Int})
+  left  = indices[constraint.left_site]
+  right = indices[constraint.right_site]
+  first_site    = min(left, right)
+  second_site   = max(left, right)
+  left_is_first = left == first_site
 
   states    = [0, 1]
   alphabet  = [0, 1]
   initial   = 1
   accepting = Set(states)
 
-  transitions = [
-    if i == first_site
-      Dict{Tuple{Int,Int},Int}((q, a) => a for q in states, a in alphabet)
-    elseif i == second_site
-      Dict{Tuple{Int,Int},Int}(
-        (q, a) => q
-        for q in states, a in alphabet
-        if left_is_first ?
-          relation_holds(q, relation, a) :
-          relation_holds(a, relation, q)
-      )
-    else
-      Dict{Tuple{Int,Int},Int}((q, a) => q for q in states, a in alphabet)
-    end
-    for i in eachindex(sites)
-  ]
+  id_dict = Dict((q, a) => q for q in states for a in alphabet)
+  transitions = fill(id_dict, length(indices))
+
+  transitions[first_site] = Dict(
+    (q, a) => a for q in states, a in alphabet
+  )
+
+  transitions[second_site] = Dict(
+    (q, a) => q
+    for q in states, a in alphabet
+    if left_is_first ? relation_holds(q, constraint.relation, a) :
+                       relation_holds(a, constraint.relation, q)
+  )
 
   return DFA(states, alphabet, initial, accepting, transitions)
 end

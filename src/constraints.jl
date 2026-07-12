@@ -221,11 +221,11 @@ function constraint_sites end
 
 # TODO: Why do we always have to sort it?
 function constraint_sites(constraint::SumConstraint)
-  return sort!(collect(keys(constraint.weights)))
+  return keys(constraint.weights)
 end
 
 function constraint_sites(constraint::NotEqualsConstraint)
-  return sort!(collect(keys(constraint.values)))
+  return keys(constraint.values)
 end
 
 function constraint_sites(constraint::ExactlyOneConstraint)
@@ -234,59 +234,6 @@ end
 
 function constraint_sites(constraint::RelationConstraint)
   return [constraint.left_site, constraint.right_site]
-end
-
-
-function tensor_site(site, original_to_tensor)
-  checkbounds(original_to_tensor, site)
-  return original_to_tensor[site]
-end
-
-#----------------------------------------------
-# Reindexing and site permutation
-#----------------------------------------------
-
-function constraint_reindex(constraint::SumConstraint, original_to_tensor)
-  sites = constraint_sites(constraint)
-  return SumConstraint(
-    [original_to_tensor[site] for site in sites],
-    [constraint.weights[site] for site in sites],
-    constraint.relation,
-    constraint.rhs,
-  )
-end
-
-function constraint_reindex(constraint::NotEqualsConstraint, original_to_tensor)
-  sites = constraint_sites(constraint)
-  return NotEqualsConstraint(
-    [original_to_tensor[site] for site in sites],
-    [constraint.values[site] for site in sites],
-  )
-end
-
-function constraint_reindex(constraint::ExactlyOneConstraint, original_to_tensor)
-  return ExactlyOneConstraint(
-    [original_to_tensor[site] for site in constraint.sites],
-    constraint.value,
-  )
-end
-
-function constraint_reindex(constraint::RelationConstraint, original_to_tensor)
-  return RelationConstraint(
-    original_to_tensor[constraint.left_site],
-    constraint.relation,
-    original_to_tensor[constraint.right_site],
-  )
-end
-
-function constraint_reindex(constraints::AbstractVector{<:AbstractConstraint}, permutation)
-  is_identity_permutation(permutation) && return constraints
-
-  original_to_tensor = invperm(permutation)
-  return AbstractConstraint[
-    constraint_reindex(constraint, original_to_tensor)
-    for constraint in constraints
-  ]
 end
 
 #----------------------------------------------------------#
