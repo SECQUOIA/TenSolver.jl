@@ -1,5 +1,5 @@
 import ITensors: inner
-import ITensorMPS: MPS, MPO, dmrg, OpSum, @OpName_str, @SiteType_str, @StateName_str, dim
+import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str, dim
 
 import ITensors, ITensorMPS
 
@@ -88,8 +88,8 @@ See also [`maximize`](@ref).
 function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
   H      = tensorize(p)
   cte    = constant_term(p)
-  vs     = variables(p)
-  obj(x) = p(vs => x)
+  vs     = effective_variables(p)
+  obj(x) = real(p(vs => x))
 
   return minimize_mpo(H, cte, obj ; cutoff, kwargs...)
 end
@@ -121,15 +121,19 @@ function constant_term(p::AbstractPolynomial{T}) where T
   return isnothing(idx) ? zero(T) : coefficient(ts[idx])
 end
 
-function constrained_initial_state(sites, projections; cutoff)
-  psi = ITensorMPS.MPS(sites, fill("full", length(sites)))
-  return project_feasible_state(
-    psi,
-    projections;
-    cutoff,
-    error_type=ArgumentError,
-    message="constraints define an empty feasible subspace; no binary vector satisfies all constraints",
-  )
+function constrained_initial_state(T, sites, projections; cutoff, inidim)
+  if isempty(projections)
+    return ITensorMPS.random_mps(T, sites; linkdims=inidim)
+  else
+    psi = ITensorMPS.random_mps(T, sites; linkdims=inidim)
+    return project_feasible_state(
+      psi,
+      projections;
+      cutoff,
+      error_type=ArgumentError,
+      message="constraints define an empty feasible subspace; no binary vector satisfies all constraints",
+    )
+  end
 end
 
 function project_feasible_state(psi::MPS, projections; cutoff, error_type, message)
@@ -203,53 +207,6 @@ function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-
-function single_variable_minimize(
-  ::Type{T},
-  sites,
-  obj,
-  initial_time;
-  device,
-  verbosity,
-  on_iteration,
-  callback_every,
-  constraints,
-) where {T}
-  feasible_samples = [
-    x for x in ([0], [1])
-    if is_feasible(x, constraints)
-  ]
-
-  if isempty(feasible_samples)
-    throw(ArgumentError("constraints define an empty feasible subspace; no binary vector satisfies all constraints"))
-  end
-
-  feasible_values = [obj(x) for x in feasible_samples]
-
-  energy, state = if length(feasible_samples) == 2 && feasible_values[1] == feasible_values[2]
-    (T(feasible_values[1]), ["full"])
-  else
-    idx = argmin(feasible_values)
-    (T(feasible_values[idx]), string.(feasible_samples[idx]))
-  end
-
-  psi = ITensorMPS.MPS(sites, state) |> device
-  elapsed_time = time() - initial_time
-  bond_dim = ITensorMPS.maxlinkdim(psi)
-
-  iterlog_header(verbosity)
-  iterlog_iteration(verbosity, 1, energy, bond_dim, 0.0, elapsed_time)
-
-  dist = Solution{T}(psi, T[energy], Int[bond_dim], Float64[elapsed_time])
-  if !isnothing(on_iteration) && 1 % callback_every == 0
-    on_iteration(psi; iteration=1, objective=energy, bond_dim, elapsed_time)
-  end
-
-  iterlog_footer(verbosity, energy, elapsed_time)
-
-  return energy, dist
-end
-
 function minimize_mpo( H :: MPO
                      , c :: T
                      , obj
@@ -289,42 +246,22 @@ function minimize_mpo( H :: MPO
   solution_permutation = isempty(permutation) ? collect(1:length(sites)) : permutation
 
   # Constraints
-  constraints  = constraint_reindex(collect(AbstractConstraint, constraints), permutation)
-  projections  = projection_mpos(T, constraints, sites)
-  H_eff = is_zero_mpo(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
+  constraints = constraint_reindex(collect(AbstractConstraint, constraints), permutation)
+  projections = map(device, projection_mpos(T, constraints, sites))
+
+  # Hamiltonian construction
+  H = device(H)
+  H = is_zero_mpo(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
 
   # Initial state
-  psi = if isempty(constraints)
-          ITensorMPS.random_mps(T, sites; linkdims=inidim)
-        else
-          constrained_initial_state(sites, projections; cutoff)
-        end
-
-  if length(sites) == 1
-    return single_variable_minimize(
-      T,
-      sites,
-      obj,
-      initial_time;
-      device,
-      verbosity,
-      on_iteration,
-      callback_every,
-      constraints
-    )
-  end
+  psi = constrained_initial_state(T, sites, projections; cutoff, inidim) |> device
 
   @debug(
     "Constraint projection MPO construction finished",
     projection_max_bond = map(ITensorMPS.maxlinkdim, projections),
-    projected_hamiltonian_max_bond = ITensorMPS.maxlinkdim(H_eff),
+    projected_hamiltonian_max_bond = ITensorMPS.maxlinkdim(H),
     projected_initial_max_bond = ITensorMPS.maxlinkdim(psi),
   )
-
-  # GPU acceleration
-  H     = device(H_eff)
-  psi   = device(psi)
-  projections = map(device, projections)
 
   @debug("MPO construction finished",
     time=(time() - initial_time),
@@ -336,7 +273,7 @@ function minimize_mpo( H :: MPO
   local energy, psi
 
   for i in Iterators.countfrom(1)
-    energy, psi = dmrg(H, device(psi)
+    energy, psi = groundstate(H, device(psi)
                       ; nsweeps     = 1
                       , ishermitian = true
                       , outputlevel = 0
@@ -399,7 +336,10 @@ function minimize_mpo( H :: MPO
       @debug "Stopping: maximum time reached" iteration=i limit=time_limit time=elapsed_time
       break
     elseif var < vtol
-      @debug "Stopping: variance below tolerance" variance=var tolerance=vtol
+      @debug "Stopping: variance below tolerance" iteration=i variance=var tolerance=vtol
+      break
+    elseif length(H) == 1
+      @debug "Stopping: solver is exact for n=1" iteration=i
       break
     end
   end
@@ -413,4 +353,25 @@ function minimize_mpo( H :: MPO
   iterlog_footer(verbosity, optimal, elapsed_time)
 
   return optimal, dist
+end
+
+function groundstate(H::MPO, psi0::MPS; kwargs...)
+  if length(psi0) != 1
+    return ITensorMPS.dmrg(H, psi0; kwargs...)
+  else
+    sites = ITensorMPS.siteinds(psi0)
+    b0 = ITensorMPS.MPS(sites, ["0"])
+    b1 = ITensorMPS.MPS(sites, ["1"])
+
+    e0 = real(expectation(H, b0))
+    e1 = real(expectation(H, b1))
+
+    return if e0 ≈ e1
+      e0, ITensorMPS.MPS(sites, ["full"])
+    elseif e0 < e1
+      e0, b0
+    else
+      e1, b1
+    end
+  end
 end
