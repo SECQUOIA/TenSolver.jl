@@ -209,7 +209,7 @@ function ising_to_qubo(form::QUBOTools.AbstractForm)
   return drop_form_zeros!(QUBOTools.cast(QUBOTools.BoolDomain, form))
 end
 
-ising_to_qubo(model::IsingModel) = ising_to_qubo(_ising_form(model.J, model.h, model.offset))
+ising_to_qubo(model::IsingModel) = ising_to_qubo(ising_form(model.J, model.h, model.offset))
 
 function ising_to_qubo(J::AbstractMatrix, h::AbstractVector, offset::Real=0)
   return ising_to_qubo(ising_form(J, h, offset))
