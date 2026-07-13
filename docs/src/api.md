@@ -21,6 +21,7 @@ TenSolver.normalize_backend
 
 ```@docs
 TenSolver.Solution
+TenSolver.is_infeasible
 ```
 
 ## Sampling Functions

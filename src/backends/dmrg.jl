@@ -42,6 +42,8 @@ Backend-specific keyword arguments:
   Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
   a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled bitstring.
   For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
+  When the constraints admit no binary vector at all, the solve does not error: it logs a warning and
+  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_infeasible`](@ref)).
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -119,29 +121,26 @@ function constant_term(p::AbstractPolynomial{T}) where T
   return isnothing(idx) ? zero(T) : coefficient(ts[idx])
 end
 
+# Returns `nothing` when the projected state has no feasible amplitude,
+# which at the initial state proves the constraints are infeasible.
 function constrained_initial_state(T, sites, projections; cutoff, inidim)
-  if isempty(projections)
-    return ITensorMPS.random_mps(T, sites; linkdims=inidim)
-  else
-    psi = ITensorMPS.random_mps(T, sites; linkdims=inidim)
-    return project_feasible_state(
-      psi,
-      projections;
-      cutoff,
-      error_type=ArgumentError,
-      message="constraints define an empty feasible subspace; no binary vector satisfies all constraints",
-    )
-  end
+  psi = ITensorMPS.random_mps(T, sites; linkdims=inidim)
+  return isempty(projections) ? psi : project_feasible_state(psi, projections; cutoff)
 end
 
-function project_feasible_state(psi::MPS, projections; cutoff, error_type, message)
+function project_feasible_state(psi::MPS, projections; cutoff)
   projected = project_state(psi, projections; cutoff)
+  return iszero(norm(projected)) ? nothing : normalize(projected)
+end
 
-  if iszero(norm(projected))
-    throw(error_type(message))
-  end
-
-  return normalize(projected)
+# Infeasibility is a solver outcome, not an argument error: report it as a
+# status like other optimization packages (objective +Inf, empty Solution),
+# so it maps onto MOI.INFEASIBLE at the JuMP layer. See the discussion in #94.
+function infeasible_result(::Type{T}, verbosity, initial_time) where {T}
+  @warn "constraints define an empty feasible subspace; no binary vector satisfies all constraints"
+  F = float(T)
+  iterlog_footer(verbosity, F(Inf), time() - initial_time)
+  return F(Inf), infeasible_solution(F)
 end
 
 
@@ -250,7 +249,9 @@ function minimize_mpo( H :: MPO
   H = is_zero_mpo(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
 
   # Initial state
-  psi = constrained_initial_state(T, sites, projections; cutoff, inidim) |> device
+  psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
+  isnothing(psi) && return infeasible_result(T, verbosity, initial_time)
+  psi = device(psi)
 
   @debug(
     "Constraint projection MPO construction finished",
@@ -280,6 +281,9 @@ function minimize_mpo( H :: MPO
                       , eigsolve_verbosity = 0
                  )
 
+    # The n=1 fast path signals proven infeasibility by returning no state.
+    isnothing(psi) && return infeasible_result(T, verbosity, initial_time)
+
     # Re-project each iteration so the sampled bitstring is guaranteed feasible.
     # In exact arithmetic the sweep keeps a feasible start feasible (the local
     # eigensolver only ever applies P'HP to a feasible state), but the injected
@@ -287,13 +291,13 @@ function minimize_mpo( H :: MPO
     # subspace. That subspace is the kernel of the projections, where P'HP has
     # zero energy, so the leaked amplitude is never penalized back out on its own.
     if !isempty(projections)
-      psi = project_feasible_state(
-        psi,
-        projections;
-        cutoff,
-        error_type=ErrorException,
-        message="constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
+      projected = project_feasible_state(psi, projections; cutoff)
+      # Unlike the initial state, a mid-run collapse does not prove
+      # infeasibility (the start was feasible), so it stays an error.
+      isnothing(projected) && error(
+        "constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
       )
+      psi = projected
       energy = expectation(H, psi)
     end
 
@@ -373,9 +377,8 @@ function groundstate(H::MPO, psi0::MPS; projections=(), cutoff=1e-8, kwargs...)
       b -> !iszero(norm(project_state(b, projections; cutoff))),
       candidates,
     )
-    isempty(candidates) && throw(ArgumentError(
-      "constraints define an empty feasible subspace; no binary vector satisfies all constraints",
-    ))
+    # Proven infeasibility; the caller turns this into a status return.
+    isempty(candidates) && return Inf, nothing
   end
 
   energies = map(b -> expectation(H, b), candidates)

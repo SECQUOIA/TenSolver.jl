@@ -216,15 +216,60 @@ end
     end
   end
 
-  @testset "Infeasible constraints fail clearly" begin
+  @testset "Infeasible constraints report status, not exception" begin
     impossible = AbstractConstraint[SumConstraint([1, 2], [1, 1], 3; relation=:(==))]
-    err = try
-      minimize(zeros(2, 2); constraints=impossible, verbosity=0)
-    catch err
-      err
-    end
 
-    @test err isa ArgumentError
-    @test occursin("empty feasible subspace", sprint(showerror, err))
+    E, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
+      zeros(2, 2);
+      constraints=impossible,
+      verbosity=0,
+    )
+
+    @test E == Inf
+    @test is_infeasible(psi)
+    @test isempty(psi.energies)
+    @test isempty(psi.bond_dims)
+    @test isempty(psi.elapsed_times)
+    # The solve reports; querying a nonexistent solution throws.
+    @test_throws ArgumentError TenSolver.sample(psi)
+    @test [0, 0] ∉ psi
+
+    # The supremum over an empty feasible set is -Inf.
+    Emax, psimax = @test_logs (:warn, r"empty feasible subspace") maximize(
+      zeros(2, 2);
+      constraints=impossible,
+      verbosity=0,
+    )
+
+    @test Emax == -Inf
+    @test is_infeasible(psimax)
+  end
+
+  @testset "Infeasible single-variable solves report status" begin
+    impossible = AbstractConstraint[SumConstraint([1], [1], 2; relation=:(==))]
+
+    E, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
+      ones(1, 1);
+      constraints=impossible,
+      verbosity=0,
+    )
+
+    @test E == Inf
+    @test is_infeasible(psi)
+    @test_throws ArgumentError TenSolver.sample(psi)
+  end
+
+  @testset "Infeasible solutions map to MOI.INFEASIBLE" begin
+    impossible = AbstractConstraint[SumConstraint([1, 2], [1, 1], 3; relation=:(==))]
+    _, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
+      zeros(2, 2);
+      constraints=impossible,
+      verbosity=0,
+    )
+
+    termination_status, status = TenSolver.tensolver_status(psi; iterations=10, time_limit=Inf)
+
+    @test termination_status == TenSolver.MOI.INFEASIBLE
+    @test status == "infeasible"
   end
 end
