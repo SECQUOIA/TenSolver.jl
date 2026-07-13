@@ -181,7 +181,7 @@ function _metadata(backend::PEPSBackend, records, raw_results, failures)
   )
 end
 
-function TenSolver._solve_ising(backend::PEPSBackend, model::IsingModel; cutoff = nothing, verbosity = 1, kwargs...)
+function TenSolver.solve_ising(backend::PEPSBackend, model::IsingModel; cutoff = nothing, verbosity = 1, kwargs...)
   if !isempty(kwargs)
     names = join(string.(keys(kwargs)), ", ")
     throw(ArgumentError("Unsupported PEPS backend keyword(s): $names. Configure PEPSBackend instead."))

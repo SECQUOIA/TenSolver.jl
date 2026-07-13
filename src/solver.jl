@@ -254,6 +254,24 @@ function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
   throw(backend_error(backend))
 end
 
+function minimize(
+  backend::PEPSBackend,
+  Q::AbstractMatrix{T},
+  l::Union{AbstractVector{T}, Nothing}=nothing,
+  c::T=zero(T)
+  ;
+  cutoff=1e-8,
+  preprocess::Bool=false,
+  kwargs...,
+) where T
+  preprocess && throw(ArgumentError("PEPSBackend does not support preprocess=true because the topology fixes the variable order. Use backend = :dmrg for preprocessed QUBO solves."))
+  return solve_ising(backend, IsingModel(qubo_to_ising(Q, l, c)); cutoff, kwargs...)
+end
+
+function minimize(backend::PEPSBackend, p::AbstractPolynomial; kwargs...)
+  throw(ArgumentError("PEPSBackend does not support polynomial inputs directly. Convert to a structured QUBO or call solve_ising with a supported topology."))
+end
+
 """
     solve_ising(model; backend = DMRGBackend(), kwargs...)
     solve_ising(J, h[, offset]; backend = DMRGBackend(), kwargs...)
@@ -268,20 +286,20 @@ this boundary directly.
 function solve_ising end
 
 function solve_ising(model::IsingModel; backend=default_backend, kwargs...)
-  return _solve_ising(_normalize_backend(backend), model; kwargs...)
+  return solve_ising(normalize_backend(backend), model; kwargs...)
 end
 
 function solve_ising(J::AbstractMatrix, h::AbstractVector, offset::Real=0; backend=default_backend, kwargs...)
   return solve_ising(IsingModel(J, h, offset); backend, kwargs...)
 end
 
-function _solve_ising(backend::AbstractTenSolverBackend, model::IsingModel; kwargs...)
-  throw(_backend_error(backend))
+function solve_ising(backend::AbstractTenSolverBackend, model::IsingModel; kwargs...)
+  throw(backend_error(backend))
 end
 
-function _solve_ising(::DMRGBackend, model::IsingModel; kwargs...)
-  Q, l, c = _scaled_form_parts(ising_to_qubo(model))
-  return _minimize(default_backend, Q, l, c; kwargs...)
+function solve_ising(::DMRGBackend, model::IsingModel; kwargs...)
+  Q, l, c = scaled_form_parts(ising_to_qubo(model))
+  return minimize(default_backend, Q, l, c; kwargs...)
 end
 
 
