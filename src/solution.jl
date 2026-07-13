@@ -21,7 +21,7 @@ The three stats vectors are parallel — `energies[i]`, `bond_dims[i]`, and `ela
 all correspond to iteration `i`.
 
 Provably infeasible models produce a `Solution` with no MPS and empty stats
-vectors; check with [`is_infeasible`](@ref) before sampling.
+vectors; check with [`is_feasible`](@ref) before sampling.
 """
 struct Solution{T <: Real}
     tensor        :: Union{MPS, Nothing}
@@ -51,14 +51,20 @@ infeasible_solution(::Type{T}) where {T <: Real} =
   Solution{T}(nothing, T[], Int[], Float64[], Int[])
 
 """
-    is_infeasible(psi::Solution)
+    is_feasible(psi::Solution)
 
 Whether `psi` came from solving a provably infeasible model, i.e. one whose
 constraints admit no binary vector. Infeasible solutions carry no MPS and
 cannot be sampled; [`minimize`](@ref) reports them with an objective of `+Inf`
 (`-Inf` for [`maximize`](@ref)).
+
+Whether `psi` came from solving a satisfiable model, i.e. one whose
+constraints admit at least one binary vector.
+Feasible solutions carry an MPS and can be sampled;
+
+Check this before calling [`sample`](@ref).
 """
-is_infeasible(psi::Solution) = isnothing(psi.tensor)
+is_feasible(psi::Solution) = !isnothing(psi.tensor)
 
 function original_order(bs, permutation)
   x = similar(bs)
@@ -72,14 +78,16 @@ end
 
 Sample a bitstring from a (quantum) probability distribution.
 
-Throws an `ArgumentError` when `psi` is infeasible (see [`is_infeasible`](@ref)):
-the solve itself reports infeasibility as a status, but there is no solution to
-query.
+Throw a `DomainError` when `psi` is infeasible (see [`is_feasible`](@ref)),
+since there is no solution to query.
 """
 function sample(psi::Solution)
-  is_infeasible(psi) && throw(ArgumentError("the model is infeasible; there is no solution to sample"))
-  bs = ITensorMPS.sample!(psi.tensor) .- 1
-  return original_order(bs, psi.permutation)
+  if is_feasible(psi)
+    bs = ITensorMPS.sample!(psi.tensor) .- 1
+    return original_order(bs, psi.permutation)
+  else
+    throw(DomainError("the model is infeasible; there is no solution to sample"))
+  end
 end
 
 sample(psi::Solution, n :: Integer) = [sample(psi) for _ in 1:n]
@@ -92,12 +100,11 @@ When setting `cutoff`, it will be used as the minimum probability considered pos
 Always `false` for infeasible solutions.
 """
 function Base.in(bs, psi::Solution; cutoff = 1e-8)
-  is_infeasible(psi) && return false
   return prob(psi, bs) > cutoff
 end
 
-function prob(psi::Solution, bs)
-  return abs2(coeff(psi, bs))
+function prob(psi::Solution{T}, bs) where {T}
+  return is_feasible(psi) ? abs2(coeff(psi, bs)) : zero(T)
 end
 
 function coeff(psi::Solution, bs)

@@ -101,10 +101,10 @@ Keyword arguments:
 
 The returned `Solution` carries per-iteration stats in the fields `energies`, `bond_dims`, and `elapsed_times`.
 
-Provably infeasible constrained models are reported as a status, not an
-exception: `minimize` logs a warning and returns `+Inf` together with an
-infeasible `Solution` (the minimum over an empty feasible set), which cannot be
-sampled. Check with [`is_infeasible`](@ref).
+Provably infeasible constrained models are reported as a status:
+`minimize` logs a warning and returns `+Inf` (the minimum over an empty feasible set)
+together with an infeasible [`Solution`](@ref), which cannot be sampled.
+Check it with [`is_feasible`](@ref).
 
 Running on GPU:
 
@@ -170,7 +170,7 @@ for maximization.
 
 All keywords accepted by [`minimize`](@ref) can also be used for maximization problems.
 Provably infeasible constrained models return `-Inf` (the supremum over an
-empty feasible set) together with an infeasible `Solution`.
+empty feasible set) together with an infeasible [`Solution`](@ref).
 
 See also [`minimize`](@ref).
 """
