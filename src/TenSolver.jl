@@ -7,9 +7,6 @@ using LinearAlgebra
 
 const __VERSION__ = pkgversion(@__MODULE__)
 
-include("solution.jl")
-export sample, is_infeasible
-
 include("preprocess.jl")
 
 include("ising.jl")
@@ -21,6 +18,9 @@ export SumConstraint, NotEqualsConstraint, ExactlyOneConstraint, RelationConstra
 export is_feasible
 
 include("projection_mpo.jl")
+
+include("solution.jl")
+export sample
 
 include("solver.jl")
 export minimize, maximize
@@ -101,7 +101,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   # ~ Samples and Output ~ #
   # Infeasible models have no samples; they are reported through the
   # termination status alone, like other MOI solvers.
-  reads = is_infeasible(psi) ? 0 : final_num_reads
+  reads = is_feasible(psi) ? final_num_reads : 0
   samples = Vector{QUBOTools.Sample{T,Int}}(undef, reads)
   for i in 1:reads
     x = sample(psi)
@@ -176,7 +176,7 @@ end
 
 function tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
   elapsed_time = isempty(solution.elapsed_times) ? 0.0 : last(solution.elapsed_times)
-  if is_infeasible(solution)
+  if !is_feasible(solution)
     return MOI.INFEASIBLE, "infeasible"
   elseif length(solution.energies) >= iterations
     return MOI.ITERATION_LIMIT, "iteration_limit"

@@ -42,8 +42,8 @@ Backend-specific keyword arguments:
   Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
   a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled bitstring.
   For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
-  When the constraints admit no binary vector at all, the solve does not error: it logs a warning and
-  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_infeasible`](@ref)).
+  If the constraints admit no solution at all, the solve does not error: it logs a warning and
+  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -101,7 +101,8 @@ end
 
 # Structural check for freshly tensorized zero objectives; this is not a
 # semantic zero-operator test after arbitrary MPO algebra.
-is_zero_mpo(H::MPO; cutoff=0) = norm(H) < cutoff
+is_zero_tensor(H::MPO; cutoff) = norm(H) <= cutoff
+is_zero_tensor(p::MPS; cutoff) = norm(p) <= cutoff
 
 expectation(H::MPO, x::MPS) = real(inner(x', H, x))
 
@@ -130,17 +131,16 @@ end
 
 function project_feasible_state(psi::MPS, projections; cutoff)
   projected = project_state(psi, projections; cutoff)
-  return iszero(norm(projected)) ? nothing : normalize(projected)
+  return is_zero_tensor(projected; cutoff) ? nothing : normalize(projected)
 end
 
 # Infeasibility is a solver outcome, not an argument error: report it as a
 # status like other optimization packages (objective +Inf, empty Solution),
 # so it maps onto MOI.INFEASIBLE at the JuMP layer. See the discussion in #94.
-function infeasible_result(::Type{T}, verbosity, initial_time) where {T}
+function infeasible_result(::Type{T}) where {T}
   @warn "constraints define an empty feasible subspace; no binary vector satisfies all constraints"
   F = float(T)
-  iterlog_footer(verbosity, F(Inf), time() - initial_time)
-  return F(Inf), infeasible_solution(F)
+  return real(T)(+Inf), infeasible_solution(F)
 end
 
 
@@ -246,11 +246,13 @@ function minimize_mpo( H :: MPO
 
   # Hamiltonian construction
   H = device(H)
-  H = is_zero_mpo(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
+  H = is_zero_tensor(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
 
   # Initial state
   psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
-  isnothing(psi) && return infeasible_result(T, verbosity, initial_time)
+  if isnothing(psi)
+    return infeasible_result(T)
+  end
   psi = device(psi)
 
   @debug(
@@ -262,8 +264,8 @@ function minimize_mpo( H :: MPO
   )
 
   iterlog_header(verbosity)
-  var = Inf
-  local energy, psi
+  var    = T(Inf)
+  energy = T(Inf)
 
   for i in Iterators.countfrom(1)
     energy, psi = groundstate(H, device(psi)
@@ -280,9 +282,6 @@ function minimize_mpo( H :: MPO
                       , eigsolve_maxiter
                       , eigsolve_verbosity = 0
                  )
-
-    # The n=1 fast path signals proven infeasibility by returning no state.
-    isnothing(psi) && return infeasible_result(T, verbosity, initial_time)
 
     # Re-project each iteration so the sampled bitstring is guaranteed feasible.
     # In exact arithmetic the sweep keeps a feasible start feasible (the local
@@ -347,49 +346,53 @@ function minimize_mpo( H :: MPO
     end
   end
 
-  # The calculated energy has approximation errors compared to the true solution.
-  # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation)
-  optimal = obj(sample(dist))
+
+  if isinf(energy)
+    optimal, dist = infeasible_result(T)
+  else
+    # The calculated energy has approximation errors compared to the true solution.
+    # It makes more sense to sample a solution and calculate the true objective function applied to it.
+    dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation)
+    optimal = obj(sample(dist))
+  end
+
   elapsed_time = time() - initial_time
-
   iterlog_footer(verbosity, optimal, elapsed_time)
-
   return optimal, dist
 end
 
 function groundstate(H::MPO, psi0::MPS; projections=(), cutoff=1e-8, kwargs...)
   if length(psi0) != 1
     return ITensorMPS.dmrg(H, psi0; cutoff, kwargs...)
-  end
-
-  # ITensorMPS.dmrg does not support single-site systems, so solve the n=1
-  # problem by directly comparing basis states. When constrained, we must
-  # restrict the search to feasible basis states: the projected Hamiltonian
-  # P'HP assigns zero energy to the infeasible subspace (the kernel of the
-  # projections), so picking the global lowest-energy basis state would select
-  # an infeasible one whenever the feasible objective is positive.
-  sites = ITensorMPS.siteinds(psi0)
-  candidates = [ITensorMPS.MPS(sites, [s]) for s in ("0", "1")]
-
-  if !isempty(projections)
-    candidates = filter(
-      b -> !iszero(norm(project_state(b, projections; cutoff))),
-      candidates,
-    )
-    # Proven infeasibility; the caller turns this into a status return.
-    isempty(candidates) && return Inf, nothing
-  end
-
-  energies = map(b -> expectation(H, b), candidates)
-  emin = minimum(energies)
-
-  # Degenerate feasible states: return their uniform superposition so sampling
-  # is unbiased (preserves the previous unconstrained n=1 behavior).
-  if length(candidates) == 2 && all(≈(emin), energies)
-    return emin, ITensorMPS.MPS(sites, ["full"])
   else
-    i = argmin(energies)
-    return energies[i], candidates[i]
+    # ITensorMPS.dmrg does not support single-site systems, so solve the n=1
+    # problem by directly comparing basis states. When constrained, we must
+    # restrict the search to feasible basis states: the projected Hamiltonian
+    # P'HP assigns zero energy to the infeasible subspace (the kernel of the
+    # projections), so picking the global lowest-energy basis state would select
+    # an infeasible one whenever the feasible objective is positive.
+    sites = ITensorMPS.siteinds(psi0)
+    candidates = [ITensorMPS.MPS(sites, [s]) for s in ("0", "1")]
+
+    if !isempty(projections)
+      candidates = filter(
+        b -> !is_zero_tensor(project_state(b, projections; cutoff); cutoff),
+        candidates,
+      )
+    end
+
+    if isempty(candidates)
+      return infeasible_result(T)
+    else
+      energies = map(b -> expectation(H, b), candidates)
+      emin, i = findmin(energies)
+      # Degenerate feasible states: return their uniform superposition so sampling
+      # is unbiased (preserves the previous unconstrained n=1 behavior).
+      if length(candidates) == 2 && all(≈(emin), energies)
+        return emin, ITensorMPS.MPS(sites, ["full"])
+      else
+        return energies[i], candidates[i]
+      end
+    end
   end
 end

@@ -225,12 +225,12 @@ end
     )
 
     @test E == Inf
-    @test is_infeasible(psi)
+    @test !is_feasible(psi)
     @test isempty(psi.energies)
     @test isempty(psi.bond_dims)
     @test isempty(psi.elapsed_times)
     # The solve reports; querying a nonexistent solution throws.
-    @test_throws ArgumentError TenSolver.sample(psi)
+    @test_throws DomainError TenSolver.sample(psi)
     @test [0, 0] ∉ psi
 
     # The supremum over an empty feasible set is -Inf.
@@ -241,7 +241,7 @@ end
     )
 
     @test Emax == -Inf
-    @test is_infeasible(psimax)
+    @test !is_feasible(psimax)
   end
 
   @testset "Infeasible single-variable solves report status" begin
@@ -254,8 +254,8 @@ end
     )
 
     @test E == Inf
-    @test is_infeasible(psi)
-    @test_throws ArgumentError TenSolver.sample(psi)
+    @test !is_feasible(psi)
+    @test_throws DomainError TenSolver.sample(psi)
   end
 
   @testset "Infeasible solutions map to MOI.INFEASIBLE" begin
