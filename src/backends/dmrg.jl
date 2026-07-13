@@ -42,8 +42,6 @@ Backend-specific keyword arguments:
   Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
   a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled bitstring.
   For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
-- `feasible_sample_retries :: Int` - Maximum attempts to draw a feasible bitstring from a constrained
-  final state before throwing a diagnostic error. Defaults to `100`.
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -103,9 +101,9 @@ end
 # semantic zero-operator test after arbitrary MPO algebra.
 is_zero_mpo(H::MPO; cutoff=0) = norm(H) < cutoff
 
-expectation(H::MPO, x::MPS) = inner(x', H, x)
+expectation(H::MPO, x::MPS) = real(inner(x', H, x))
 
-variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
+variance(H::MPO, x::MPS) = real(inner(H, x, H, x)) - expectation(H, x)^2
 
 # Strict upper triangular part of an array
 function upper_indices(a)
@@ -231,11 +229,8 @@ function minimize_mpo( H :: MPO
                      , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
                      , permutation :: Vector{Int} = collect(1:length(H))
-                     , feasible_sample_retries :: Integer = 100
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  feasible_sample_retries >= 1 ||
-    throw(ArgumentError("`feasible_sample_retries` must be >= 1, got $feasible_sample_retries"))
   initial_time      = time()
   energies_log      = T[]
   bond_dims_log     = Int[]
@@ -299,7 +294,7 @@ function minimize_mpo( H :: MPO
         error_type=ErrorException,
         message="constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
       )
-      energy = real(expectation(H, psi))
+      energy = expectation(H, psi)
     end
 
     # Get metadata #
@@ -383,15 +378,15 @@ function groundstate(H::MPO, psi0::MPS; projections=(), cutoff=1e-8, kwargs...)
     ))
   end
 
-  energies = map(b -> real(expectation(H, b)), candidates)
+  energies = map(b -> expectation(H, b), candidates)
   emin = minimum(energies)
 
   # Degenerate feasible states: return their uniform superposition so sampling
   # is unbiased (preserves the previous unconstrained n=1 behavior).
   if length(candidates) == 2 && all(≈(emin), energies)
     return emin, ITensorMPS.MPS(sites, ["full"])
+  else
+    i = argmin(energies)
+    return energies[i], candidates[i]
   end
-
-  i = argmin(energies)
-  return energies[i], candidates[i]
 end

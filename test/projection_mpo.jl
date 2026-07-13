@@ -187,6 +187,44 @@ end
     end
   end
 
+  @testset "Projection MPO permutation" begin
+    sites = ITensors.siteinds("Qudit", 4; dim=2)
+    perm = [3, 1, 4, 2]
+
+    constraint = RelationConstraint(1, :(<=), 4)
+    H = TenSolver.projection_mpo(constraint, sites; permutation=perm)
+
+    for bits in all_bitstrings(sites)
+      # tensor-order bits -> original-order bits
+      original_bits = collect(bits)[invperm(perm)]
+      expected = Float64(is_feasible(original_bits, constraint))
+      @test mpo_diagonal(H, sites, bits) ≈ expected
+    end
+  end
+
+  @testset "Projection MPO permutation with multiple constraints" begin
+    sites = ITensors.siteinds("Qudit", 5; dim=2)
+    perm = [4, 1, 5, 2, 3]
+
+    constraints = AbstractConstraint[
+      SumConstraint([1, 5], [1, 1], 1; relation=:(==)),
+      NotEqualsConstraint([2, 4], [1, 0]),
+      RelationConstraint(3, :(>=), 1),
+    ]
+
+    Hs = TenSolver.projection_mpos(constraints, sites; permutation=perm)
+
+    @test length(Hs) == length(constraints)
+
+    for (constraint, H) in zip(constraints, Hs)
+      for bits in all_bitstrings(sites)
+        original_bits = collect(bits)[invperm(perm)]
+        expected = Float64(is_feasible(original_bits, constraint))
+        @test mpo_diagonal(H, sites, bits) ≈ expected
+      end
+    end
+  end
+
   @testset "Infeasible projections remain zero" begin
     H = TenSolver.tensorize([1.0 0.5; 0.5 2.0])
     sites = ITensorMPS.siteinds(first, H; plev=0)
