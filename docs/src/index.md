@@ -1,6 +1,6 @@
 # TenSolver.jl
 
-Tensor Network-based solver for **Q**uadratic **U**nconstrained **B**inary **O**ptimization (QUBO) problems.
+Tensor Network-based solver for binary optimization problems — quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
 
 ## Overview
 
@@ -69,6 +69,6 @@ x = TenSolver.sample(psi)
 ## Contents
 
 ```@contents
-Pages = ["examples.md", "api.md"]
+Pages = ["examples.md", "constraints.md", "api.md"]
 Depth = 2
 ```
