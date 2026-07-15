@@ -59,109 +59,7 @@ normalize_backend(backend) = throw(backend_error(backend))
 include("backends/dmrg.jl")
 const default_backend = DMRGBackend()
 
-abstract type AbstractStructuredTopology end
-
-# Structured square-grid topology for optional PEPS solves.
-#
-# Variables are assumed to be ordered according to SpinGlassNetworks'
-# `super_square_lattice((m, n, spins_per_site))` convention.
-struct SquareGrid <: AbstractStructuredTopology
-  m :: Int
-  n :: Int
-  spins_per_site :: Int
-
-  function SquareGrid(m::Integer, n::Integer, spins_per_site::Integer=1)
-    m > 0 || throw(ArgumentError("SquareGrid requires m > 0. Got $m."))
-    n > 0 || throw(ArgumentError("SquareGrid requires n > 0. Got $n."))
-    spins_per_site > 0 || throw(ArgumentError("SquareGrid requires spins_per_site > 0. Got $spins_per_site."))
-    return new(Int(m), Int(n), Int(spins_per_site))
-  end
-end
-
-# Structured king-grid topology for optional PEPS solves. It uses the same
-# variable ordering as `SquareGrid`, but the PEPS compatibility graph also
-# allows diagonal interactions between neighboring grid cells.
-struct KingGrid <: AbstractStructuredTopology
-  m :: Int
-  n :: Int
-  spins_per_site :: Int
-
-  function KingGrid(m::Integer, n::Integer, spins_per_site::Integer=1)
-    m > 0 || throw(ArgumentError("KingGrid requires m > 0. Got $m."))
-    n > 0 || throw(ArgumentError("KingGrid requires n > 0. Got $n."))
-    spins_per_site > 0 || throw(ArgumentError("KingGrid requires spins_per_site > 0. Got $spins_per_site."))
-    return new(Int(m), Int(n), Int(spins_per_site))
-  end
-end
-
-_topology_size(topology::AbstractStructuredTopology) = topology.m * topology.n * topology.spins_per_site
-_topology_tuple(topology::AbstractStructuredTopology) = (topology.m, topology.n, topology.spins_per_site)
-_topology_name(::SquareGrid) = "square"
-_topology_name(::KingGrid) = "king"
-
-# Internal scaffold for the optional SpinGlassPEPS structured backend.
-#
-# The backend is implemented by the `TenSolverSpinGlassPEPSExt` package
-# extension, which loads only when `SpinGlassNetworks`, `SpinGlassEngine`, and
-# `SpinGlassTensors` are available. Without those packages this backend errors
-# clearly and the default DMRG backend remains unchanged.
-#
-# This constructor is intentionally not exported while the current registered
-# SpinGlass component dependency stack does not resolve in the same environment
-# as TenSolver's ITensors/QUBOTools stack and CI cannot exercise the extension.
-struct PEPSBackend{T <: AbstractStructuredTopology, S} <: AbstractTenSolverBackend
-  topology :: T
-  beta :: Float64
-  bond_dim :: Int
-  max_states :: Int
-  cutoff_prob :: Float64
-  onGPU :: Bool
-  contraction :: Symbol
-  num_sweeps :: Int
-  graduate_truncation :: Bool
-  transformations :: S
-  local_dimension :: Union{Nothing, Int}
-  no_cache :: Bool
-end
-
-function PEPSBackend(topology::AbstractStructuredTopology;
-                     beta::Real = 2.0,
-                     bond_dim::Integer = 16,
-                     max_states::Integer = 2^8,
-                     cutoff_prob::Real = 1e-4,
-                     onGPU::Bool = false,
-                     contraction::Symbol = :auto,
-                     num_sweeps::Integer = 1,
-                     graduate_truncation::Bool = true,
-                     transformations = :all,
-                     local_dimension::Union{Nothing, Integer} = nothing,
-                     no_cache::Bool = false)
-  beta > 0 && isfinite(beta) || throw(ArgumentError("PEPSBackend requires finite beta > 0. Got $beta."))
-  bond_dim >= 1 || throw(ArgumentError("PEPSBackend requires bond_dim >= 1. Got $bond_dim."))
-  max_states >= 1 || throw(ArgumentError("PEPSBackend requires max_states >= 1. Got $max_states."))
-  cutoff_prob >= 0 || throw(ArgumentError("PEPSBackend requires cutoff_prob >= 0. Got $cutoff_prob."))
-  num_sweeps >= 1 || throw(ArgumentError("PEPSBackend requires num_sweeps >= 1. Got $num_sweeps."))
-  contraction in (:auto, :svd, :svd_truncate, :zipper) ||
-    throw(ArgumentError("Unsupported PEPS contraction $(repr(contraction)). Use :auto, :svd, :svd_truncate, or :zipper."))
-  if !isnothing(local_dimension)
-    local_dimension >= 1 || throw(ArgumentError("PEPSBackend requires local_dimension >= 1 when provided. Got $local_dimension."))
-  end
-
-  return PEPSBackend{typeof(topology), typeof(transformations)}(
-    topology,
-    Float64(beta),
-    Int(bond_dim),
-    Int(max_states),
-    Float64(cutoff_prob),
-    onGPU,
-    contraction,
-    Int(num_sweeps),
-    graduate_truncation,
-    transformations,
-    isnothing(local_dimension) ? nothing : Int(local_dimension),
-    no_cache,
-  )
-end
+include("backends/peps.jl")
 
 """
     minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
@@ -252,24 +150,6 @@ end
 
 function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
   throw(backend_error(backend))
-end
-
-function minimize(
-  backend::PEPSBackend,
-  Q::AbstractMatrix{T},
-  l::Union{AbstractVector{T}, Nothing}=nothing,
-  c::T=zero(T)
-  ;
-  cutoff=1e-8,
-  preprocess::Bool=false,
-  kwargs...,
-) where T
-  preprocess && throw(ArgumentError("PEPSBackend does not support preprocess=true because the topology fixes the variable order. Use backend = :dmrg for preprocessed QUBO solves."))
-  return solve_ising(backend, IsingModel(qubo_to_ising(Q, l, c)); cutoff, kwargs...)
-end
-
-function minimize(backend::PEPSBackend, p::AbstractPolynomial; kwargs...)
-  throw(ArgumentError("PEPSBackend does not support polynomial inputs directly. Convert to a structured QUBO or call solve_ising with a supported topology."))
 end
 
 """

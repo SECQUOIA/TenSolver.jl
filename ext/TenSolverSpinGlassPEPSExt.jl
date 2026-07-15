@@ -16,12 +16,12 @@ import SpinGlassEngine
 import SpinGlassNetworks
 import SpinGlassTensors
 
-function _peps_type(::IsingModel{T}) where {T}
+function peps_float_type(::IsingModel{T}) where {T}
   return typeof(float(one(T)))
 end
 
-function _ising_instance(model::IsingModel{T}) where {T}
-  S = _peps_type(model)
+function ising_instance(model::IsingModel{T}) where {T}
+  S = peps_float_type(model)
   instance = Dict{Tuple{Int, Int}, S}()
 
   for i in eachindex(model.h)
@@ -40,17 +40,17 @@ function _ising_instance(model::IsingModel{T}) where {T}
   return instance
 end
 
-function _check_topology_size(topology, model::IsingModel)
-  expected = TenSolver._topology_size(topology)
+function check_topology_size(topology, model::IsingModel)
+  expected = TenSolver.topology_size(topology)
   actual = length(model.h)
   actual == expected ||
     throw(DimensionMismatch("PEPS topology $(repr(topology)) expects $expected spins, but the Ising model has $actual spins."))
 end
 
-_edge_supported(::SquareGrid, a::Tuple, b::Tuple) = abs(a[1] - b[1]) + abs(a[2] - b[2]) == 1
-_edge_supported(::KingGrid, a::Tuple, b::Tuple) = maximum(abs.(a .- b)) == 1
+edge_supported(::SquareGrid, a::Tuple, b::Tuple) = abs(a[1] - b[1]) + abs(a[2] - b[2]) == 1
+edge_supported(::KingGrid, a::Tuple, b::Tuple) = maximum(abs.(a .- b)) == 1
 
-function _check_layout_edges(topology, model::IsingModel, lattice)
+function check_layout_edges(topology, model::IsingModel, lattice)
   rows, cols, vals = findnz(model.J)
   for k in eachindex(vals)
     i = rows[k]
@@ -58,7 +58,7 @@ function _check_layout_edges(topology, model::IsingModel, lattice)
     if i < j && !iszero(vals[k])
       ci = lattice[i]
       cj = lattice[j]
-      if ci != cj && !_edge_supported(topology, ci, cj)
+      if ci != cj && !edge_supported(topology, ci, cj)
         throw(ArgumentError(
           "Ising coupling ($i, $j) is not compatible with $(repr(topology)). " *
           "Use a compatible structured topology or backend = :dmrg."
@@ -68,7 +68,7 @@ function _check_layout_edges(topology, model::IsingModel, lattice)
   end
 end
 
-function _potts_hamiltonian(backend::PEPSBackend, ig, lattice)
+function build_potts_hamiltonian(backend::PEPSBackend, ig, lattice)
   if isnothing(backend.local_dimension)
     return SpinGlassNetworks.potts_hamiltonian(
       ig;
@@ -85,7 +85,7 @@ function _potts_hamiltonian(backend::PEPSBackend, ig, lattice)
   )
 end
 
-function _transformations(transformations)
+function resolve_transformations(transformations)
   transformations === :all && return SpinGlassEngine.all_lattice_transformations
   transformations === :identity && return (SpinGlassEngine.rotation(0),)
   if transformations isa Symbol
@@ -96,13 +96,13 @@ function _transformations(transformations)
   return (transformations,)
 end
 
-function _strategy(backend::PEPSBackend)
+function contraction_strategy(backend::PEPSBackend)
   backend.contraction in (:auto, :svd, :svd_truncate) && return SpinGlassEngine.SVDTruncate
   backend.contraction === :zipper && return SpinGlassEngine.Zipper
   throw(ArgumentError("Unsupported PEPS contraction $(repr(backend.contraction))."))
 end
 
-function _network(topology::SquareGrid, potts_h, transform, ::Type{T}) where {T}
+function peps_network(topology::SquareGrid, potts_h, transform, ::Type{T}) where {T}
   return SpinGlassEngine.PEPSNetwork{
     SpinGlassEngine.SquareSingleNode{SpinGlassEngine.GaugesEnergy},
     SpinGlassEngine.Dense,
@@ -110,7 +110,7 @@ function _network(topology::SquareGrid, potts_h, transform, ::Type{T}) where {T}
   }(topology.m, topology.n, potts_h, transform)
 end
 
-function _network(topology::KingGrid, potts_h, transform, ::Type{T}) where {T}
+function peps_network(topology::KingGrid, potts_h, transform, ::Type{T}) where {T}
   return SpinGlassEngine.PEPSNetwork{
     SpinGlassEngine.KingSingleNode{SpinGlassEngine.GaugesEnergy},
     SpinGlassEngine.Dense,
@@ -118,7 +118,7 @@ function _network(topology::KingGrid, potts_h, transform, ::Type{T}) where {T}
   }(topology.m, topology.n, potts_h, transform)
 end
 
-function _decoded_records(model::IsingModel, potts_h, sol, transform)
+function decoded_records(model::IsingModel, potts_h, sol, transform)
   records = NamedTuple[]
   for i in eachindex(sol.states)
     decoded = SpinGlassNetworks.decode_potts_hamiltonian_state(potts_h, sol.states[i])
@@ -136,7 +136,7 @@ function _decoded_records(model::IsingModel, potts_h, sol, transform)
   return records
 end
 
-function _deduplicated_records(records)
+function deduplicated_records(records)
   sort!(records; by = r -> (r.energy, -r.probability))
 
   deduped = NamedTuple[]
@@ -156,13 +156,13 @@ function _deduplicated_records(records)
   return deduped
 end
 
-function _metadata(backend::PEPSBackend, records, raw_results, failures)
+function peps_metadata(backend::PEPSBackend, records, raw_results, failures)
   best = first(records)
   raw = raw_results[best.transformation]
   return Dict{String, Any}(
     "backend" => "SpinGlassPEPS",
-    "topology" => TenSolver._topology_name(backend.topology),
-    "topology_size" => TenSolver._topology_tuple(backend.topology),
+    "topology" => TenSolver.topology_name(backend.topology),
+    "topology_size" => TenSolver.topology_tuple(backend.topology),
     "beta" => backend.beta,
     "bond_dim" => backend.bond_dim,
     "max_states" => backend.max_states,
@@ -187,14 +187,14 @@ function TenSolver.solve_ising(backend::PEPSBackend, model::IsingModel; cutoff =
     throw(ArgumentError("Unsupported PEPS backend keyword(s): $names. Configure PEPSBackend instead."))
   end
 
-  _check_topology_size(backend.topology, model)
+  check_topology_size(backend.topology, model)
 
-  S = _peps_type(model)
-  instance = _ising_instance(model)
+  S = peps_float_type(model)
+  instance = ising_instance(model)
   ig = SpinGlassNetworks.ising_graph(S, instance)
-  lattice = SpinGlassNetworks.super_square_lattice(TenSolver._topology_tuple(backend.topology))
-  _check_layout_edges(backend.topology, model, lattice)
-  potts_h = _potts_hamiltonian(backend, ig, lattice)
+  lattice = SpinGlassNetworks.super_square_lattice(TenSolver.topology_tuple(backend.topology))
+  check_layout_edges(backend.topology, model, lattice)
+  potts_h = build_potts_hamiltonian(backend, ig, lattice)
   params = SpinGlassEngine.MpsParameters{S}(;
     bond_dim = backend.bond_dim,
     num_sweeps = backend.num_sweeps,
@@ -203,14 +203,14 @@ function TenSolver.solve_ising(backend::PEPSBackend, model::IsingModel; cutoff =
     max_states = backend.max_states,
     cutoff_prob = backend.cutoff_prob,
   )
-  strategy = _strategy(backend)
+  strategy = contraction_strategy(backend)
 
   records = NamedTuple[]
   raw_results = Dict{Any, Any}()
   failures = NamedTuple[]
-  for transform in _transformations(backend.transformations)
+  for transform in resolve_transformations(backend.transformations)
     try
-      net = _network(backend.topology, potts_h, transform, S)
+      net = peps_network(backend.topology, potts_h, transform, S)
       ctr = SpinGlassEngine.MpsContractor(
         strategy,
         net,
@@ -228,7 +228,7 @@ function TenSolver.solve_ising(backend::PEPSBackend, model::IsingModel; cutoff =
       )
 
       raw_results[transform] = (; solution = sol, info)
-      append!(records, _decoded_records(model, potts_h, sol, transform))
+      append!(records, decoded_records(model, potts_h, sol, transform))
     catch err
       push!(failures, (;
         transformation = transform,
@@ -248,11 +248,11 @@ function TenSolver.solve_ising(backend::PEPSBackend, model::IsingModel; cutoff =
     failure_summary = join(("$(failure.transformation): $(failure.error)" for failure in failures), "; ")
     throw(ArgumentError("SpinGlassPEPS did not return any states. Failed transformations: $failure_summary"))
   end
-  records = _deduplicated_records(records)
+  records = deduplicated_records(records)
   states = [record.state for record in records]
   energies = S[record.energy for record in records]
   probabilities = S[record.probability for record in records]
-  metadata = _metadata(backend, records, raw_results, failures)
+  metadata = peps_metadata(backend, records, raw_results, failures)
   raw = (; results = raw_results, failures)
 
   verbosity > 0 && @info "SpinGlassPEPS backend finished" energy = first(energies) states = length(states)
