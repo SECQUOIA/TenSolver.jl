@@ -357,4 +357,44 @@ end
       end
     end
   end
+
+  @testset "SumConstraint bond dimension scales with capacity, not size" begin
+    # The exact partial-sum automaton for `sum(w .* x) <= rhs` has rhs + 2
+    # states, so the projection MPO bond dimension is bounded by rhs + 2 and,
+    # crucially, is independent of the number of constrained variables and of
+    # the weight magnitudes. This is the structural advantage over a
+    # penalty-QUBO encoding, whose DMRG bond dimension grows with problem size.
+    sumbond(sitelist, weights, rhs) = ITensorMPS.maxlinkdim(
+      TenSolver.projection_mpo(
+        SumConstraint(sitelist, weights, rhs; relation=:(<=)),
+        ITensors.siteinds("Qudit", maximum(sitelist); dim=2),
+      ),
+    )
+
+    for rhs in (1, 2, 4)
+      # The bound holds and is reached for a moderate number of unit-weight items.
+      @test sumbond(collect(1:8), ones(Int, 8), rhs) == rhs + 2
+      # Growing the item count does not grow the bond dimension ...
+      @test sumbond(collect(1:16), ones(Int, 16), rhs) == sumbond(collect(1:8), ones(Int, 8), rhs)
+    end
+
+    # ... nor does inflating the weights (same rhs, arbitrary large weights).
+    @test sumbond([1, 2, 3, 4, 5, 6], [5, 7, 3, 9, 2, 8], 2) <= 2 + 2
+
+    # The projected Hamiltonian bond stays within the generic product bound.
+    Q = [
+       1.0  0.25 -0.5  0.0  0.0
+       0.0 -2.0   0.75 0.0  0.0
+       0.0  0.0   3.0  0.5  0.0
+       0.0  0.0   0.0 -1.0  0.25
+       0.0  0.0   0.0  0.0  2.0
+    ]
+    H = TenSolver.tensorize(Q, diag(Q))
+    sites = ITensorMPS.siteinds(first, H; plev=0)
+    sum_constraint = SumConstraint([1, 2, 3, 4, 5], ones(Int, 5), 2; relation=:(<=))
+    projections = TenSolver.projection_mpos([sum_constraint], sites)
+    @test ITensorMPS.maxlinkdim(projections[1]) <= 2 + 2
+    H_eff = TenSolver.project_hamiltonian(H, projections; cutoff=1e-12)
+    @test ITensorMPS.maxlinkdim(H_eff) <= ITensorMPS.maxlinkdim(H) * (2 + 2)
+  end
 end

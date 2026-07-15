@@ -271,4 +271,55 @@ end
     @test termination_status == TenSolver.MOI.INFEASIBLE
     @test status == "infeasible"
   end
+
+  @testset "Knapsack: maximize value under a capacity SumConstraint" begin
+    # 0/1 knapsack as a constrained solve: minimize -value subject to a
+    # weight budget. Weights/values chosen so the optimum is unique
+    # (items 3 and 4: weight 5 + 2 = 7 == capacity, value 7 + 3 = 10).
+    weights  = [3, 4, 5, 2]
+    values   = [4.0, 5.0, 7.0, 3.0]
+    capacity = 7
+    constraints = AbstractConstraint[SumConstraint([1, 2, 3, 4], weights, capacity; relation=:(<=))]
+    obj(x) = -dot(values, x)
+    expected_energy, expected_sample = brute_force(obj, 4, constraints)
+
+    @test expected_sample == [0, 0, 1, 1]
+
+    E, psi = minimize(
+      zeros(4, 4),
+      -values;
+      constraints,
+      iterations=4,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+    )
+
+    assert_constrained_solution(E, psi, obj, constraints, expected_energy, expected_sample)
+    @test sum(weights .* TenSolver.sample(psi)) <= capacity
+  end
+
+  @testset "SumConstraint over non-adjacent sites (n = 5)" begin
+    # Exactly one of the odd-indexed sites {1, 3, 5} is selected. The linear
+    # objective makes site 3 uniquely optimal among them and leaves the
+    # unconstrained even sites at 0, so the optimum is the unique [0,0,1,0,0].
+    l = [-1.0, 0.5, -3.0, 0.5, -2.0]
+    constraints = AbstractConstraint[SumConstraint([1, 3, 5], [1, 1, 1], 1; relation=:(==))]
+    obj(x) = dot(l, x)
+    expected_energy, expected_sample = brute_force(obj, 5, constraints)
+
+    @test expected_sample == [0, 0, 1, 0, 0]
+
+    E, psi = minimize(
+      zeros(5, 5),
+      l;
+      constraints,
+      iterations=4,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+    )
+
+    assert_constrained_solution(E, psi, obj, constraints, expected_energy, expected_sample)
+  end
 end
