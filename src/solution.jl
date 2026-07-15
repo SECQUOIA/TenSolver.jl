@@ -2,6 +2,35 @@ import ITensors, ITensorMPS
 import ITensorMPS: MPS, siteinds
 
 """
+    AbstractSolution
+
+Supertype for backend solution distributions returned by [`minimize`](@ref)
+and [`maximize`](@ref).
+
+Each backend provides its own concrete subtype (the DMRG backend returns
+[`Solution`](@ref)). Subtypes implement:
+
+- `sample(psi)`: draw one Boolean vector from the distribution.
+- `prob(psi, xs)`: probability of drawing the vector `xs`.
+
+and inherit `sample(psi, n)` and `in(xs, psi; cutoff)` from those.
+"""
+abstract type AbstractSolution end
+
+sample(psi::AbstractSolution, n::Integer) = [sample(psi) for _ in 1:n]
+
+"""
+    in(xs, psi::AbstractSolution [; cutoff])
+
+Whether the vector `xs` has a positive probability of being sampleable from `psi`.
+When setting `cutoff`, it will be used as the minimum probability considered positive.
+Always `false` for infeasible solutions.
+"""
+function Base.in(bs::AbstractVector, psi::AbstractSolution; cutoff = 1e-8)
+  return prob(psi, bs) > cutoff
+end
+
+"""
     Solution
 
 The result of running [`minimize`](@ref) or [`maximize`](@ref): an MPS wave function
@@ -23,7 +52,7 @@ all correspond to iteration `i`.
 Provably infeasible models produce a `Solution` with no MPS and empty stats
 vectors; check with [`is_feasible`](@ref) before sampling.
 """
-struct Solution{T <: Real}
+struct Solution{T <: Real} <: AbstractSolution
     tensor        :: Union{MPS, Nothing}
     energies      :: Vector{T}
     bond_dims     :: Vector{Int}
@@ -88,19 +117,6 @@ function sample(psi::Solution)
   else
     throw(DomainError("the model is infeasible; there is no solution to sample"))
   end
-end
-
-sample(psi::Solution, n :: Integer) = [sample(psi) for _ in 1:n]
-
-"""
-    in(xs, psi::Solution [; cutoff)
-
-Whether the vector `xs` has a positive probability of being sampleable from `psi`.
-When setting `cutoff`, it will be used as the minimum probability considered positive.
-Always `false` for infeasible solutions.
-"""
-function Base.in(bs::AbstractVector, psi::Solution; cutoff = 1e-8)
-  return prob(psi, bs) > cutoff
 end
 
 function prob(psi::Solution{T}, bs) where {T}

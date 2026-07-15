@@ -127,7 +127,7 @@ backend_error(::PEPSBackend) = ArgumentError("PEPSBackend is not available. Inst
 # `energies` are objective values in the original TenSolver convention.
 # Backend-specific diagnostics live in `metadata` and the raw extension result
 # is stored in `raw`.
-struct PEPSSolution{T <: Real}
+struct PEPSSolution{T <: Real} <: AbstractSolution
     states        :: Vector{Vector{Int}}
     energies      :: Vector{T}
     probabilities :: Vector{T}
@@ -158,13 +158,6 @@ function sample(psi::PEPSSolution)
   end
 
   return copy(last(psi.states))
-end
-
-sample(psi::PEPSSolution, n :: Integer) = [sample(psi) for _ in 1:n]
-
-# Whether `xs` is one of the decoded Boolean states retained by the PEPS backend.
-function Base.in(bs::AbstractVector, psi::PEPSSolution; cutoff = 1e-8)
-  return prob(psi, bs) > cutoff
 end
 
 function prob(psi::PEPSSolution{T}, bs) where {T}
