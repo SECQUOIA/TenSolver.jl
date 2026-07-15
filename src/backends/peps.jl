@@ -133,6 +133,14 @@ struct PEPSSolution{T <: Real} <: AbstractSolution
     probabilities :: Vector{T}
     metadata      :: Dict{String, Any}
     raw           :: Any
+
+  function PEPSSolution{T}(states, energies, probabilities, metadata, raw) where {T <: Real}
+    # The extension merges duplicate decoded states (summing their
+    # probabilities) before construction; enforce that invariant here so each
+    # retained state carries exactly one probability.
+    allunique(states) || throw(ArgumentError("PEPS solution states must be unique. Merge duplicate states before constructing a PEPSSolution."))
+    return new{T}(states, energies, probabilities, metadata, raw)
+  end
 end
 
 function sample(psi::PEPSSolution)
@@ -162,13 +170,8 @@ end
 
 function prob(psi::PEPSSolution{T}, bs) where {T}
   target = collect(Int, bs)
-  p = zero(T)
-  for (state, probability) in zip(psi.states, psi.probabilities)
-    if state == target
-      p += probability
-    end
-  end
-  return p
+  index = findfirst(==(target), psi.states)
+  return isnothing(index) ? zero(T) : get(psi.probabilities, index, zero(T))
 end
 
 function minimize(

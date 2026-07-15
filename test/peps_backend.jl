@@ -63,15 +63,15 @@
   @test !([0, 0] in peps_solution)
   @test TenSolver.prob(peps_solution, [0, 1]) ≈ 1.0
 
-  duplicate_state_solution = TenSolver.PEPSSolution{Float64}(
+  # Duplicate decoded states must be merged (probabilities summed) before
+  # construction; the constructor enforces the invariant.
+  @test_throws ArgumentError TenSolver.PEPSSolution{Float64}(
     [[1, 0], [0, 1], [1, 0]],
     [-2.0, -1.0, -2.0],
     [0.2, 0.3, 0.4],
     Dict{String, Any}("backend" => "SpinGlassPEPS"),
     nothing,
   )
-  @test TenSolver.prob(duplicate_state_solution, [1, 0]) ≈ 0.6
-  @test TenSolver.prob(duplicate_state_solution, [0, 1]) ≈ 0.3
 
   @test_throws ArgumentError sample(TenSolver.PEPSSolution{Float64}(
     [[1, 0], [0, 1]],
