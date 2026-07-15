@@ -322,4 +322,54 @@ end
 
     assert_constrained_solution(E, psi, obj, constraints, expected_energy, expected_sample)
   end
+
+  @testset "Degenerate feasible optima are both represented in psi" begin
+    # Exactly-one over two sites with a symmetric objective: [1, 0] and [0, 1]
+    # are both optimal with E = -1. `mindim = 2` keeps the MPS from truncating
+    # to a single bitstring — the same mechanism test/cases/vrp.jl uses to
+    # force positive probability for both optimal solutions. The optimum split
+    # inherits the random initial state, so seed for reproducibility; the
+    # membership cutoff (1e-8) sits orders of magnitude below the observed
+    # worst-case split (~1e-4 over 30 seeds).
+    Random.seed!(20260715)
+
+    l = [-1.0, -1.0]
+    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+
+    E, psi = minimize(
+      zeros(2, 2),
+      l;
+      constraints,
+      iterations=3,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+      mindim=2,
+    )
+
+    @test E ≈ -1.0
+    @test [1, 0] in psi
+    @test [0, 1] in psi
+    # Infeasible states carry no amplitude, so the two optima carry all of it.
+    @test [0, 0] ∉ psi
+    @test [1, 1] ∉ psi
+    @test TenSolver.prob(psi, [1, 0]) + TenSolver.prob(psi, [0, 1]) ≈ 1.0 atol=1e-8
+
+    # The constrained scalar fast path is exactly deterministic: with both
+    # assignments feasible and degenerate it returns the uniform superposition.
+    relaxed = AbstractConstraint[SumConstraint([1], [1], 1; relation=:(<=))]
+    E1, psi1 = minimize(
+      zeros(1, 1);
+      constraints=relaxed,
+      iterations=2,
+      verbosity=0,
+      cutoff=1e-12,
+    )
+
+    @test E1 ≈ 0.0
+    @test [0] in psi1
+    @test [1] in psi1
+    @test TenSolver.prob(psi1, [0]) ≈ 0.5
+    @test TenSolver.prob(psi1, [1]) ≈ 0.5
+  end
 end
