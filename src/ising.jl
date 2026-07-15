@@ -128,6 +128,18 @@ function check_form_domain(form::QUBOTools.AbstractForm, domain, label::Abstract
   QUBOTools.domain(form) === domain || throw(ArgumentError("$label conversion expected a QUBOTools form in domain $domain. Encountered $(QUBOTools.domain(form))."))
 end
 
+function scaled_form_parts(form::QUBOTools.AbstractForm)
+  _, l, Q, scale, offset, _, _ = form
+  T = promote_type(eltype(Q), eltype(l), typeof(scale), typeof(offset))
+  return T(scale) .* sparse(T.(Q)), T(scale) .* collect(T, l), T(scale) * T(offset)
+end
+
+function IsingModel(form::QUBOTools.AbstractForm)
+  check_form_domain(form, QUBOTools.SpinDomain, "Ising model")
+  J, h, offset = scaled_form_parts(form)
+  return IsingModel(J, h, offset)
+end
+
 """
     bool_to_spin(x)
 

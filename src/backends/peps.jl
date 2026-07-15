@@ -9,10 +9,14 @@
 
 abstract type AbstractStructuredTopology end
 
-# Structured square-grid topology for optional PEPS solves.
-#
-# Variables are assumed to be ordered according to SpinGlassNetworks'
-# `super_square_lattice((m, n, spins_per_site))` convention.
+"""
+    SquareGrid(m, n, spins_per_site = 1)
+
+Structured square-grid topology for optional PEPS solves.
+
+Variables are assumed to be ordered according to SpinGlassNetworks'
+`super_square_lattice((m, n, spins_per_site))` convention.
+"""
 struct SquareGrid <: AbstractStructuredTopology
   m :: Int
   n :: Int
@@ -26,9 +30,13 @@ struct SquareGrid <: AbstractStructuredTopology
   end
 end
 
-# Structured king-grid topology for optional PEPS solves. It uses the same
-# variable ordering as `SquareGrid`, but the PEPS compatibility graph also
-# allows diagonal interactions between neighboring grid cells.
+"""
+    KingGrid(m, n, spins_per_site = 1)
+
+Structured king-grid topology for optional PEPS solves. It uses the same
+variable ordering as [`SquareGrid`](@ref), but the PEPS compatibility graph
+also allows diagonal interactions between neighboring grid cells.
+"""
 struct KingGrid <: AbstractStructuredTopology
   m :: Int
   n :: Int

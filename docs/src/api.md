@@ -72,12 +72,6 @@ TenSolver.qmatrix_permutation
 TenSolver.preprocess_qubo
 ```
 
-### Backend Boundaries
-
-```@docs
-TenSolver.solve_ising
-TenSolver.peps_options
-```
 
 ### MPO Construction
 
@@ -100,11 +94,11 @@ TenSolver.project_state
 
 ### PEPS Backend
 
-
 ```@docs
 TenSolver.SquareGrid
 TenSolver.KingGrid
 TenSolver.solve_ising
+TenSolver.peps_options
 ```
 
 ## Index
