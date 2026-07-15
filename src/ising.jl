@@ -1,13 +1,32 @@
-import SparseArrays: findnz, sparse, dropzeros!
+import SparseArrays: SparseMatrixCSC, findnz, sparse, dropzeros!
+
+struct IsingModel{T <: Real}
+    J      :: SparseMatrixCSC{T, Int}
+    h      :: Vector{T}
+    offset :: T
+end
+
+function IsingModel(J::AbstractMatrix{<:Real}, h::AbstractVector{<:Real}, offset::Real=0)
+  issquare(J) || throw(DimensionMismatch("The Ising coupling matrix must be square. Encountered dimensions $(size(J))."))
+  size(J, 1) == length(h) || throw(DimensionMismatch("The Ising field vector length must match the coupling matrix size. Encountered dimensions $(size(J)) and length $(length(h))."))
+
+  T = promote_type(eltype(J), eltype(h), typeof(offset))
+  couplings, diagonal_offset = canonical_ising_couplings(J, T)
+  return IsingModel{T}(couplings, collect(T, h), T(offset) + diagonal_offset)
+end
 
 function canonical_ising_couplings(J::AbstractMatrix, ::Type{T}) where {T}
   couplings = Dict{Tuple{Int, Int}, T}()
+  diagonal_offset = zero(T)
   rows, cols, vals = findnz(sparse(T.(J)))
 
   for k in eachindex(vals)
     i = rows[k]
     j = cols[k]
-    i == j && continue
+    if i == j
+      diagonal_offset += vals[k]
+      continue
+    end
 
     a, b = minmax(i, j)
     key = (a, b)
@@ -26,7 +45,7 @@ function canonical_ising_couplings(J::AbstractMatrix, ::Type{T}) where {T}
     end
   end
 
-  return sparse(out_rows, out_cols, out_vals, size(J, 1), size(J, 2))
+  return sparse(out_rows, out_cols, out_vals, size(J, 1), size(J, 2)), diagonal_offset
 end
 
 function conversion_type(Q::AbstractMatrix, l, c)

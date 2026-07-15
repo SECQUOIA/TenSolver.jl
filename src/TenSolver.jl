@@ -22,9 +22,6 @@ include("projection_mpo.jl")
 include("solution.jl")
 export sample
 
-include("ising.jl")
-export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
-
 include("solver.jl")
 export minimize, maximize, solve_ising
 export AbstractTenSolverBackend, DMRGBackend
