@@ -3,21 +3,25 @@
 [![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://SECQUOIA.github.io/TenSolver.jl/stable/)
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://SECQUOIA.github.io/TenSolver.jl/dev/)
 
-Tensor Network-based solver for **Q**uadratic **U**nconstrained **B**inary **O**ptimization (QUBO) problems.
+Tensor Network-based solver for binary optimization problems:
+quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
 
 $$\begin{array}{rl}
-  \min_x      & x' Q x \\
-  \text{s.t.} & x \in \mathbb{B}^{n}
+  \min_x      & p(x) \\
+  \text{s.t.} & x \text{ satisfies hard constraints (optional)} \\
+              & x \in \mathbb{B}^{n}
 \end{array}$$
+
+Here `p` may be a quadratic form `x' Q x + l' x + c` or an arbitrary polynomial.
 
 ## Installation
 
-This package is currently not registered. Install it directly from the git url:
+The package is registered in the General registry:
 
 ```julia
 using Pkg
 
-Pkg.add(url="https://github.com/SECQUOIA/TenSolver.jl.git")
+Pkg.add("TenSolver")
 ```
 
 ## Usage
@@ -43,28 +47,17 @@ x = TenSolver.sample(psi)
 
 ### Constraints
 
-TenSolver can also enforce **hard constraints** on the binary variables.
-Rather than adding penalty terms to the objective, each constraint is lowered to
-a projection MPO that removes the infeasible subspace exactly, so every sampled
-solution is guaranteed feasible.
+TenSolver can also enforce hard constraints on the binary variables — every
+sampled solution is guaranteed feasible, with no penalty terms involved:
 
 ```julia
-using TenSolver
-
-# Maximize value while selecting at most two of the three assets.
-values = [3.0, 2.0, 4.0]
 budget = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
-
-E, psi = TenSolver.minimize(zeros(3, 3), -values; constraints = [budget])
-x = TenSolver.sample(psi)   # always satisfies the budget
+E, psi = TenSolver.maximize(zeros(3, 3), values; constraints = [budget])
 ```
 
-The available constraint types are `SumConstraint`, `NotEqualsConstraint`,
-`ExactlyOneConstraint`, and `RelationConstraint`. This projection design is
-adapted from CoTenN (Sharma, Peng, Dangwal, and Achour, *"CoTenN: Constrained
-Optimization with Tensor Networks,"* PLDI 2026). Hard constraints are
-experimental; see the [documentation](https://SECQUOIA.github.io/TenSolver.jl)
-for details.
+The constraint API is experimental and subject to change; see the
+[constraints documentation](https://SECQUOIA.github.io/TenSolver.jl/dev/constraints/)
+for the available types, the projection method behind them, and worked examples.
 
 ### JuMP interface
 
