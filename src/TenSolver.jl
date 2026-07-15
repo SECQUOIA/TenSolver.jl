@@ -23,7 +23,7 @@ include("solution.jl")
 export sample
 
 include("solver.jl")
-export minimize, maximize, solve_ising
+export minimize, maximize
 export AbstractTenSolverBackend, DMRGBackend
 
 # Convergence logging

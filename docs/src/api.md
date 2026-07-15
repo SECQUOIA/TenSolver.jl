@@ -14,13 +14,14 @@ TenSolver.maximize
 ```@docs
 TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
-TenSolver.normalize_backend
 TenSolver.PEPSBackend
+TenSolver.normalize_backend
 ```
 
 ## Solution
 
 ```@docs
+TenSolver.AbstractSolution
 TenSolver.Solution
 ```
 
@@ -69,6 +70,13 @@ Notice: As unexported method and types, they are subject to change without warni
 TenSolver.tensorize
 TenSolver.qmatrix_permutation
 TenSolver.preprocess_qubo
+```
+
+### Backend Boundaries
+
+```@docs
+TenSolver.solve_ising
+TenSolver.peps_options
 ```
 
 ### MPO Construction
