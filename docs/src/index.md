@@ -9,6 +9,7 @@ TenSolver.jl provides an efficient solver for QUBO problems using tensor network
 - Solving large-scale binary optimization problems
 - Finding approximate solutions to NP-hard problems
 - Exploring the solution space of combinatorial optimization problems
+- Enforcing hard constraints exactly through projection, without penalty terms
 - GPU-accelerated optimization
 
 ## Installation
@@ -60,6 +61,7 @@ x = TenSolver.sample(psi)
 
 - **Tensor Network Optimization**: Uses advanced tensor network methods (DMRG) for efficient optimization
 - **Probability Distribution**: Returns a probability distribution over optimal solutions
+- **Hard Constraints**: Enforces constraints exactly via CoTenN-style projection MPOs, so sampled solutions are always feasible (see [Constrained Optimization](@ref))
 - **JuMP Integration**: Works seamlessly with the JuMP modeling language
 - **GPU Support**: Supports GPU acceleration via CUDA.jl, Metal.jl, and other accelerators
 - **Flexible Configuration**: Numerous parameters to control accuracy vs. performance trade-off

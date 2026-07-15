@@ -41,6 +41,31 @@ These vectors are the (approximate) optimal solutions to the original optimizati
 x = TenSolver.sample(psi)
 ```
 
+### Constraints
+
+TenSolver can also enforce **hard constraints** on the binary variables.
+Rather than adding penalty terms to the objective, each constraint is lowered to
+a projection MPO that removes the infeasible subspace exactly, so every sampled
+solution is guaranteed feasible.
+
+```julia
+using TenSolver
+
+# Maximize value while selecting at most two of the three assets.
+values = [3.0, 2.0, 4.0]
+budget = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
+
+E, psi = TenSolver.minimize(zeros(3, 3), -values; constraints = [budget])
+x = TenSolver.sample(psi)   # always satisfies the budget
+```
+
+The available constraint types are `SumConstraint`, `NotEqualsConstraint`,
+`ExactlyOneConstraint`, and `RelationConstraint`. This projection design is
+adapted from CoTenN (Sharma, Peng, Dangwal, and Achour, *"CoTenN: Constrained
+Optimization with Tensor Networks,"* PLDI 2026). Hard constraints are
+experimental; see the [documentation](https://SECQUOIA.github.io/TenSolver.jl)
+for details.
+
 ### JuMP interface
 
 Alternatively, we also provide an `Optimizer`

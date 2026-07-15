@@ -390,3 +390,63 @@ println("Number of conflicts: ", conflicts)
 Graph coloring: [0, 1, 0, 1]
 Number of conflicts: 0.0
 ```
+
+## Constrained Optimization
+
+Besides the unconstrained objective, TenSolver can enforce **hard constraints**
+on the binary variables. Instead of adding penalty terms to the objective (which
+only discourage infeasible solutions), each constraint is lowered to a *projection
+MPO* that removes the infeasible subspace exactly, so every sampled solution is
+guaranteed feasible. This projection approach is adapted from CoTenN (Sharma,
+Peng, Dangwal, and Achour, *"CoTenN: Constrained Optimization with Tensor
+Networks,"* PLDI 2026).
+
+The available constraint types are [`SumConstraint`](@ref), [`NotEqualsConstraint`](@ref),
+[`ExactlyOneConstraint`](@ref), and [`RelationConstraint`](@ref); pass them to
+[`minimize`](@ref) or [`maximize`](@ref) through the `constraints` keyword.
+
+Here we pick assets to maximize total value under a budget that admits at most
+two of them, expressed as a `SumConstraint`:
+
+```jldoctest constraints
+using TenSolver
+
+# Choose among three assets to maximize value, but a budget admits at most two.
+values = [3.0, 2.0, 4.0]
+budget = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
+
+# Maximizing value is minimizing the negative value, subject to the budget.
+E, psi = TenSolver.minimize(zeros(3, 3), -values; constraints = [budget], verbosity = 0)
+x = TenSolver.sample(psi)
+
+# The optimum keeps the two most valuable assets (1 and 3), within the budget.
+(E ≈ -7.0, x, is_feasible(x, [budget]))
+
+# output
+
+(true, [1, 0, 1], true)
+```
+
+You can also check an assignment against a set of constraints directly with
+[`is_feasible`](@ref), without solving:
+
+```jldoctest constraints
+# Selecting assets 2 and 3 respects the budget; selecting all three does not.
+(is_feasible([0, 1, 1], [budget]), is_feasible([1, 1, 1], [budget]))
+
+# output
+
+(true, false)
+```
+
+Constraints compose: passing several of them applies their conjunction. When the
+constraints admit no feasible assignment at all, the solve does not error — it
+returns `+Inf` (`-Inf` for [`maximize`](@ref)) together with an infeasible
+solution, which you can detect with [`is_feasible`](@ref) and which cannot be
+sampled.
+
+!!! note
+    Hard constraints are experimental. The bond dimension of a `SumConstraint`
+    projection grows only with its right-hand side (`rhs + 2`), independent of the
+    number of variables, so capacity-style constraints stay cheap; the other v1
+    constraint types use bond dimension 2.
