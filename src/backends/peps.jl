@@ -48,11 +48,16 @@ topology_name(::SquareGrid) = "square"
 topology_name(::KingGrid) = "king"
 
 """
-    PEPSBackend(topology; kwargs...)
+    PEPSBackend(topology)
 
 Select the optional SpinGlassPEPS structured backend for `minimize` and
 `TenSolver.solve_ising`, targeting Ising models whose couplings fit the given
 structured `topology` (`SquareGrid` or `KingGrid`).
+
+Like `DMRGBackend`, the backend object only selects the algorithm; solver
+parameters are keyword arguments of the solve call. Keywords shared with the
+DMRG backend keep the same names (`maxdim`, `iterations`, `device`); the
+PEPS-specific keywords are documented on [`TenSolver.peps_options`](@ref).
 
 The solve is provided by the `TenSolverSpinGlassPEPSExt` package extension and
 requires `SpinGlassNetworks`, `SpinGlassEngine`, and `SpinGlassTensors` to be
@@ -64,56 +69,68 @@ while the registered SpinGlass component dependency stack does not resolve in
 the same environment as TenSolver's ITensors/QUBOTools stack, so CI cannot
 exercise the extension.
 """
-struct PEPSBackend{T <: AbstractStructuredTopology, S} <: AbstractTenSolverBackend
+struct PEPSBackend{T <: AbstractStructuredTopology} <: AbstractTenSolverBackend
   topology :: T
-  beta :: Float64
-  bond_dim :: Int
-  max_states :: Int
-  cutoff_prob :: Float64
-  onGPU :: Bool
-  contraction :: Symbol
-  num_sweeps :: Int
-  graduate_truncation :: Bool
-  transformations :: S
-  local_dimension :: Union{Nothing, Int}
-  no_cache :: Bool
 end
 
-function PEPSBackend(topology::AbstractStructuredTopology;
-                     beta::Real = 2.0,
-                     bond_dim::Integer = 16,
-                     max_states::Integer = 2^8,
-                     cutoff_prob::Real = 1e-4,
-                     onGPU::Bool = false,
-                     contraction::Symbol = :auto,
-                     num_sweeps::Integer = 1,
-                     graduate_truncation::Bool = true,
-                     transformations = :all,
-                     local_dimension::Union{Nothing, Integer} = nothing,
-                     no_cache::Bool = false)
-  beta > 0 && isfinite(beta) || throw(ArgumentError("PEPSBackend requires finite beta > 0. Got $beta."))
-  bond_dim >= 1 || throw(ArgumentError("PEPSBackend requires bond_dim >= 1. Got $bond_dim."))
-  max_states >= 1 || throw(ArgumentError("PEPSBackend requires max_states >= 1. Got $max_states."))
-  cutoff_prob >= 0 || throw(ArgumentError("PEPSBackend requires cutoff_prob >= 0. Got $cutoff_prob."))
-  num_sweeps >= 1 || throw(ArgumentError("PEPSBackend requires num_sweeps >= 1. Got $num_sweeps."))
+"""
+    peps_options(; kwargs...)
+
+Normalize and validate the keyword arguments of a PEPS solve into an options
+named tuple for the SpinGlassPEPS extension.
+
+Keywords shared with the DMRG backend:
+
+- `maxdim :: Int = 16` - Maximum boundary-MPS bond dimension used during PEPS contraction.
+- `iterations :: Int = 1` - Number of boundary-MPS variational sweeps.
+- `device :: Function = cpu` - Accelerator device; anything other than `cpu` runs the SpinGlass contractor on GPU.
+
+PEPS-specific keywords:
+
+- `beta :: Float64 = 2.0` - Inverse temperature used for the contraction.
+- `max_states :: Int = 256` - Maximum number of low-energy states retained.
+- `cutoff_prob :: Float64 = 1e-4` - Probability cutoff for discarding branches.
+- `contraction :: Symbol = :auto` - Contraction strategy (`:auto`, `:svd`, `:svd_truncate`, or `:zipper`).
+- `graduate_truncation :: Bool = true` - Gradual truncation of the boundary MPS.
+- `transformations = :all` - Lattice transformations to try (`:all`, `:identity`, or a collection).
+- `local_dimension :: Union{Nothing, Int} = nothing` - Optional fixed Potts cluster dimension.
+- `no_cache :: Bool = false` - Disable the SpinGlassEngine memoization cache.
+"""
+function peps_options(;
+  maxdim::Integer = 16,
+  iterations::Integer = 1,
+  device::Function = cpu,
+  beta::Real = 2.0,
+  max_states::Integer = 2^8,
+  cutoff_prob::Real = 1e-4,
+  contraction::Symbol = :auto,
+  graduate_truncation::Bool = true,
+  transformations = :all,
+  local_dimension::Union{Nothing, Integer} = nothing,
+  no_cache::Bool = false,
+)
+  beta > 0 && isfinite(beta) || throw(ArgumentError("PEPS solves require finite beta > 0. Got $beta."))
+  maxdim >= 1 || throw(ArgumentError("PEPS solves require maxdim >= 1. Got $maxdim."))
+  max_states >= 1 || throw(ArgumentError("PEPS solves require max_states >= 1. Got $max_states."))
+  cutoff_prob >= 0 || throw(ArgumentError("PEPS solves require cutoff_prob >= 0. Got $cutoff_prob."))
+  iterations >= 1 || throw(ArgumentError("PEPS solves require iterations >= 1. Got $iterations."))
   contraction in (:auto, :svd, :svd_truncate, :zipper) ||
     throw(ArgumentError("Unsupported PEPS contraction $(repr(contraction)). Use :auto, :svd, :svd_truncate, or :zipper."))
   if !isnothing(local_dimension)
-    local_dimension >= 1 || throw(ArgumentError("PEPSBackend requires local_dimension >= 1 when provided. Got $local_dimension."))
+    local_dimension >= 1 || throw(ArgumentError("PEPS solves require local_dimension >= 1 when provided. Got $local_dimension."))
   end
 
-  return PEPSBackend{typeof(topology), typeof(transformations)}(
-    topology,
-    Float64(beta),
-    Int(bond_dim),
-    Int(max_states),
-    Float64(cutoff_prob),
-    onGPU,
+  return (;
+    maxdim = Int(maxdim),
+    iterations = Int(iterations),
+    onGPU = !(device === cpu),
+    beta = Float64(beta),
+    max_states = Int(max_states),
+    cutoff_prob = Float64(cutoff_prob),
     contraction,
-    Int(num_sweeps),
     graduate_truncation,
     transformations,
-    isnothing(local_dimension) ? nothing : Int(local_dimension),
+    local_dimension = isnothing(local_dimension) ? nothing : Int(local_dimension),
     no_cache,
   )
 end

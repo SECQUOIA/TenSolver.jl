@@ -12,27 +12,32 @@
   @test_throws ArgumentError TenSolver.SquareGrid(0, 1)
   @test_throws ArgumentError TenSolver.KingGrid(1, 0)
 
-  backend = TenSolver.PEPSBackend(
-    TenSolver.SquareGrid(1, 1);
+  backend = TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1))
+
+  @test backend.topology == TenSolver.SquareGrid(1, 1)
+
+  # Solve keywords are validated by peps_options, mirroring how the DMRG
+  # backend takes its parameters as minimize keywords.
+  opts = TenSolver.peps_options(;
     beta = 1.5,
-    bond_dim = 4,
+    maxdim = 4,
     max_states = 2,
     cutoff_prob = 0.0,
-    onGPU = false,
     contraction = :svd,
     transformations = :identity,
   )
-
-  @test backend.topology == TenSolver.SquareGrid(1, 1)
-  @test backend.beta == 1.5
-  @test backend.bond_dim == 4
-  @test backend.max_states == 2
-  @test backend.cutoff_prob == 0.0
-  @test backend.contraction == :svd
-  @test_throws ArgumentError TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1); beta = 0)
-  @test_throws ArgumentError TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1); bond_dim = 0)
-  @test_throws ArgumentError TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1); max_states = 0)
-  @test_throws ArgumentError TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1); contraction = :unknown)
+  @test opts.beta == 1.5
+  @test opts.maxdim == 4
+  @test opts.iterations == 1
+  @test opts.max_states == 2
+  @test opts.cutoff_prob == 0.0
+  @test opts.onGPU == false
+  @test opts.contraction == :svd
+  @test_throws ArgumentError TenSolver.peps_options(; beta = 0)
+  @test_throws ArgumentError TenSolver.peps_options(; maxdim = 0)
+  @test_throws ArgumentError TenSolver.peps_options(; max_states = 0)
+  @test_throws ArgumentError TenSolver.peps_options(; contraction = :unknown)
+  @test_throws ArgumentError TenSolver.peps_options(; iterations = 0)
 
   Q = reshape([-1.0], 1, 1)
   peps_error = try
@@ -110,13 +115,12 @@ end
     import SpinGlassEngine
     import SpinGlassTensors
 
-    backend = TenSolver.PEPSBackend(
-      TenSolver.SquareGrid(2, 2);
+    backend = TenSolver.PEPSBackend(TenSolver.SquareGrid(2, 2))
+    peps_kwargs = (
       beta = 2.0,
-      bond_dim = 4,
+      maxdim = 4,
       max_states = 4,
       cutoff_prob = 0.0,
-      onGPU = false,
       contraction = :svd,
       transformations = :identity,
     )
@@ -132,7 +136,7 @@ end
     objective(x) = dot(x, Q, x) + dot(l, x) + c
     exact_energy, _ = brute_force(objective, Int, 4)
 
-    energy, solution = minimize(Q, l, c; backend, verbosity = 0)
+    energy, solution = minimize(Q, l, c; backend, verbosity = 0, peps_kwargs...)
     state = sample(solution)
 
     @test energy ≈ exact_energy atol = 1e-6
