@@ -40,6 +40,11 @@ TenSolver.ising_to_qubo
 
 ## Constraints
 
+Hard constraints are enforced by lowering each one to an exact projection MPO,
+following CoTenN (Sharma, Peng, Dangwal, and Achour, *"CoTenN: Constrained
+Optimization with Tensor Networks,"* PLDI 2026). See [Constrained Optimization](@ref)
+for a worked example.
+
 ```@docs
 TenSolver.AbstractConstraint
 TenSolver.SumConstraint
