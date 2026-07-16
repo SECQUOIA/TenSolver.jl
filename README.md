@@ -8,7 +8,9 @@ quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
 
 $$\begin{array}{rl}
   \min_x      & p(x) \\
-  \text{s.t.} & x \text{ satisfies hard constraints (optional)} \\
+  \text{s.t.} & Ax = b \\
+   P x \le q \\
+   x \text{ satisfies other constraints} \\
               & x \in \mathbb{B}^{n}
 \end{array}$$
 
@@ -47,7 +49,7 @@ x = TenSolver.sample(psi)
 
 ### Constraints
 
-TenSolver can also enforce hard constraints on the binary variables — every
+TenSolver can also enforce hard constraints on the binary variables. Every
 sampled solution is guaranteed feasible, with no penalty terms involved:
 
 ```julia
