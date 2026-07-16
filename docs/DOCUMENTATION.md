@@ -13,6 +13,9 @@ The documentation is built using [Documenter.jl](https://github.com/JuliaDocs/Do
 Internal developer notes live outside the generated user documentation:
 
 - **SpinGlassPEPS Integration** (`docs/internal/spinglasspeps_integration.md`): Planned architecture for the optional structured PEPS backend
+- **JuMP/MOI Constraints Integration** (`docs/internal/jump_moi_constraints.md`):
+  Planned lowering from MOI function-in-set constraints to TenSolver's native
+  projection IR
 
 ## Building Documentation Locally
 
