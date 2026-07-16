@@ -34,6 +34,11 @@ A solve with `constraints` proceeds in three steps:
 Each of the four built-in constraint types has a specialized automaton with a
 compact bond dimension (see the table below).
 
+A legacy generic path can enumerate feasible assignments for constraints
+without a DFA lowering. It is exact, but it is the slowest construction and
+its bond dimension can grow with the feasible set, so custom constraints
+should provide an automaton instead.
+
 The cost driver is the MPO bond dimension: the projected Hamiltonian satisfies
 ``\chi(P' H P) \le \chi(H) \cdot \prod_i \chi(P_i)^2``, so compact projections
 keep constrained solves close to the unconstrained cost.
@@ -88,20 +93,22 @@ You can also check an assignment against constraints directly with
 `SumConstraint(sites, weights, rhs; relation)` enforces the weighted sum
 
 ```math
-\sum_{i \in \texttt{sites}} \texttt{weights}[i] \cdot x[i]
+\sum_j \texttt{weights}[j] \cdot x_{\texttt{sites}[j]}
 \;\; \texttt{relation} \;\; \texttt{rhs},
 ```
 
-with `relation` one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`. The `sites` are unique positive integers representing variable indices, while `weights` and
-`rhs` must be **nonnegative integers**. Its automaton tracks the capped partial
-sum, so the projection bond dimension is `rhs + 2` regardless of how many
-variables the sum touches.
+where `sites[j]` and `weights[j]` are paired positionally, and `relation` is one
+of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`. The `sites` are unique positive
+integers representing variable indices, while `weights` and `rhs` must be
+**nonnegative integers**. Its automaton tracks the capped partial sum, so the
+projection bond dimension is `rhs + 2` regardless of how many variables the
+sum touches.
 
 ### NotEqualsConstraint
 
 `NotEqualsConstraint(sites, values)` forbids a single partial assignment: at
 least one component of ``x[\texttt{sites}]`` must differ from `values`:
-``\exists i \in \texttt{sites}, x[i] \ne \texttt[i].`` 
+``\exists j,\ x_{\texttt{sites}[j]} \ne \texttt{values}[j].``
 
 Its bond dimension is always 2.
 
@@ -123,8 +130,13 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; constraints = [exclude], 
 ### ExactlyOneConstraint
 
 `ExactlyOneConstraint(sites, value)` requires exactly one of the selected sites
-to equal `value`:
+to equal `value`, which must be `0` or `1`:
 
+```math
+\#\{\, s \in \texttt{sites} : x_s = \texttt{value} \,\} = 1.
+```
+
+Its specialized automaton has bond dimension 2.
 
 ```jldoctest onehot
 using TenSolver
