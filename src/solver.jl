@@ -20,9 +20,10 @@ backends implement `minimize(::MyBackend, p::AbstractPolynomial; kwargs...)`.
 Extensions that support symbolic selection must also define
 `normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
 
-# See also
+The default implementation is [`DMRGBackend`](@ref).
 
-[`DMRGBackend`](@ref), [`normalize_backend`](@ref)
+# See also
+[`DMRGBackend`](@ref), [`normalize_backend`](@ref).
 """
 abstract type AbstractTenSolverBackend end
 
@@ -57,6 +58,8 @@ normalize_backend(backend) = throw(backend_error(backend))
 #
 include("backends/dmrg.jl")
 const default_backend = DMRGBackend()
+
+include("backends/peps.jl")
 
 """
     minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
@@ -148,6 +151,37 @@ end
 function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
   throw(backend_error(backend))
 end
+
+"""
+    solve_ising(model; backend = DMRGBackend(), kwargs...)
+    solve_ising(J, h[, offset]; backend = DMRGBackend(), kwargs...)
+
+Solve an Ising model with spins `s_i in {-1, +1}`.
+
+The returned solution still samples TenSolver Boolean vectors using
+`x_i = (s_i + 1) / 2`. The default DMRG path converts the Ising model back to a
+QUBO and calls [`minimize`](@ref). Optional structured backends can implement
+this boundary directly.
+"""
+function solve_ising end
+
+function solve_ising(model::IsingModel; backend=default_backend, kwargs...)
+  return solve_ising(normalize_backend(backend), model; kwargs...)
+end
+
+function solve_ising(J::AbstractMatrix, h::AbstractVector, offset::Real=0; backend=default_backend, kwargs...)
+  return solve_ising(IsingModel(J, h, offset); backend, kwargs...)
+end
+
+function solve_ising(backend::AbstractTenSolverBackend, model::IsingModel; kwargs...)
+  throw(backend_error(backend))
+end
+
+function solve_ising(::DMRGBackend, model::IsingModel; kwargs...)
+  Q, l, c = scaled_form_parts(ising_to_qubo(model))
+  return minimize(default_backend, Q, l, c; kwargs...)
+end
+
 
 """
     minimize(Q::Matrix, c::Number; kwargs...)

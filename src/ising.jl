@@ -1,4 +1,52 @@
-import SparseArrays: dropzeros!, sparse
+import SparseArrays: SparseMatrixCSC, findnz, sparse, dropzeros!
+
+struct IsingModel{T <: Real}
+    J      :: SparseMatrixCSC{T, Int}
+    h      :: Vector{T}
+    offset :: T
+end
+
+function IsingModel(J::AbstractMatrix{<:Real}, h::AbstractVector{<:Real}, offset::Real=0)
+  issquare(J) || throw(DimensionMismatch("The Ising coupling matrix must be square. Encountered dimensions $(size(J))."))
+  size(J, 1) == length(h) || throw(DimensionMismatch("The Ising field vector length must match the coupling matrix size. Encountered dimensions $(size(J)) and length $(length(h))."))
+
+  T = promote_type(eltype(J), eltype(h), typeof(offset))
+  couplings, diagonal_offset = canonical_ising_couplings(J, T)
+  return IsingModel{T}(couplings, collect(T, h), T(offset) + diagonal_offset)
+end
+
+function canonical_ising_couplings(J::AbstractMatrix, ::Type{T}) where {T}
+  couplings = Dict{Tuple{Int, Int}, T}()
+  diagonal_offset = zero(T)
+  rows, cols, vals = findnz(sparse(T.(J)))
+
+  for k in eachindex(vals)
+    i = rows[k]
+    j = cols[k]
+    if i == j
+      diagonal_offset += vals[k]
+      continue
+    end
+
+    a, b = minmax(i, j)
+    key = (a, b)
+    couplings[key] = get(couplings, key, zero(T)) + vals[k]
+  end
+
+  out_rows = Int[]
+  out_cols = Int[]
+  out_vals = T[]
+  for (i, j) in sort!(collect(keys(couplings)))
+    coupling = couplings[(i, j)]
+    if !iszero(coupling)
+      push!(out_rows, i)
+      push!(out_cols, j)
+      push!(out_vals, coupling)
+    end
+  end
+
+  return sparse(out_rows, out_cols, out_vals, size(J, 1), size(J, 2)), diagonal_offset
+end
 
 function conversion_type(Q::AbstractMatrix, l, c)
   T = promote_type(eltype(Q), isnothing(l) ? eltype(Q) : eltype(l), typeof(c))
@@ -80,6 +128,18 @@ function check_form_domain(form::QUBOTools.AbstractForm, domain, label::Abstract
   QUBOTools.domain(form) === domain || throw(ArgumentError("$label conversion expected a QUBOTools form in domain $domain. Encountered $(QUBOTools.domain(form))."))
 end
 
+function scaled_form_parts(form::QUBOTools.AbstractForm)
+  _, l, Q, scale, offset, _, _ = form
+  T = promote_type(eltype(Q), eltype(l), typeof(scale), typeof(offset))
+  return T(scale) .* sparse(T.(Q)), T(scale) .* collect(T, l), T(scale) * T(offset)
+end
+
+function IsingModel(form::QUBOTools.AbstractForm)
+  check_form_domain(form, QUBOTools.SpinDomain, "Ising model")
+  J, h, offset = scaled_form_parts(form)
+  return IsingModel(J, h, offset)
+end
+
 """
     bool_to_spin(x)
 
@@ -138,6 +198,23 @@ function qubo_to_ising(form::QUBOTools.AbstractForm; convention::Symbol=:spin)
   return drop_form_zeros!(QUBOTools.cast(QUBOTools.SpinDomain, form))
 end
 
+function ising_energy(model::IsingModel{T}, s::AbstractVector) where {T}
+  length(s) == length(model.h) || throw(DimensionMismatch("Spin vector length must match the Ising model size. Encountered length $(length(s)) and model size $(length(model.h))."))
+  spin_to_bool(s)
+
+  energy = model.offset + sum(model.h[i] * T(s[i]) for i in eachindex(model.h))
+  rows, cols, vals = findnz(model.J)
+  for k in eachindex(vals)
+    i = rows[k]
+    j = cols[k]
+    if i < j
+      energy += vals[k] * T(s[i]) * T(s[j])
+    end
+  end
+
+  return energy
+end
+
 """
     ising_to_qubo(form)
     ising_to_qubo(J, h[, offset])
@@ -163,6 +240,36 @@ function ising_to_qubo(form::QUBOTools.AbstractForm)
   return drop_form_zeros!(QUBOTools.cast(QUBOTools.BoolDomain, form))
 end
 
+ising_to_qubo(model::IsingModel) = ising_to_qubo(ising_form(model.J, model.h, model.offset))
+
 function ising_to_qubo(J::AbstractMatrix, h::AbstractVector, offset::Real=0)
   return ising_to_qubo(ising_form(J, h, offset))
+end
+
+
+"""
+    ising_energy(J, h, c, s)
+
+Evaluate an Ising Model at a spin vector `s_i in {-1, +1}`.
+"""
+
+function ising_energy(J::AbstractMatrix, h::AbstractVector, s::AbstractVector, offset::Real=0)
+  check_ising_dimensions(J, h)
+  length(s) == length(h) || throw(DimensionMismatch("Spin vector length must match the Ising model size. Encountered length $(length(s)) and field length $(length(h))."))
+
+  s = checked_spin_state(s)
+  T = promote_type(eltype(J), eltype(h), typeof(offset), eltype(s))
+
+  energy = T(offset) + sum(T(h[i]) * T(s[i]) for i in eachindex(h))
+
+  for j in 2:length(h)
+    for i in 1:(j - 1)
+      coupling = T(J[i, j]) + T(J[j, i])
+      if !iszero(coupling)
+        energy += coupling * T(s[i]) * T(s[j])
+      end
+    end
+  end
+
+  return energy
 end
