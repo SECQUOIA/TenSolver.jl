@@ -32,20 +32,17 @@ A solve with `constraints` proceeds in three steps:
    every sampled bitstring feasible.
 
 Each of the four built-in constraint types has a specialized automaton with a
-compact bond dimension (see the table below). Other constraints can be lowered
-through a generic path that enumerates the feasible assignments on the
-constrained sites; it is exact as well, but its bond dimension is not bounded a
-priori, so the specialized lowerings are preferred whenever they apply.
+compact bond dimension (see the table below).
 
 The cost driver is the MPO bond dimension: the projected Hamiltonian satisfies
-``\chi(P' H P) \le \chi(H) \cdot \prod_i \chi(P_i)``, so compact projections
+``\chi(P' H P) \le \chi(H) \cdot \prod_i \chi(P_i)^2``, so compact projections
 keep constrained solves close to the unconstrained cost.
 
 | Constraint | Enforces | Bond dimension of ``P`` |
 |:-----------|:---------|:------------------------|
 | [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
-| [`ExactlyOneConstraint`](@ref) | one-hot over selected sites | 2 |
+| [`ExactlyOneConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i = k) = 1`` | 2 |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
 
 ## Using constraints
@@ -91,21 +88,22 @@ You can also check an assignment against constraints directly with
 `SumConstraint(sites, weights, rhs; relation)` enforces the weighted sum
 
 ```math
-\sum_{i} \texttt{weights}[i] \cdot x_{\texttt{sites}[i]}
+\sum_{i \in \texttt{sites}} \texttt{weights}[i] \cdot x[i]
 \;\; \texttt{relation} \;\; \texttt{rhs},
 ```
 
-with `relation` one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`. The `sites` must
-be unique positive integers, and — a deliberate v1 restriction — `weights` and
+with `relation` one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`. The `sites` are unique positive integers representing variable indices, while `weights` and
 `rhs` must be **nonnegative integers**. Its automaton tracks the capped partial
 sum, so the projection bond dimension is `rhs + 2` regardless of how many
-variables the sum touches. The budget example above is a `SumConstraint`.
+variables the sum touches.
 
 ### NotEqualsConstraint
 
 `NotEqualsConstraint(sites, values)` forbids a single partial assignment: at
-least one component of ``x[\texttt{sites}]`` must differ from `values`
-(``x_S \ne v``). Bond dimension 2.
+least one component of ``x[\texttt{sites}]`` must differ from `values`:
+``\exists i \in \texttt{sites}, x[i] \ne \texttt[i].`` 
+
+Its bond dimension is always 2.
 
 ```jldoctest noteq
 using TenSolver
@@ -125,14 +123,8 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; constraints = [exclude], 
 ### ExactlyOneConstraint
 
 `ExactlyOneConstraint(sites, value)` requires exactly one of the selected sites
-to equal `value` (`0` or `1`):
+to equal `value`:
 
-```math
-\#\{\, s \in \texttt{sites} : x_s = \texttt{value} \,\} = 1,
-```
-
-the one-hot constraint familiar from assignment and coloring encodings. Bond
-dimension 2.
 
 ```jldoctest onehot
 using TenSolver
@@ -200,7 +192,7 @@ x = TenSolver.sample(psi)
 ## Infeasible models
 
 When the constraints admit no feasible assignment at all, the solve does not
-throw — following the convention of other optimization packages, it logs a
+throw, it logs a
 warning and reports the outcome as a status: [`minimize`](@ref) returns `+Inf`
 (the minimum over an empty feasible set) together with an infeasible solution,
 and [`maximize`](@ref) returns `-Inf`. Check with [`is_feasible`](@ref);

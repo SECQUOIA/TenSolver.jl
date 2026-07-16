@@ -1,6 +1,6 @@
 # TenSolver.jl
 
-Tensor Network-based solver for binary optimization problems — quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
+Tensor Network-based solver for binary optimization problems: quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
 
 ## Overview
 
