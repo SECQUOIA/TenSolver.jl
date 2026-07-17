@@ -8,11 +8,9 @@ Supertype for conditions over a vector `x` addressed by 1-based site indices.
 
 These are an interface for feasibility constraints.
 Any concrete subtype is expected to implement
-- [`is_feasible`](@ref).
-- [`constraint_sites`](@ref).
-
-For turning a constraint into an MPO,
-you must implement either [`constraint_to_dfa`](@ref) or [`projection_mpo`](@ref).
+- [`is_feasible`](@ref)
+- [`constraint_sites`](@ref)
+- [`constraint_to_dfa`](@ref)
 
 Constraint types are experimental. They currently provide TenSolver's
 Julia lowering target for projection-MPO constrained solves; future JuMP/MOI

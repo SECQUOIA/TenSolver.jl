@@ -69,9 +69,9 @@ function minimize(
   ;
   cutoff=1e-8,
   preprocess::Bool=false,
+  domain_dim::Integer = 2,
   kwargs...,
 ) where T
-  domain_dim = 2 # TODO: generalize
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
   H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff, dim = domain_dim)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
@@ -89,8 +89,14 @@ Solve the Polynomial Unconstrained Binary Optimization problem
 
 See also [`maximize`](@ref).
 """
-function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
-  domain_dim = 2 # TODO: generalize
+function minimize(
+  ::DMRGBackend,
+  p::AbstractPolynomial{T}
+  ;
+  cutoff=1e-8,
+  domain_dim::Integer = 2,
+  kwargs...,
+) where T
   H      = tensorize(p; cutoff, dim = domain_dim)
   cte    = constant_term(p)
   vs     = effective_variables(p)
@@ -247,7 +253,7 @@ function minimize_mpo( H :: MPO
   # Constraints
   projections = map(
     device,
-    projection_mpos(T, constraints, sites; permutation, dim = domain_dim),
+    projection_mpos(T, constraints, sites; permutation),
   )
 
   # Hamiltonian construction
