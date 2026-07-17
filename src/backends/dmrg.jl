@@ -1,5 +1,5 @@
 import ITensors: inner
-import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str, dim
+import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
 
 import ITensors, ITensorMPS
 
@@ -9,7 +9,10 @@ import ITensors, ITensorMPS
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
 ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
 
-ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index) = (d = dim(s); fill(1/sqrt(d), d))
+function ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index)
+  d = ITensorMPS.dim(s)
+  return fill(1/sqrt(d), d)
+end
 
 #----------------------------------------------------------#
 # Interface                                                #
@@ -68,11 +71,12 @@ function minimize(
   preprocess::Bool=false,
   kwargs...,
 ) where T
+  domain_dim = 2 # TODO: generalize
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff)
+  H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff, dim = domain_dim)
   obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain_dim, kwargs...)
 end
 
 """
@@ -86,12 +90,13 @@ Solve the Polynomial Unconstrained Binary Optimization problem
 See also [`maximize`](@ref).
 """
 function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
-  H      = tensorize(p)
+  domain_dim = 2 # TODO: generalize
+  H      = tensorize(p; cutoff, dim = domain_dim)
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
 
-  return minimize_mpo(H, cte, obj ; cutoff, kwargs...)
+  return minimize_mpo(H, cte, obj ; cutoff, domain_dim, kwargs...)
 end
 
 
@@ -138,7 +143,7 @@ end
 # status like other optimization packages (objective +Inf, empty Solution),
 # so it maps onto MOI.INFEASIBLE at the JuMP layer. See the discussion in #94.
 function infeasible_result(::Type{T}) where {T}
-  @warn "constraints define an empty feasible subspace; no binary vector satisfies all constraints"
+  @warn "constraints define an empty feasible subspace"
   F = float(T)
   return real(T)(+Inf), infeasible_solution(F)
 end
@@ -156,14 +161,14 @@ for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
 """
 function tensorize end
 
-function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T)) where T
+function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T), dim::Integer) where T
   Qs = [Q, rest...]
   if !allequal(Iterators.flatmap(size, Qs))
     throw(DimensionMismatch("All arrays should act on the same number of variables.\nEncountered dimensions $(collect(map(size, Qs)))."))
   end
 
   N = size(Q, 1)
-  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  sites = ITensors.siteinds("Qudit", N; dim = dim)
   os = OpSum{T}()
 
   for t in Qs
@@ -183,9 +188,9 @@ function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff =
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
+function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T), dim::Integer) where T
   N = length(effective_variables(p))
-  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  sites = ITensors.siteinds("Qudit", N; dim = dim)
   os = OpSum{T}()
 
   # Map: var name => index
@@ -211,6 +216,7 @@ function minimize_mpo( H :: MPO
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
                      , verbosity   = 1
                      , constraints = AbstractConstraint[]
+                     , domain_dim :: Integer
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
@@ -241,7 +247,7 @@ function minimize_mpo( H :: MPO
   # Constraints
   projections = map(
     device,
-    projection_mpos(T, constraints, sites; permutation),
+    projection_mpos(T, constraints, sites; permutation, dim = domain_dim),
   )
 
   # Hamiltonian construction

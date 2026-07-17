@@ -251,10 +251,12 @@ function projection_mpo end
 function projection_mpo(::Type{T}
                        , constraint::AbstractConstraint
                        , sites
-                       ; permutation = 1:length(sites)) where {T}
-  domain = [0, 1] # Fixed for now. In the future, we may upgrade.
-  dfa = permute_dfa!(constraint_to_dfa(constraint, length(sites), domain), permutation)
-  return dfa_to_mpo(T, dfa, sites)
+                       ; dim::Integer
+                       , permutation = 1:length(sites)) where {T}
+  domain = 0:(dim - 1)
+  dfa = constraint_to_dfa(constraint, length(sites), domain)
+  dfa_perm = permute_dfa!(dfa, permutation)
+  return dfa_to_mpo(T, dfa_perm, sites)
 end
 
 projection_mpo(constraint::AbstractConstraint, sites; kws...) =

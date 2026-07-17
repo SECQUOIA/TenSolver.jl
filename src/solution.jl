@@ -7,7 +7,7 @@ import ITensorMPS: MPS, siteinds
 The result of running [`minimize`](@ref) or [`maximize`](@ref): an MPS wave function
 over the optimal solution space, together with per-iteration convergence stats.
 
-Use [`sample`](@ref) to draw bitstrings from it.
+Use [`sample`](@ref) to draw vectors from it.
 
 ## Fields
 
@@ -53,30 +53,21 @@ infeasible_solution(::Type{T}) where {T <: Real} =
 """
     is_feasible(psi::Solution)
 
-Whether `psi` came from solving a provably infeasible model, i.e. one whose
-constraints admit no binary vector. Infeasible solutions carry no MPS and
-cannot be sampled; [`minimize`](@ref) reports them with an objective of `+Inf`
-(`-Inf` for [`maximize`](@ref)).
-
 Whether `psi` came from solving a satisfiable model, i.e. one whose
-constraints admit at least one binary vector.
+constraints admit at least one solution.
 Feasible solutions carry an MPS and can be sampled;
 
 Check this before calling [`sample`](@ref).
 """
 is_feasible(psi::Solution) = !isnothing(psi.tensor)
 
-function original_order(bs, permutation)
-  x = similar(bs)
-  x[permutation] = bs
-  return x
-end
+original_order(bs, permutation) = bs[invperm(permutation)]
 
 # Sample from |ψ> in the {0, 1} world instead of 1-based Julia index world.
 """
     sample(psi)
 
-Sample a bitstring from a (quantum) probability distribution.
+Sample a vector from a (quantum) probability distribution.
 
 Throw a `DomainError` when `psi` is infeasible (see [`is_feasible`](@ref)),
 since there is no solution to query.
