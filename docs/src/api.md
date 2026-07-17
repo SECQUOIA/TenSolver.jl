@@ -83,8 +83,6 @@ TenSolver.constraint_to_dfa
 TenSolver.dfa_to_mpo
 TenSolver.projection_mpo
 TenSolver.projection_mpos
-TenSolver.SparseTensorEntry
-TenSolver.projection_entries
 ```
 
 ### Projected Hamiltonian Construction

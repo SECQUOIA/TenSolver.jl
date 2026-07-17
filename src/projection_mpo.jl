@@ -223,16 +223,12 @@ dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
 """
     projection_mpo([T], constraint, sites)
 
-Build a projection MPO over the binary Qudit register `sites`.
+Build a projection MPO representing a `constraint` applicable to any MPS over `sites`.
 
-The diagonal entry is `one(T)` for computational basis states whose bits satisfy
-`constraint`, and zero otherwise. Constraint site numbers use the same 1-based
-register indexing as `sites`. The generic construction is exact and
-uncompressed: each feasible assignment of the constrained sites is represented
-as one MPO path.
-
-The construction is exact and uncompressed. Constraint site numbers use the same
-1-based register indexing as `sites`.
+The diagonal entry is `one(T)` for computational basis states
+satisfying `constraint`, and `zero(T)` otherwise.
+The current construction is exact and uncompressed.
+Constraint site numbers use the same 1-based register indexing as `sites`.
 
 # Known constraints
 
@@ -265,12 +261,10 @@ projection_mpo(constraint::AbstractConstraint, sites; kws...) =
 """
     projection_mpos([T], constraints, sites)
 
-Build one projection MPO per constraint over the shared binary Qudit register
-`sites`.
+Build a list of projection MPOs representing  `constraints` applicable to any MPS over `sites`.
 
 This is a convenience wrapper around [`projection_mpo`](@ref).
-`T` controls the numeric
-element type of the assembled MPO tensors.
+`T` controls the numeric element type of the assembled MPO tensors.
 """
 function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites; kws...) where {T}
   return [projection_mpo(T, constraint, sites; kws...) for constraint in constraints]

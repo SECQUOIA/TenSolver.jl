@@ -1,7 +1,7 @@
 # Constrained Optimization
 
 Besides the unconstrained objective, TenSolver can enforce **hard constraints**
-on the binary variables. Instead of adding penalty terms to the objective
+on the variables. Instead of adding penalty terms to the objective
 (which only discourage infeasible solutions), each constraint is lowered to a
 *projection MPO* that removes the infeasible subspace exactly, so every sampled
 solution is guaranteed feasible.
@@ -23,13 +23,13 @@ A solve with `constraints` proceeds in three steps:
 1. The objective is turned into an MPO Hamiltonian ``H``, exactly as in the
    unconstrained case.
 2. Each constraint is lowered to a deterministic finite automaton (DFA) that
-   accepts exactly the feasible bitstrings, and the automaton is threaded into
+   accepts exactly the feasible vectors, and the automaton is threaded into
    an MPO ``P`` that is **diagonal with entries 1 on feasible basis states and
    0 on infeasible ones** — an exact projector, not a penalty.
 3. DMRG minimizes the projected Hamiltonian ``P' H P``. Because numerical noise
    and truncation can leak amplitude back into the (zero-energy) infeasible
    kernel, the state is re-projected at every iteration, which is what makes
-   every sampled bitstring feasible.
+   every sampled solution feasible.
 
 Each of the four built-in constraint types has a specialized automaton with a
 compact bond dimension (see the table below).
@@ -151,8 +151,7 @@ E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; constraints = [one_
 
 `RelationConstraint(left_site, relation, right_site)` enforces the pairwise
 relation ``x_{\texttt{left}} \lessgtr x_{\texttt{right}}`` with the same four
-relations as `SumConstraint`. For binary variables, `:(<=)` reads as an
-implication: selecting the left site forces the right one. Bond dimension 2.
+relations as `SumConstraint`.  Bond dimension 2.
 
 ```jldoctest relation
 using TenSolver
