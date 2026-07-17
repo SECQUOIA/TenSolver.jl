@@ -11,7 +11,7 @@ The central decision is to keep two layers with different responsibilities:
 
 - MOI `function-in-set` constraints are the high-level modeling interface used
   by JuMP.
-- TenSolver's native [`AbstractConstraint`](@ref) subtypes remain the small,
+- TenSolver's native `AbstractConstraint` subtypes remain the small,
   projection-aware intermediate representation (IR) consumed by the solver.
 
 The MOI layer must lower into the native IR. It must not teach the projection
@@ -21,14 +21,14 @@ constraints into penalty terms.
 ## Current Boundary
 
 The direct Julia API already accepts native constraints through the
-`constraints` keyword of [`minimize`](@ref) and [`maximize`](@ref). The DMRG
+`constraints` keyword of `minimize` and `maximize`. The DMRG
 backend lowers each native constraint with `constraint_to_dfa`, constructs its
 projection MPO, and solves in the projected space. The four v1 native types are:
 
-- [`SumConstraint`](@ref);
-- [`NotEqualsConstraint`](@ref);
-- [`ExactlyOneConstraint`](@ref); and
-- [`RelationConstraint`](@ref).
+- `SumConstraint`;
+- `NotEqualsConstraint`;
+- `ExactlyOneConstraint`; and
+- `RelationConstraint`.
 
 The JuMP path stops earlier. `TenSolver.Optimizer` is generated with
 `QUBODrivers.@setup`, and QUBODrivers defines an `AbstractSampler` as an
@@ -156,10 +156,21 @@ Specialized compact patterns are selected before the general sum fallback.
 This is part of correctness for the performance contract, not a cosmetic
 optimization.
 
+A genuine two-sided bound `l <= sum(a[i] * x[i]) <= u` should likewise use one
+specialized projection rather than compose separate lower- and upper-bound
+projectors. A future `SumIntervalConstraint` can use partial-sum states
+`0:u+1`, send every sum above `u` to the overflow state `u+1`, and accept
+states `l:u`. Its projection MPO therefore has bond at most `u + 2`, instead of
+the product of the two one-sided bonds. This compact DFA justifies a native
+type under the public-API rule above. Normalization should still reduce an
+interval with a redundant side to the existing one-sided `SumConstraint`, or
+report static infeasibility when its bounds cannot contain a reachable sum.
+
 ## Initial Mapping Table
 
 All rows below require `ZeroOne` variables. “Bond” is the expected projection
-MPO bond bound after lowering, based on the current native DFA methods.
+MPO bond bound after lowering, based on the current native DFA methods or, for
+the future interval target, the specialized DFA specified above.
 
 | MOI/JuMP form | Native lowering | Bond | Conditions and notes |
 |:--------------|:----------------|:-----|:---------------------|
@@ -167,7 +178,7 @@ MPO bond bound after lowering, based on the current native DFA methods.
 | `sum(x) == length(x) - 1` | `ExactlyOneConstraint(sites, 0)` | 2 | Exactly one selected site is zero. |
 | `x[i] + x[j] <= 1` | `NotEqualsConstraint([i, j], [1, 1])` | 2 | Compact pairwise exclusion. |
 | Nonnegative integer affine function in `EqualTo`, `LessThan`, or `GreaterThan` | `SumConstraint` with `==`, `<=`, or `>=` | `rhs + 2` | Constants are moved into `rhs`; reject invalid normalized data. |
-| Nonnegative integer affine function in `Interval` | Two `SumConstraint`s | Product of the two projection costs | Lower the lower and upper bounds separately; drop a redundant infinite side. |
+| Nonnegative integer affine function in `Interval` | Future `SumIntervalConstraint` | `upper + 2` | Use one two-sided partial-sum DFA; simplify a redundant side to a one-sided `SumConstraint`. |
 | `x[i] - x[j]` in `EqualTo(0)`, `LessThan(0)`, or `GreaterThan(0)` | `RelationConstraint(i, relation, j)` | 2 | Covers equality, implication-style `<=`, and `>=`. |
 | `VectorOfVariables([x[i], x[j]])` in `MOI.AllDifferent(2)` | `RelationConstraint(i, :(!=), j)` | 2 | `AllDifferent` over more than two binary variables is statically infeasible. |
 | `VectorOfVariables(x)` in `MOI.SOS1(weights)` | `SumConstraint(sites, ones, 1; relation = :(<=))` | 3 | `SOS1` means *at most* one nonzero, not exactly one; ordering weights do not change feasibility. |
@@ -300,9 +311,9 @@ remain typed construction or solve errors. Constraint duals are unsupported.
 The implementation should be split into reviewable stages:
 
 1. **Lowering core and typed errors**: add canonical affine normalization,
-   fixed-value substitution, specialized-pattern recognition, a static
-   infeasibility sentinel, and unit tests that compare each native result with
-   the source MOI predicate.
+   fixed-value substitution, specialized-pattern recognition, the compact
+   two-sided sum projector, a static infeasibility sentinel, and unit tests
+   that compare each native result with the source MOI predicate.
 2. **Optimizer storage and copy path**: add the internal MOI/native constraint
    store, the concrete `supports_constraint`, `copy_to`, `empty!`, and query
    methods, and the filtered-model materialization plus composed-index-map
