@@ -66,6 +66,20 @@ x = TenSolver.sample(psi)
 - **GPU Support**: Supports GPU acceleration via CUDA.jl, Metal.jl, and other accelerators
 - **Flexible Configuration**: Numerous parameters to control accuracy vs. performance trade-off
 
+## Citing TenSolver
+
+If you use TenSolver in your research, please cite our [NeurIPS 2025 Workshop paper](https://openreview.net/pdf?id=EL002DTBRA):
+
+```bibtex
+@inproceedings{tensolver2025,
+  title     = {Quantum-Inspired Tensor Network Methods for Quadratic Unconstrained Binary Optimization},
+  author    = {Iago {Leal de Freitas} and Jo{\~a}o Victor {Paim de Cerqueira Melo Souza} and David E. {Bernal Neira}},
+  booktitle = {NeurIPS Workshop on GPU-Accelerated and Scalable Optimization},
+  year      = {2025},
+  url       = {https://openreview.net/forum?id=EL002DTBRA}
+}
+```
+
 ## Contents
 
 ```@contents

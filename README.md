@@ -2,6 +2,9 @@
 
 [![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://SECQUOIA.github.io/TenSolver.jl/stable/)
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://SECQUOIA.github.io/TenSolver.jl/dev/)
+[![NeurIPS 2025 ScaleOPT paper](https://img.shields.io/badge/paper-NeurIPS_ScaleOPT_2025-orange)](https://openreview.net/pdf?id=EL002DTBRA)
+[![JuMP-dev 2026](https://img.shields.io/badge/JuMP--dev-2026-8A2BE2)](https://www.youtube.com/watch?v=nvbv1NzMRMg&feature=youtu.be)
+
 
 Tensor Network-based solver for binary optimization problems:
 quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
@@ -102,3 +105,17 @@ E, psi = minimize(Q; device = CUDA.cu)
 Since ITensor's GPU platform support is always improving,
 be sure to check out their [documentation](https://itensor.github.io/ITensors.jl/stable/)
 to know which GPUs are accepted.
+
+## Citing TenSolver
+
+If you use TenSolver in your research, please cite our [NeurIPS 2025 Workshop paper](https://openreview.net/pdf?id=EL002DTBRA):
+
+```bibtex
+@inproceedings{tensolver2025,
+  title     = {Quantum-Inspired Tensor Network Methods for Quadratic Unconstrained Binary Optimization},
+  author    = {Iago {Leal de Freitas} and Jo{\~a}o Victor {Paim de Cerqueira Melo Souza} and David E. {Bernal Neira}},
+  booktitle = {NeurIPS Workshop on GPU-Accelerated and Scalable Optimization},
+  year      = {2025},
+  url       = {https://openreview.net/forum?id=EL002DTBRA}
+}
+```
