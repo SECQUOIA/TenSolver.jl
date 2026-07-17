@@ -6,18 +6,20 @@
 [![JuMP-dev 2026](https://img.shields.io/badge/JuMP--dev-2026-8A2BE2)](https://www.youtube.com/watch?v=nvbv1NzMRMg&feature=youtu.be)
 
 
-Tensor Network-based solver for binary optimization problems:
-quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
+Tensor Network-based solver for discrete polynomial optimization problems,
 
 $$\begin{array}{rl}
   \min_x      & p(x) \\
   \text{s.t.} & Ax = b \\
-   P x \le q \\
-   x \text{ satisfies other constraints} \\
-              & x \in \mathbb{B}^{n}
+              & P x \le q \\
+              & x \text{ satisfies other constraints} \\
+              & x \in \{0,\ldots,d-1\}^{n}
 \end{array}$$
 
-Here `p` may be a quadratic form `x' Q x + l' x + c` or an arbitrary polynomial.
+Additionally, TenSolver provides special support
+for special classes of optimization problems,
+with particular emphasis put in _Quadratic Uncostrained Binary Optimization_ (QUBO).
+
 
 ## Installation
 
@@ -43,7 +45,7 @@ E, psi = TenSolver.minimize(Q)
 
 The returned argument `E` is the calculated estimate for the minimum value,
 while `psi` is a probability distribution over all possible solutions to the problem.
-You can sample Boolean vectors from it.
+You can sample solution vectors from it.
 These vectors are the (approximate) optimal solutions to the original optimization problem.
 
 ```julia
@@ -52,8 +54,8 @@ x = TenSolver.sample(psi)
 
 ### Constraints
 
-TenSolver can also enforce hard constraints on the binary variables. Every
-sampled solution is guaranteed feasible, with no penalty terms involved:
+TenSolver can also enforce hard constraints on the variables.
+Every sampled solution is guaranteed feasible, with no penalty terms involved:
 
 ```julia
 budget = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
@@ -83,6 +85,9 @@ begin
   optimize!(m)                   # <-- Equivalent to running TenSolver.minimize(Q)
 end
 ```
+
+Higher-order polynomial, constrainted and non-binary optimization features
+are currently unavailable via the JuMP interface.
 
 ### Running on GPU
 

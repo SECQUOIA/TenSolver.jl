@@ -1,12 +1,14 @@
 # TenSolver.jl
 
-Tensor Network-based solver for binary optimization problems: quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
+Tensor Network-based solver for discrete polynomial optimization.
 
 ## Overview
 
-TenSolver.jl provides an efficient solver for QUBO problems using tensor network methods, specifically leveraging the Density Matrix Renormalization Group (DMRG) algorithm. The package is particularly useful for:
+TenSolver.jl provides an efficient solver for QUBO problems using tensor network methods,
+leveraging the Density Matrix Renormalization Group (DMRG) algorithm.
+The package is particularly useful for:
 
-- Solving large-scale binary optimization problems
+- Solving large-scale discrete optimization problems
 - Finding approximate solutions to NP-hard problems
 - Exploring the solution space of combinatorial optimization problems
 - Enforcing hard constraints exactly through projection, without penalty terms
@@ -44,7 +46,7 @@ true
 
 The returned argument `E` is the calculated estimate for the minimum value,
 while `psi` is a probability distribution over all possible solutions to the problem.
-You can sample Boolean vectors from it:
+You can sample from it:
 
 ```jldoctest quickstart
 x = TenSolver.sample(psi)
