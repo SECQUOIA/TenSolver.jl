@@ -94,7 +94,7 @@ end
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
     for constraint in TEST_CONSTRAINTS
-      dfa = TenSolver.constraint_to_dfa(constraint, length(sites))
+      dfa = TenSolver.constraint_to_dfa(constraint, length(sites), 0:1)
 
       for bits in all_bitstrings(sites)
         expected = is_feasible(collect(bits), constraint)
@@ -145,7 +145,7 @@ end
        0.25 -2.00  0.75
       -0.50  0.75  3.00
     ]
-    H = TenSolver.tensorize(Q)
+    H = TenSolver.tensorize(Q; dim = 2)
     sites = ITensorMPS.siteinds(first, H; plev=0)
 
     constraints = AbstractConstraint[
@@ -226,7 +226,7 @@ end
   end
 
   @testset "Infeasible projections remain zero" begin
-    H = TenSolver.tensorize([1.0 0.5; 0.5 2.0])
+    H = TenSolver.tensorize([1.0 0.5; 0.5 2.0]; dim = 2)
     sites = ITensorMPS.siteinds(first, H; plev=0)
     impossible = SumConstraint([1, 2], [1, 1], :(==), 3)
     P = TenSolver.projection_mpo(impossible, sites)
@@ -286,7 +286,7 @@ end
     ]
 
     for (constraint, sites) in cases
-      dfa = @inferred TenSolver.constraint_to_dfa(constraint, length(sites))
+      dfa = @inferred TenSolver.constraint_to_dfa(constraint, length(sites), 0:1)
       @test length(dfa.states) == 2
 
       for bits in all_bitstrings(sites)
@@ -309,7 +309,7 @@ end
     ]
 
     for constraint in relation_cases
-      dfa = TenSolver.constraint_to_dfa(constraint, length(sites))
+      dfa = TenSolver.constraint_to_dfa(constraint, length(sites), 0:1)
       @test length(dfa.states) <= 2
 
       for bits in all_bitstrings(sites)
@@ -325,7 +325,7 @@ end
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
     exact_one = ExactlyOneConstraint([1, 3], 1)
-    dfa = TenSolver.constraint_to_dfa(exact_one, length(sites))
+    dfa = TenSolver.constraint_to_dfa(exact_one, length(sites),  0:1)
     H = assert_projection_matches_feasibility(exact_one, sites)
 
     @test length(dfa.states) == 2
@@ -343,7 +343,7 @@ end
     ]
 
     for constraint in constraints
-      dfa = TenSolver.constraint_to_dfa(constraint, length(sites))
+      dfa = TenSolver.constraint_to_dfa(constraint, length(sites), 0:1)
       H = TenSolver.projection_mpo(constraint, sites)
 
       for bits in all_bitstrings(sites)
@@ -389,7 +389,7 @@ end
        0.0  0.0   0.0 -1.0  0.25
        0.0  0.0   0.0  0.0  2.0
     ]
-    H = TenSolver.tensorize(Q, diag(Q))
+    H = TenSolver.tensorize(Q, diag(Q); dim = 2)
     sites = ITensorMPS.siteinds(first, H; plev=0)
     sum_constraint = SumConstraint([1, 2, 3, 4, 5], ones(Int, 5), 2; relation=:(<=))
     projections = TenSolver.projection_mpos([sum_constraint], sites)

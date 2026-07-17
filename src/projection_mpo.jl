@@ -251,9 +251,9 @@ function projection_mpo end
 function projection_mpo(::Type{T}
                        , constraint::AbstractConstraint
                        , sites
-                       ; dim::Integer
-                       , permutation = 1:length(sites)) where {T}
-  domain = 0:(dim - 1)
+                       ; permutation = 1:length(sites)) where {T}
+  d = ITensorMPS.dim(sites[1])
+  domain = 0:(d - 1)
   dfa = constraint_to_dfa(constraint, length(sites), domain)
   dfa_perm = permute_dfa!(dfa, permutation)
   return dfa_to_mpo(T, dfa_perm, sites)
@@ -359,7 +359,7 @@ The `alphabet` parameter represents the domain for a constraint's variables.
 """
 function constraint_to_dfa end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
+function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet) where {S}
   if minimum(alphabet) < 0
     throw(ArgumentError("SumConstraint only supports nonnegative domains."))
   end
@@ -384,7 +384,7 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphab
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet) where {S}
   states    = [:mismatch, :all_matched]
   initial   = :all_matched
   accepting = Set([:mismatch])
@@ -404,7 +404,7 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
+function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer, alphabet) where {S}
   target = constraint.value
 
   states    = [:not_seen, :seen_once]
@@ -425,7 +425,7 @@ function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer,
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alphabet=[0,1])
+function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alphabet)
   left  = constraint.left_site
   right = constraint.right_site
 
