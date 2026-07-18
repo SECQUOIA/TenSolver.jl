@@ -61,20 +61,15 @@ Backend-specific keyword arguments:
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
 """
-function minimize(
-  ::DMRGBackend,
-  Q::AbstractMatrix{T},
-  l::Union{AbstractVector{T}, Nothing}=nothing,
-  c::T=zero(T)
-  ;
-  cutoff=1e-8,
-  preprocess::Bool=false,
-  domain_dim::Integer = 2,
-  kwargs...,
+function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::T
+  ; cutoff=1e-8
+  , preprocess::Bool=false
+  , domain_dim::Integer = 2
+  , kwargs...
 ) where T
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff, dim = domain_dim)
-  obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
+  H      = tensorize(Qp, lp; cutoff, dim = domain_dim)
+  obj(x) = dot(x, Q, x) + dot(l, x) + c
 
   return minimize_mpo(H, c, obj ; cutoff, permutation, domain_dim, kwargs...)
 end
@@ -123,7 +118,7 @@ variance(H::MPO, x::MPS) = real(inner(H, x, H, x)) - expectation(H, x)^2
 function upper_indices(a)
   return (Tuple(ci)
             for ci in CartesianIndices(size(a))
-            if issorted(Tuple(ci); lt = (<=)))
+            if issorted(Tuple(ci); lt = <))
 end
 
 function constant_term(p::AbstractPolynomial{T}) where T
