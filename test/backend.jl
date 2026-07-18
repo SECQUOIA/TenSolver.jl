@@ -36,8 +36,8 @@ end
 
     @test E == 42.0
     @test payload.Q === Q
-    @test isnothing(payload.l)
-    @test payload.c == 0.0
+    @test iszero(payload.l)
+    @test iszero(payload.c)
     @test payload.kwargs[:cutoff] == 1e-6
     @test payload.kwargs[:verbosity] == 0
     @test !haskey(payload.kwargs, :preprocess)
