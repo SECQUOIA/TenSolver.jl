@@ -120,17 +120,16 @@ import Metal
 minimize(Q; device = Metal.mtl)
 ```
 
-
 See also [`maximize`](@ref).
 """
 function minimize end
 
 function minimize(
   Q :: AbstractMatrix{T},
-  l :: Union{AbstractVector{T}, Nothing} = nothing,
+  l :: AbstractVector{T} = zeros(T, size(Q, 1)),
   c :: T = zero(T)
   ;
-  backend=default_backend,
+  backend = default_backend,
   kwargs...,
 ) where T
   return minimize(normalize_backend(backend), Q, l, c; kwargs...)
@@ -150,6 +149,18 @@ function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
 end
 
 """
+    minimize(l::Vector, c::Number; kwargs...)
+
+Solve the Linear Optimization Problem with no linear term.
+
+    min  l'b + c
+    s.t. b_i in {0, 1}
+"""
+function minimize(l :: AbstractVector{T}, c :: T = zero(T); kwargs...) where T
+  return minimize(zeros(T, size(l, 1), size(l, 1)), l, c; kwargs...)
+end
+
+"""
     minimize(Q::Matrix, c::Number; kwargs...)
 
 Solve the Quadratic Unconstrained Binary Optimization problem with no linear term.
@@ -157,7 +168,9 @@ Solve the Quadratic Unconstrained Binary Optimization problem with no linear ter
     min  b'Qb + c
     s.t. b_i in {0, 1}
 """
-minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T = minimize(Q, nothing, c; kwargs...)
+function minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T
+  return minimize(Q, zeros(T, size(Q, 1)), c; kwargs...)
+end
 
 """
     maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
