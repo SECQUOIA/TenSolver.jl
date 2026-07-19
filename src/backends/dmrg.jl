@@ -3,6 +3,8 @@ import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
 
 import ITensors, ITensorMPS
 
+import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
+
 # Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
 # For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
 # This looks like type piracy,
@@ -201,8 +203,12 @@ function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T), dim::Integer) whe
     coeff = coefficient(t)
 
     if abs(coeff) > cutoff && ! isconstant(t)
-      vars = effective_variables(t)
-      op   = Iterators.flatmap(v -> ("D", indices[v]), vars)
+      op = Iterators.flatten(
+        map(powers(t)) do p
+          v, e = p
+          Iterators.flatten(Iterators.repeated(("D", indices[v]), e))
+        end
+      )
       os .+= (coeff, op...)
     end
   end

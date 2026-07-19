@@ -67,6 +67,17 @@ import DynamicPolynomials
     @test x0 in psi
   end
 
+  @testset "Polynomial exponents are preserved" begin
+    DynamicPolynomials.@polyvar y[1:2]
+    p = 2.0y[1]^2 - 3.0y[1] + 2.0y[2]^2 - 3.0y[2]
+
+    E, psi = maximize(p; domain_dim = 3, iterations = 5, cutoff = 1e-12, verbosity = 0)
+
+    @test E ≈ 4.0
+    @test [2, 2] in psi
+    @test [0, 0] ∉ psi
+  end
+
   @testset "Constrained quadratic + linear" begin
     Q = [
       1.0   0.5   0.0
