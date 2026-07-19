@@ -18,7 +18,7 @@ $$\begin{array}{rl}
 
 Additionally, TenSolver provides special support
 for special classes of optimization problems,
-with particular emphasis put in _Quadratic Uncostrained Binary Optimization_ (QUBO).
+with particular emphasis put in _Quadratic Unconstrained Binary Optimization_ (QUBO).
 
 
 ## Installation
@@ -86,7 +86,7 @@ begin
 end
 ```
 
-Higher-order polynomial, constrainted and non-binary optimization features
+Higher-order polynomial, constrained and non-binary optimization features
 are currently unavailable via the JuMP interface.
 
 ### Running on GPU

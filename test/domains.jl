@@ -100,8 +100,9 @@ import DynamicPolynomials
       mindim = 10,
       verbosity = 0,
     )
+    E0, _ = brute_force(obj, 3, constraints; domain = 0:2)
 
-    @test E ≈ -2.0
+    @test E ≈ E0
+    @test is_feasible(sample(psi), constraints)
   end
 end
-
