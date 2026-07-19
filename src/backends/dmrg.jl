@@ -290,23 +290,6 @@ function minimize_mpo( H :: MPO
                       , eigsolve_verbosity = 0
                  )
 
-    # Re-project each iteration so the sampled bitstring is guaranteed feasible.
-    # In exact arithmetic the sweep keeps a feasible start feasible (the local
-    # eigensolver only ever applies P'HP to a feasible state), but the injected
-    # `noise` term and SVD truncation can leak amplitude into the infeasible
-    # subspace. That subspace is the kernel of the projections, where P'HP has
-    # zero energy, so the leaked amplitude is never penalized back out on its own.
-    if !isempty(projections)
-      projected = project_feasible_state(psi, projections; cutoff)
-      # Unlike the initial state, a mid-run collapse does not prove
-      # infeasibility (the start was feasible), so it stays an error.
-      isnothing(projected) && error(
-        "constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
-      )
-      psi = projected
-      energy = expectation(H, psi)
-    end
-
     # Get metadata #
     if i % check_variance_every_iteration == 0
       vtime = time()
@@ -368,9 +351,17 @@ function minimize_mpo( H :: MPO
   return optimal, dist
 end
 
-function groundstate(H::MPO, psi0::MPS; projections=(), cutoff=1e-8, kwargs...)
+function groundstate(H::MPO, psi0::MPS; projections, cutoff=1e-8, kwargs...)
   if length(psi0) != 1
-    return ITensorMPS.dmrg(H, psi0; cutoff, kwargs...)
+    energy, psi = ITensorMPS.dmrg(H, psi0; cutoff, kwargs...)
+
+    # Re-project each iteration so the sampled bitstring is guaranteed feasible.
+    # In exact arithmetic the sweep keeps a feasible start feasible (the local
+    # eigensolver only ever applies P'HP to a feasible state), but the injected
+    # `noise` term and SVD truncation can leak amplitude into the infeasible
+    # subspace. That subspace is the kernel of the projections, where P'HP has
+    # zero energy, so the leaked amplitude is never penalized back out on its own.
+    psi = project_feasible_state(psi, projections; cutoff)
   else
     # ITensorMPS.dmrg does not support single-site systems, so solve the n=1
     # problem by directly comparing basis states. When constrained, we must
@@ -378,28 +369,34 @@ function groundstate(H::MPO, psi0::MPS; projections=(), cutoff=1e-8, kwargs...)
     # P'HP assigns zero energy to the infeasible subspace (the kernel of the
     # projections), so picking the global lowest-energy basis state would select
     # an infeasible one whenever the feasible objective is positive.
-    sites = ITensorMPS.siteinds(psi0)
-    candidates = [ITensorMPS.MPS(sites, [s]) for s in ("0", "1")]
+    s = only(ITensorMPS.siteinds(psi0))
+    Ht = only(H)
+    pt = only(psi0)
 
-    if !isempty(projections)
-      candidates = filter(
-        b -> !is_zero_tensor(project_state(b, projections; cutoff); cutoff),
-        candidates,
-      )
-    end
+    feasible = filter(a -> !iszero(pt[s => a]), 1:ITensorMPS.dim(s))
 
-    if isempty(candidates)
-      return infeasible_result(T)
+    if isempty(feasible)
+      energy = Inf
+      psi = nothing
     else
-      energies = map(b -> expectation(H, b), candidates)
-      emin, i = findmin(energies)
-      # Degenerate feasible states: return their uniform superposition so sampling
-      # is unbiased (preserves the previous unconstrained n=1 behavior).
-      if length(candidates) == 2 && all(≈(emin), energies)
-        return emin, ITensorMPS.MPS(sites, ["full"])
-      else
-        return energies[i], candidates[i]
-      end
+      energies = [real(Ht[s => a, ITensors.prime(s) => a]) for a in feasible]
+      energy = minimum(last, energies)
+      optimal = [a for (a, e) in zip(feasible, energies) if e == energy]
+
+      basis = ITensors.ITensor(eltype(pt), s)
+      foreach(a -> (basis[s => a] = 1), optimal)
+      psi = ITensorMPS.MPS([basis])
+      ITensorMPS.normalize!(psi)
     end
   end
+
+  # Unlike the initial state, a mid-run collapse does not prove
+  # infeasibility (the start was feasible)
+  if isnothing(psi)
+    error(
+      "constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
+    )
+  end
+
+  return energy, psi
 end
