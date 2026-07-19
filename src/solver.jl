@@ -151,7 +151,7 @@ end
 """
     minimize(l::Vector, c::Number; kwargs...)
 
-Solve the Linear Optimization Problem with no linear term.
+Solve the linear optimization problem.
 
     min  l'b + c
     s.t. b_i in {0, 1}

@@ -28,7 +28,7 @@ include(filepath("projection_mpo.jl"))
 # Traditional interface
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
-include(filepath("quio.jl"))
+include(filepath("domains.jl"))
 include(filepath("constrained_solve.jl"))
 
 # JuMP interface

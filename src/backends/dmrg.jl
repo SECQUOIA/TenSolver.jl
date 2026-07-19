@@ -386,7 +386,7 @@ function groundstate(H::MPO, psi0::MPS; projections, cutoff=1e-8, kwargs...)
       psi = nothing
     else
       energies = [real(Ht[s => a, ITensors.prime(s) => a]) for a in feasible]
-      energy = minimum(last, energies)
+      energy = minimum(energies)
       optimal = [a for (a, e) in zip(feasible, energies) if e == energy]
 
       basis = ITensors.ITensor(eltype(pt), s)
