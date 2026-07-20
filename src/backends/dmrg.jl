@@ -39,17 +39,15 @@ function validate_solve_domain(domain)
   d = length(domain)
 
   if !applicable(iterate, domain)
-    throw(ArgumentError("`domain` must be an iterable collection of values"))
+    throw(ArgumentError("`domain` must be an iterable collection of values."))
   elseif !applicable(length, domain)
-    throw(ArgumentError("`domain` must have a finite length"))
+    throw(ArgumentError("`domain` must have a finite length."))
   elseif isempty(domain)
-    throw(ArgumentError("`domain` must contain at least one value"))
-  elseif !all(value -> value isa Real, domain)
-    throw(ArgumentError("`domain` values must be real numbers"))
+    throw(ArgumentError("`domain` must contain at least one value."))
+  elseif !all(u -> u isa Number && isinteger(u), domain)
+    throw(ArgumentError("`domain` values must be integer values of any numeric type."))
   elseif !allunique(domain)
-    throw(ArgumentError("`domain` values must be unique"))
-  elseif !(domain == 0:(d-1) || domain == [-1, 1])
-    throw(ArgumentError("Unsupported domain $(repr(domain)); use `0:(d - 1)` or `[-1, 1]`"))
+    throw(ArgumentError("`domain` values must be unique."))
   end
 
   return domain
