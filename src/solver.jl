@@ -85,9 +85,6 @@ Keyword arguments:
 - `preprocess :: Bool` - Defaults to `false`. If `true`, permute QUBO variables before constructing the MPS Hamiltonian
   so coupled variables are closer in the one-dimensional tensor order. Samples are returned in the
   caller's original variable order. This is an experimental feature and may be subject to changes.
-- `domain` - Variable values. The DMRG backend supports `[0, 1]` (the default)
-  and the Ising domain `[-1, 1]`. The legacy `domain_dim = d` spelling remains
-  available for `0:(d - 1)`; these keywords cannot be combined.
 - `on_iteration :: Function` - Called after each recorded iteration as
   `f(psi::MPS; iteration, objective, bond_dim, elapsed_time)`.
   `objective` is the expected objective function ⟨ψ|H|ψ⟩ at this iteration.

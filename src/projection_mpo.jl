@@ -221,7 +221,7 @@ end
 dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
 
 """
-    projection_mpo([T], constraint, sites)
+    projection_mpo([T], constraint, sites; domain)
 
 Build a projection MPO representing a `constraint` applicable to any MPS over `sites`.
 
@@ -233,8 +233,7 @@ Constraint site numbers use the same 1-based register indexing as `sites`.
 # Known constraints
 
 - [`SumConstraint`](@ref) uses a specialized exact integer partial-sum automaton.
-For nonnegative domains and a constraint with rhs `k`, its maximum bond dimension
-is `k+2`. Signed domains use an exact automaton over all reachable partial sums.
+For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
 - [`NotEqualsConstraint`](@ref) uses a specialized MPO with bond dimension `2`,
   independently of the rhs.
 - [`ExactlyOneConstraint`](@ref) uses a specialized MPO with bond dimension `2`
@@ -249,11 +248,8 @@ function projection_mpo(::Type{T}
                        , constraint::AbstractConstraint
                        , sites
                        ; permutation = 1:length(sites)
-                       , domain = nothing) where {T}
-  d = ITensorMPS.dim(sites[1])
-  domain_values = isnothing(domain) ? collect(0:(d - 1)) : collect(domain)
-  length(domain_values) == d || throw(DimensionMismatch("domain length must match the site dimension"))
-  dfa = constraint_to_dfa(constraint, length(sites), domain_values)
+                       , domain) where {T}
+  dfa = constraint_to_dfa(constraint, length(sites), domain)
   dfa_perm = permute_dfa!(dfa, permutation)
   return dfa_to_mpo(T, dfa_perm, sites)
 end
@@ -262,7 +258,7 @@ projection_mpo(constraint::AbstractConstraint, sites; kws...) =
   projection_mpo(Float64, constraint, sites; kws...)
 
 """
-    projection_mpos([T], constraints, sites)
+    projection_mpos([T], constraints, sites; domain)
 
 Build a list of projection MPOs representing  `constraints` applicable to any MPS over `sites`.
 
@@ -358,7 +354,7 @@ function constraint_to_dfa end
 
 function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet) where {S}
   if minimum(alphabet) < 0
-    return signed_sum_constraint_to_dfa(constraint, nsites, alphabet)
+    throw(ArgumentError("SumConstraint only supports nonnegative domains."))
   end
 
   (; weights, rhs, relation) = constraint
@@ -379,43 +375,6 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphab
   end
 
   return DFA(states, alphabet, initial, accepting, transitions)
-end
-
-function signed_sum_constraint_to_dfa(
-  constraint::SumConstraint{S},
-  nsites::Integer,
-  alphabet,
-) where {S}
-  alphabet_values = collect(alphabet)
-  A = eltype(alphabet_values)
-  initial = zero(S)
-  states = Set{S}([initial])
-
-  # Include sums reachable from every subset of constrained sites. This makes
-  # each transition table valid after the solver permutes tensor sites.
-  for weight in values(constraint.weights)
-    expanded = Set{S}(states)
-    for state in states, value in alphabet_values
-      next_state = convert(S, state + weight * value)
-      push!(expanded, next_state)
-    end
-    states = expanded
-  end
-
-  transitions = map(1:nsites) do site
-    weight = get(constraint.weights, site, zero(S))
-    return Dict(
-      (state, value) => convert(S, state + weight * value)
-      for state in states, value in alphabet_values
-      if convert(S, state + weight * value) in states
-    )
-  end
-
-  accepting = Set(
-    state for state in states
-    if relation_holds(state, constraint.relation, constraint.rhs)
-  )
-  return DFA(sort!(collect(states)), alphabet_values, initial, accepting, transitions)
 end
 
 function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet) where {S}

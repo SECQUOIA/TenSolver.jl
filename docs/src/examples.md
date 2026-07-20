@@ -48,11 +48,10 @@ s = TenSolver.sample(psi)
 
 # output
 
-(true, [1, 1], true)
+(true, [1.0, 1.0], true)
 ```
 
-Boolean variables remain the default. The legacy `domain_dim = d` keyword
-continues to select the nonnegative integer domain `0:(d - 1)`.
+Boolean variables remain the default.
 
 ## QUBO with Linear and Constant Terms
 
