@@ -6,6 +6,7 @@ import ITensors, ITensorMPS
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for a variable.
+# For Spin variables, this is the Pauli σ_z matrix.
 # For Boolean variables, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
 # This looks like type piracy,
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
@@ -33,23 +34,25 @@ struct DMRGBackend <: AbstractTenSolverBackend end
 normalize_backend(::Val{:dmrg}) = default_backend
 
 function validate_solve_domain(domain)
-  applicable(iterate, domain) || throw(ArgumentError("`domain` must be an iterable collection of values"))
-  applicable(length, domain) || throw(ArgumentError("`domain` must have a finite length"))
-  isempty(domain) && throw(ArgumentError("`domain` must contain at least one value"))
-  all(value -> value isa Real, domain) || throw(ArgumentError("`domain` values must be real numbers"))
-  allunique(domain) || throw(ArgumentError("`domain` values must be unique"))
+  # Preprocessing to dedeplicate domain values
+  domain = (ismutable(domain) ? unique! : unique)(sort(domain))
+  d = length(domain)
 
-  nonnegative_integer = all(
-    value == expected
-    for (value, expected) in zip(domain, 0:(length(domain) - 1))
-  )
-  spin = length(domain) == 2 && all(value -> abs(value) == 1, domain)
-  if !(nonnegative_integer || spin)
-    throw(ArgumentError("unsupported domain $(repr(domain)); use `0:(d - 1)` or a permutation of `[-1, 1]`"))
+  if !applicable(iterate, domain)
+    throw(ArgumentError("`domain` must be an iterable collection of values"))
+  elseif !applicable(length, domain)
+    throw(ArgumentError("`domain` must have a finite length"))
+  elseif isempty(domain)
+    throw(ArgumentError("`domain` must contain at least one value"))
+  elseif !all(value -> value isa Real, domain)
+    throw(ArgumentError("`domain` values must be real numbers"))
+  elseif !allunique(domain)
+    throw(ArgumentError("`domain` values must be unique"))
+  elseif !(domain == 0:(d-1) || domain == [-1, 1])
+    throw(ArgumentError("Unsupported domain $(repr(domain)); use `0:(d - 1)` or `[-1, 1]`"))
   end
 
-  # `diagm` accepts vectors (including ranges), but not every finite iterable.
-  return domain isa AbstractVector ? domain : collect(domain)
+  return domain
 end
 
 """
@@ -66,14 +69,6 @@ where D_i is diagonal with the variable's domain values. By default,
 
 Backend-specific keyword arguments:
 
-- `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
-  Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
-  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled assignment.
-  For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
-  If the constraints admit no solution at all, the solve does not error: it logs a warning and
-  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
-- `domain` - Ordered variable values. Defaults to `0:1`; use `[-1, 1]` for
-  Ising spins or `0:(d - 1)` for a nonnegative integer domain of size `d`.
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -203,8 +198,7 @@ function tensorize(
   end
 
   N = size(Q, 1)
-  dim = length(domain)
-  sites = ITensors.siteinds("Qudit", N; dim = dim)
+  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
   os = OpSum{T}()
 
   for t in Qs
@@ -230,8 +224,7 @@ function tensorize(
   domain,
 ) where T
   N = length(effective_variables(p))
-  dim = length(domain)
-  sites = ITensors.siteinds("Qudit", N; dim = dim)
+  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
   os = OpSum{T}()
 
   # Map: var name => index
@@ -388,7 +381,7 @@ function minimize_mpo( H :: MPO
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
-    dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation, domain)
+    dist = Solution{T}(psi, domain, permutation, energies_log, bond_dims_log, elapsed_times_log)
     optimal = obj(sample(dist))
   end
 

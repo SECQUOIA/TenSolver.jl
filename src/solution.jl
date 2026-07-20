@@ -12,11 +12,11 @@ Use [`sample`](@ref) to draw vectors from it.
 ## Fields
 
 - `tensor`: the underlying MPS, or `nothing` when the model is infeasible.
+- `domain`: possible variable values.
+- `permutation`: original variable index represented by each tensor site.
 - `energies`: expected objective value of the problem recorded at each iteration of the solver.
 - `bond_dims`: maximum MPS bond dimension at each iteration.
 - `elapsed_times`: wall-clock time in seconds from the start of the solve at each iteration.
-- `permutation`: original variable index represented by each tensor site.
-- `domain`: physical variable values, ordered to match the local tensor basis.
 
 The three stats vectors are parallel — `energies[i]`, `bond_dims[i]`, and `elapsed_times[i]`
 all correspond to iteration `i`.
@@ -26,26 +26,26 @@ vectors; check with [`is_feasible`](@ref) before sampling.
 """
 struct Solution{T <: Real}
     tensor        :: Union{MPS, Nothing}
+    domain        :: Vector{T}
+    permutation   :: Vector{Int}
     energies      :: Vector{T}
     bond_dims     :: Vector{Int}
     elapsed_times :: Vector{Float64}
-    permutation   :: Vector{Int}
-    domain        :: Vector{T}
 
     function Solution{T}(
       tensor::Union{MPS,Nothing},
+      domain,
+      permutation::Vector{Int},
       energies::Vector{T},
       bond_dims::Vector{Int},
       elapsed_times::Vector{Float64},
-      permutation::Vector{Int},
-      domain,
     ) where {T <: Real}
-      return new{T}(tensor, energies, bond_dims, elapsed_times, permutation, collect(T, domain))
+      return new{T}(tensor, domain, permutation, energies, bond_dims, elapsed_times)
     end
 end
 
 function infeasible_solution(::Type{T}, domain) where {T <: Real}
-  return Solution{T}(nothing, T[], Int[], Float64[], Int[], domain)
+  return Solution{T}(nothing, domain, Int[], T[], Int[], Float64[])
 end
 
 """
@@ -101,7 +101,9 @@ function coeff(psi::Solution, bs)
   bs    = bs[psi.permutation]
   positions = map(bs) do value
     position = findfirst(==(value), psi.domain)
-    isnothing(position) && throw(DomainError(value, "value is outside the solution domain $(psi.domain)"))
+    if isnothing(position)
+      throw(DomainError(value, "value is outside the solution domain $(psi.domain)"))
+    end
     return position - 1
   end
   # Qudit state names are zero-based basis positions, not physical domain values.
