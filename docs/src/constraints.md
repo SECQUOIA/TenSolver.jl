@@ -41,7 +41,7 @@ keep constrained solves close to the unconstrained cost.
 
 | Constraint | Enforces | Bond dimension of ``P`` |
 |:-----------|:---------|:------------------------|
-| [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
+| [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` for nonnegative domains; number of reachable partial sums for signed domains |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
 | [`ExactlyOneConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i = k) = 1`` | 2 |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
@@ -94,9 +94,10 @@ You can also check an assignment against constraints directly with
 ```
 
 where `relation` is one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`. The `sites` are unique positive integers representing variable indices, while `weights` and
-`rhs` must be **nonnegative integers**. Its automaton tracks the capped partial
-sum, so the projection bond dimension is `rhs + 2` regardless of how many
-variables the sum touches.
+`rhs` must be **nonnegative integers**. For nonnegative domains, its automaton
+tracks the capped partial sum, so the projection bond dimension is `rhs + 2`
+regardless of how many variables the sum touches. For signed domains such as
+`[-1, 1]`, it instead tracks every reachable partial sum exactly.
 
 ### NotEqualsConstraint
 

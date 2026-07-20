@@ -13,7 +13,7 @@ $$\begin{array}{rl}
   \text{s.t.} & Ax = b \\
               & P x \le q \\
               & x \text{ satisfies other constraints} \\
-              & x \in \{0,\ldots,d-1\}^{n}
+              & x \in \{0,\ldots,d-1\}^{n} \text{ or } x \in \{-1,+1\}^{n}
 \end{array}$$
 
 Additionally, TenSolver provides special support
@@ -51,6 +51,21 @@ These vectors are the (approximate) optimal solutions to the original optimizati
 ```julia
 x = TenSolver.sample(psi)
 ```
+
+### Ising models
+
+Pass the Spin domain to optimize an Ising objective directly:
+
+```julia
+J = [0.0 -1.0; -1.0 0.0]
+h = [0.25, -0.5]
+
+E, psi = TenSolver.minimize(J, h; domain = [-1, 1])
+s = TenSolver.sample(psi)  # every entry is -1 or +1
+```
+
+Boolean optimization remains the default (`domain = [0, 1]`). The existing
+`domain_dim = d` keyword continues to select the integer domain `0:(d - 1)`.
 
 ### Constraints
 
