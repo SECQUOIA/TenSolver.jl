@@ -13,7 +13,7 @@ $$\begin{array}{rl}
   \text{s.t.} & Ax = b \\
               & P x \le q \\
               & x \in \mathtt{Constraints} \\
-              & x_i \in \{u_0,\ldots,u_{d-1}\} \subset \mathbb{Z}
+              & x_i \in \\{u_0,\ldots,u_{d-1}\\} \subseteq \mathbb{Z}
 \end{array}$$
 
 Additionally, TenSolver provides special support
