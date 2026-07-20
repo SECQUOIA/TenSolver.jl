@@ -9,10 +9,8 @@ import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms
 # For Boolean variables, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
 # This looks like type piracy,
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
-function ITensors.op(::OpName"D", ::SiteType"Qudit", d::Int; domain=0:(d - 1))
-  values = collect(domain)
-  length(values) == d || throw(DimensionMismatch("operator domain length must match the site dimension"))
-  return diagm(values)
+function ITensors.op(::OpName"D", ::SiteType"Qudit", ::Int; domain)
+  return diagm(domain)
 end
 
 function ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index)
@@ -34,23 +32,24 @@ struct DMRGBackend <: AbstractTenSolverBackend end
 
 normalize_backend(::Val{:dmrg}) = default_backend
 
-function normalize_solve_domain(domain, domain_dim)
-  if !isnothing(domain) && !isnothing(domain_dim)
-    throw(ArgumentError("`domain` and `domain_dim` cannot be specified together"))
-  end
-
-  if isnothing(domain)
-    dim = isnothing(domain_dim) ? 2 : domain_dim
-    dim > 0 || throw(ArgumentError("`domain_dim` must be positive, got $dim"))
-    return collect(0:(dim - 1))
-  end
-
+function validate_solve_domain(domain)
   applicable(iterate, domain) || throw(ArgumentError("`domain` must be an iterable collection of values"))
-  values = collect(domain)
-  values == [0, 1] && return [0, 1]
-  values == [-1, 1] && return [-1, 1]
+  applicable(length, domain) || throw(ArgumentError("`domain` must have a finite length"))
+  isempty(domain) && throw(ArgumentError("`domain` must contain at least one value"))
+  all(value -> value isa Real, domain) || throw(ArgumentError("`domain` values must be real numbers"))
+  allunique(domain) || throw(ArgumentError("`domain` values must be unique"))
 
-  throw(ArgumentError("unsupported domain $(repr(values)); supported domains are [0, 1] and [-1, 1]"))
+  nonnegative_integer = all(
+    value == expected
+    for (value, expected) in zip(domain, 0:(length(domain) - 1))
+  )
+  spin = length(domain) == 2 && all(value -> abs(value) == 1, domain)
+  if !(nonnegative_integer || spin)
+    throw(ArgumentError("unsupported domain $(repr(domain)); use `0:(d - 1)` or a permutation of `[-1, 1]`"))
+  end
+
+  # `diagm` accepts vectors (including ranges), but not every finite iterable.
+  return domain isa AbstractVector ? domain : collect(domain)
 end
 
 """
@@ -73,9 +72,8 @@ Backend-specific keyword arguments:
   For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
   If the constraints admit no solution at all, the solve does not error: it logs a warning and
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
-- `domain` - The variable domain. Supported values are `[0, 1]` (the default)
-  and `[-1, 1]` for Ising spins. `domain_dim` remains available for the legacy
-  nonnegative integer domain `0:(domain_dim - 1)`; do not pass both keywords.
+- `domain` - Ordered variable values. Defaults to `0:1`; use `[-1, 1]` for
+  Ising spins or `0:(d - 1)` for a nonnegative integer domain of size `d`.
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -93,13 +91,12 @@ Backend-specific keyword arguments:
 function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::T
   ; cutoff=1e-8
   , preprocess::Bool=false
-  , domain = nothing
-  , domain_dim::Union{Nothing,Integer} = nothing
+  , domain = 0:1
   , kwargs...
 ) where T
-  domain_values = normalize_solve_domain(domain, domain_dim)
+  domain_values = validate_solve_domain(domain)
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, lp; cutoff, dim = length(domain_values), domain = domain_values)
+  H      = tensorize(Qp, lp; cutoff, domain = domain_values)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
   return minimize_mpo(H, c, obj ; cutoff, permutation, domain = domain_values, kwargs...)
@@ -120,12 +117,11 @@ function minimize(
   p::AbstractPolynomial{T}
   ;
   cutoff=1e-8,
-  domain = nothing,
-  domain_dim::Union{Nothing,Integer} = nothing,
+  domain = 0:1,
   kwargs...,
 ) where T
-  domain_values = normalize_solve_domain(domain, domain_dim)
-  H      = tensorize(p; cutoff, dim = length(domain_values), domain = domain_values)
+  domain_values = validate_solve_domain(domain)
+  H      = tensorize(p; cutoff, domain = domain_values)
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
@@ -199,8 +195,7 @@ function tensorize(
   Q::AbstractArray{T},
   rest::Vararg{AbstractArray{T}};
   cutoff = zero(T),
-  dim::Integer,
-  domain = 0:(dim - 1),
+  domain,
 ) where T
   Qs = [Q, rest...]
   if !allequal(Iterators.flatmap(size, Qs))
@@ -208,8 +203,7 @@ function tensorize(
   end
 
   N = size(Q, 1)
-  domain_values = collect(domain)
-  length(domain_values) == dim || throw(DimensionMismatch("domain length must match `dim`"))
+  dim = length(domain)
   sites = ITensors.siteinds("Qudit", N; dim = dim)
   os = OpSum{T}()
 
@@ -221,7 +215,7 @@ function tensorize(
       coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
 
       if abs(coeff) > cutoff
-        op   = Iterators.flatmap(v -> ("D", (domain = domain_values,), v), idx)
+        op   = Iterators.flatmap(v -> ("D", (domain = domain,), v), idx)
         os .+= (coeff, op...)
       end
     end
@@ -233,12 +227,10 @@ end
 function tensorize(
   p::AbstractPolynomial{T};
   cutoff = zero(T),
-  dim::Integer,
-  domain = 0:(dim - 1),
+  domain,
 ) where T
   N = length(effective_variables(p))
-  domain_values = collect(domain)
-  length(domain_values) == dim || throw(DimensionMismatch("domain length must match `dim`"))
+  dim = length(domain)
   sites = ITensors.siteinds("Qudit", N; dim = dim)
   os = OpSum{T}()
 
@@ -253,7 +245,7 @@ function tensorize(
         map(powers(t)) do p
           v, e = p
           Iterators.flatten(
-            Iterators.repeated(("D", (domain = domain_values,), indices[v]), e),
+            Iterators.repeated(("D", (domain = domain,), indices[v]), e),
           )
         end
       )
@@ -271,7 +263,7 @@ function minimize_mpo( H :: MPO
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
                      , verbosity   = 1
                      , constraints = AbstractConstraint[]
-                     , domain :: AbstractVector
+                     , domain
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf

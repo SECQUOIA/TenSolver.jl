@@ -41,7 +41,7 @@ keep constrained solves close to the unconstrained cost.
 
 | Constraint | Enforces | Bond dimension of ``P`` |
 |:-----------|:---------|:------------------------|
-| [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` for nonnegative domains; number of reachable partial sums for signed domains |
+| [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
 | [`ExactlyOneConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i = k) = 1`` | 2 |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
@@ -67,7 +67,7 @@ x = TenSolver.sample(psi)
 
 # output
 
-(true, [1, 0, 1], true)
+(true, [1.0, 0.0, 1.0], true)
 ```
 
 You can also check an assignment against constraints directly with
@@ -94,10 +94,9 @@ You can also check an assignment against constraints directly with
 ```
 
 where `relation` is one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`. The `sites` are unique positive integers representing variable indices, while `weights` and
-`rhs` must be **nonnegative integers**. For nonnegative domains, its automaton
-tracks the capped partial sum, so the projection bond dimension is `rhs + 2`
-regardless of how many variables the sum touches. For signed domains such as
-`[-1, 1]`, it instead tracks every reachable partial sum exactly.
+`rhs` must be **nonnegative integers**. Its automaton tracks the capped partial
+sum, so the projection bond dimension is `rhs + 2` regardless of how many
+variables the sum touches.
 
 ### NotEqualsConstraint
 
@@ -119,7 +118,7 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; constraints = [exclude], 
 
 # output
 
-(true, [1, 0])
+(true, [1.0, 0.0])
 ```
 
 ### ExactlyOneConstraint
@@ -145,7 +144,7 @@ E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; constraints = [one_
 
 # output
 
-(true, [0, 1, 0])
+(true, [0.0, 1.0, 0.0])
 ```
 
 ### RelationConstraint
@@ -167,7 +166,7 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, 1.0]; constraints = [implies], v
 
 # output
 
-(true, [1, 1])
+(true, [1.0, 1.0])
 ```
 
 ## Combining constraints
@@ -192,7 +191,7 @@ x = TenSolver.sample(psi)
 
 # output
 
-(true, [1, 0, 1], true)
+(true, [1.0, 0.0, 1.0], true)
 ```
 
 ## Infeasible models

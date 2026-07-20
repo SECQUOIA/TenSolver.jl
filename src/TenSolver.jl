@@ -104,7 +104,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   reads = is_feasible(psi) ? final_num_reads : 0
   samples = Vector{QUBOTools.Sample{T,Int}}(undef, reads)
   for i in 1:reads
-    x = sample(psi)
+    x = Int.(sample(psi))
     E = QUBOTools.value(x, l, Q, a, b)
 
     samples[i] = QUBOTools.Sample{T,Int}(x, E)

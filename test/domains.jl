@@ -9,7 +9,7 @@ import DynamicPolynomials
     ]
     obj(x) = dot(x, Q, x)
 
-    E, psi = minimize(Q; domain_dim = 3, iterations = 5, cutoff = 1e-12, verbosity = 0)
+    E, psi = minimize(Q; domain = 0:2, iterations = 5, cutoff = 1e-12, verbosity = 0)
 
     @test E ≈ 0.0
     @test [0, 0, 0] in psi
@@ -19,7 +19,7 @@ import DynamicPolynomials
     l = [-1.0,  2.0, -3.0]
     obj(x) = dot(l, x)
 
-    E, psi = minimize(l; domain_dim = 3, iterations = 5, cutoff = 1e-12, verbosity = 0)
+    E, psi = minimize(l; domain = 0:2, iterations = 5, cutoff = 1e-12, verbosity = 0)
     E0, x0 = brute_force(obj, 3; domain = 0:2)
 
     @test E ≈ -8
@@ -35,7 +35,7 @@ import DynamicPolynomials
     l = [-2.0, -1.0, -3.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
 
-    E, psi = minimize(Q, l; domain_dim = 3, iterations = 5, cutoff = 1e-12, verbosity = 0)
+    E, psi = minimize(Q, l; domain = 0:2, iterations = 5, cutoff = 1e-12, verbosity = 0)
     E0, x0 = brute_force(obj, 3; domain = 0:2)
 
     @test E ≈ E0
@@ -48,7 +48,7 @@ import DynamicPolynomials
     c = 5.0
     obj(x) = dot(x, Q, x) + dot(l, x)
 
-    E, psi = minimize(Q, l, c; domain_dim = 3, verbosity = 0)
+    E, psi = minimize(Q, l, c; domain = 0:2, verbosity = 0)
     E0, x0 = brute_force(obj, 1; domain = 0:2)
 
     @test E ≈ 3.0
@@ -60,7 +60,7 @@ import DynamicPolynomials
     p = y[1]^2 + y[1] * y[2] + 2y[2]^2 - y[2] * y[3] - 3.0y[3]
     obj(x) = p(y => x)
 
-    E, psi = minimize(p; domain_dim = 3, iterations = 10, mindim = 5, cutoff = 1e-8, verbosity = 0)
+    E, psi = minimize(p; domain = 0:2, iterations = 10, mindim = 5, cutoff = 1e-8, verbosity = 0)
     E0, x0 = brute_force(obj, 3; domain = 0:2)
 
     @test E ≈ E0
@@ -71,7 +71,7 @@ import DynamicPolynomials
     DynamicPolynomials.@polyvar y[1:2]
     p = 2.0y[1]^2 - 3.0y[1] + 2.0y[2]^2 - 3.0y[2]
 
-    E, psi = maximize(p; domain_dim = 3, iterations = 5, cutoff = 1e-12, verbosity = 0)
+    E, psi = maximize(p; domain = 0:2, iterations = 5, cutoff = 1e-12, verbosity = 0)
 
     @test E ≈ 4.0
     @test [2, 2] in psi
@@ -94,7 +94,7 @@ import DynamicPolynomials
       Q,
       l;
       constraints,
-      domain_dim = 3,
+      domain = 0:2,
       iterations = 5,
       cutoff = 1e-8,
       mindim = 10,
@@ -104,5 +104,29 @@ import DynamicPolynomials
 
     @test E ≈ E0
     @test is_feasible(sample(psi), constraints)
+  end
+
+  @testset "Domain API and validation" begin
+    Q = [-1.0 0.0; 0.0 2.0]
+
+    E_default, psi_default = minimize(Q; iterations = 4, verbosity = 0)
+    E_bool, psi_bool = minimize(Q; domain = [0, 1], iterations = 4, verbosity = 0)
+
+    @test E_default ≈ E_bool
+    @test sample(psi_default) == [1, 0]
+    @test [1, 0] in psi_bool
+
+    E_ordered, psi_ordered = minimize([1.0]; domain = [1, -1], verbosity = 0)
+    @test E_ordered ≈ -1.0
+    @test sample(psi_ordered) == [-1.0]
+    @test psi_ordered.domain == [1.0, -1.0]
+    @test [-1] in psi_ordered
+    @test [1] ∉ psi_ordered
+    @test_throws DomainError [2] in psi_ordered
+
+    @test_throws ArgumentError minimize(Q; domain = Int[], verbosity = 0)
+    @test_throws ArgumentError minimize(Q; domain = [0, 0], verbosity = 0)
+    @test_throws ArgumentError minimize(Q; domain = [0, 2], verbosity = 0)
+    @test_throws ArgumentError minimize(Q; domain = ["0", "1"], verbosity = 0)
   end
 end

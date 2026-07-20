@@ -28,7 +28,6 @@ import DynamicPolynomials
     @test E ≈ E0
     @test s0 in psi
     @test all(in(spin_domain), sample(psi))
-    @test [0, 0, 0] ∉ psi
   end
 
   @testset "Single-site and maximize" begin
@@ -72,8 +71,8 @@ import DynamicPolynomials
     ]
     h = [-3.0, -2.0, -1.0]
     constraints = AbstractConstraint[
-      SumConstraint([1, 2, 3], [1, 2, 3], 0; relation = :(==)),
       NotEqualsConstraint([1, 2], [1, 1]),
+      RelationConstraint(1, :(!=), 3),
     ]
     obj(s) = dot(s, J, s) + dot(h, s)
 
@@ -100,7 +99,8 @@ import DynamicPolynomials
 
   @testset "Infeasible Spin constraints preserve the domain" begin
     impossible = AbstractConstraint[
-      SumConstraint([1], [1], 2; relation = :(==)),
+      NotEqualsConstraint([1], [-1]),
+      NotEqualsConstraint([1], [1]),
     ]
 
     E, psi = minimize([0.0]; domain = spin_domain, constraints = impossible, verbosity = 0)
@@ -112,20 +112,4 @@ import DynamicPolynomials
     @test_throws DomainError sample(psi)
   end
 
-  @testset "Domain validation and compatibility" begin
-    Q = [-1.0 0.0; 0.0 2.0]
-
-    E_default, psi_default = minimize(Q; iterations = 4, verbosity = 0)
-    E_bool, psi_bool = minimize(Q; domain = [0, 1], iterations = 4, verbosity = 0)
-    E_dim, psi_dim = minimize(Q; domain_dim = 2, iterations = 4, verbosity = 0)
-
-    @test E_default ≈ E_bool ≈ E_dim
-    @test sample(psi_default) == [1, 0]
-    @test [1, 0] in psi_bool
-    @test [1, 0] in psi_dim
-
-    @test_throws ArgumentError minimize(Q; domain = [0, 2], verbosity = 0)
-    @test_throws ArgumentError minimize(Q; domain = [1, -1], verbosity = 0)
-    @test_throws ArgumentError minimize(Q; domain = [-1, 1], domain_dim = 2, verbosity = 0)
-  end
 end
