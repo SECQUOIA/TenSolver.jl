@@ -106,6 +106,16 @@ import DynamicPolynomials
     @test is_feasible(sample(psi), constraints)
   end
 
+  @testset "Zero domain" begin
+    Q = [-1.0 0.0; 1.0 2.0]
+    E, psi = minimize(Q; domain = [0], verbosity = 0)
+    x = TenSolver.sample(psi)
+
+    @test E == 0
+    @test [0, 0] in psi
+    @test x == [0, 0]
+  end
+
   @testset "Domain API and validation" begin
     Q = [-1.0 0.0; 0.0 2.0]
 
@@ -119,13 +129,12 @@ import DynamicPolynomials
     E_ordered, psi_ordered = minimize([1.0]; domain = [1, -1], verbosity = 0)
     @test E_ordered ≈ -1.0
     @test sample(psi_ordered) == [-1.0]
-    @test psi_ordered.domain == [1.0, -1.0]
+    @test psi_ordered.domain == [-1.0, 1.0]
     @test [-1] in psi_ordered
     @test [1] ∉ psi_ordered
     @test_throws DomainError [2] in psi_ordered
 
     @test_throws ArgumentError minimize(Q; domain = Int[], verbosity = 0)
-    @test_throws ArgumentError minimize(Q; domain = [0, 0], verbosity = 0)
     @test_throws ArgumentError minimize(Q; domain = [0, 2], verbosity = 0)
     @test_throws ArgumentError minimize(Q; domain = ["0", "1"], verbosity = 0)
   end

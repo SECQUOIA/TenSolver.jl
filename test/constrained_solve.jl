@@ -188,11 +188,11 @@ end
         push!(objectives, objective)
         callback_solution = TenSolver.Solution{Float64}(
           deepcopy(mps),
+          0:1,
+          collect(1:length(mps)),
           Float64[],
           Int[],
           Float64[],
-          collect(1:length(mps)),
-          0:1,
         )
         @test is_feasible(TenSolver.sample(callback_solution), constraints)
       end,

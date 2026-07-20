@@ -75,6 +75,15 @@ By default, it uses DMRG to calculate the optimal solution.
 
 Keyword arguments:
 
+- `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
+  Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
+  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled assignment.
+  For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
+  If the constraints admit no solution at all, the solve does not error: it logs a warning and
+  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
+- `domain` - Possible variable values. Defaults to `[0, 1]`;
+  Use `[-1, 1]` for Ising spins or `0:(d - 1)` for a nonnegative integer domain of size `d`.
+  Domains are sorted and deduplicated before solving.
 - `iterations :: Int` - Maximum iterations the solver should run. Defaults to `10`.
 - `cutoff :: Float64` - Any absolute value below this threshold is considered zero. Defaults to `1e-8`.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -98,6 +107,9 @@ Keyword arguments:
 
   Other keywords might be available depending on the chosen backend.
   See the documentation for each backend for comprehensive lists.
+
+  Some keywords, such as `constraints` and `domain`,
+  may have limited support depending on the backend.
 
 The returned `Solution` carries per-iteration stats in the fields `energies`, `bond_dims`, and `elapsed_times`.
 
