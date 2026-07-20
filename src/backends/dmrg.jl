@@ -86,7 +86,7 @@ Backend-specific keyword arguments:
 function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::T
   ; cutoff=1e-8
   , preprocess::Bool=false
-  , domain = 0:1
+  , domain::AbstractVector = 0:1
   , kwargs...
 ) where T
   domain_values = validate_solve_domain(domain)
@@ -112,7 +112,7 @@ function minimize(
   p::AbstractPolynomial{T}
   ;
   cutoff=1e-8,
-  domain = 0:1,
+  domain::AbstractVector = 0:1,
   kwargs...,
 ) where T
   domain_values = validate_solve_domain(domain)

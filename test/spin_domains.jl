@@ -35,7 +35,7 @@ import DynamicPolynomials
     h = [-3.0]
     obj(s) = dot(s, J, s) + dot(h, s)
 
-    E, psi = minimize(J, h; domain = (-1, 1), verbosity = 0)
+    E, psi = minimize(J, h; domain = [-1, 1], verbosity = 0)
     Emax, psimax = maximize(J, h; domain = spin_domain, verbosity = 0)
 
     @test E ≈ obj([1])
