@@ -12,8 +12,8 @@ $$\begin{array}{rl}
   \min_x      & p(x) \\
   \text{s.t.} & Ax = b \\
               & P x \le q \\
-              & x \text{ satisfies other constraints} \\
-              & x \in \{0,\ldots,d-1\}^{n}
+              & x \in \mathtt{Constraints} \\
+              & x_i \in \{u_0,\ldots,u_{d-1}\} \subset \mathbb{Z}
 \end{array}$$
 
 Additionally, TenSolver provides special support
@@ -33,14 +33,17 @@ Pkg.add("TenSolver")
 
 ## Usage
 
-The simplest way to use this package is passing a matrix to the solver
+The simplest way to use this package is passing a matrix to the solver,
+while defining an integer domain.
 
 ```julia
 using TenSolver
 
-Q = randn(40, 40)
+Q = [ 1.0  0.0 -3.0;
+      1.5 -4.5 -5.0;
+     12.0  0.0 -1.0]
 
-E, psi = TenSolver.minimize(Q)
+E, psi = TenSolver.minimize(Q; domain = [-1, 1])
 ```
 
 The returned argument `E` is the calculated estimate for the minimum value,
@@ -59,7 +62,7 @@ Every sampled solution is guaranteed feasible, with no penalty terms involved:
 
 ```julia
 budget = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
-E, psi = TenSolver.maximize(zeros(3, 3), values; constraints = [budget])
+E, psi = TenSolver.maximize([5.5, 2.1, 3.2]; constraints = [budget])
 ```
 
 The constraint API is experimental and subject to change; see the

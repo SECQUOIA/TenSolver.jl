@@ -353,8 +353,8 @@ The `alphabet` parameter represents the domain for a constraint's variables.
 function constraint_to_dfa end
 
 function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet) where {S}
-  if minimum(alphabet) < 0
-    throw(ArgumentError("SumConstraint only supports nonnegative domains."))
+  if !all(a -> isinteger(a) && a >= 0, alphabet)
+    throw(ArgumentError("SumConstraint only supports nonnegative integer domains."))
   end
 
   (; weights, rhs, relation) = constraint

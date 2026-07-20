@@ -134,8 +134,20 @@ import DynamicPolynomials
     @test [1] ∉ psi_ordered
     @test_throws DomainError [2] in psi_ordered
 
+    E_sparse, psi_sparse = minimize(
+      [1.0, -4.0, 2.0];
+      domain = [-2, 0, 3],
+      iterations = 4,
+      verbosity = 0,
+    )
+
+    @test E_sparse ≈ -18.0
+    @test psi_sparse.domain == [-2.0, 0.0, 3.0]
+    @test sample(psi_sparse) == [-2.0, 3.0, -2.0]
+    @test [-2.0, 3.0, -2.0] in psi_sparse
+    @test [0.0, 0.0, 0.0] ∉ psi_sparse
+
     @test_throws ArgumentError minimize(Q; domain = Int[], verbosity = 0)
-    @test_throws ArgumentError minimize(Q; domain = [0, 2], verbosity = 0)
     @test_throws ArgumentError minimize(Q; domain = ["0", "1"], verbosity = 0)
   end
 end
