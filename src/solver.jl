@@ -61,13 +61,13 @@ const default_backend = DMRGBackend()
 """
     minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
 
-Solve the Quadratic Unconstrained Binary Optimization (QUBO) problem
+Solve a quadratic discrete optimization problem
 
-    min  b'Qb + l'b + c
-    s.t. b_i in {0, 1}
+    min  x'Qx + l'x + c
+    s.t. x_i in domain
 
 Return the optimal value `E` and a probability distribution `ψ` over optimal solutions.
-You can use [`sample`](@ref) to get an actual bitstring from `ψ`.
+You can use [`sample`](@ref) to get an actual solution vector from `ψ`.
 
 There are multiple backends available, selected through the keyword `backend`.
 By default, it uses DMRG to calculate the optimal solution.
@@ -85,6 +85,9 @@ Keyword arguments:
 - `preprocess :: Bool` - Defaults to `false`. If `true`, permute QUBO variables before constructing the MPS Hamiltonian
   so coupled variables are closer in the one-dimensional tensor order. Samples are returned in the
   caller's original variable order. This is an experimental feature and may be subject to changes.
+- `domain` - Variable values. The DMRG backend supports `[0, 1]` (the default)
+  and the Ising domain `[-1, 1]`. The legacy `domain_dim = d` spelling remains
+  available for `0:(d - 1)`; these keywords cannot be combined.
 - `on_iteration :: Function` - Called after each recorded iteration as
   `f(psi::MPS; iteration, objective, bond_dim, elapsed_time)`.
   `objective` is the expected objective function ⟨ψ|H|ψ⟩ at this iteration.

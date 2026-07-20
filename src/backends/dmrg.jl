@@ -5,11 +5,15 @@ import ITensors, ITensorMPS
 
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
 
-# Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
-# For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
+# Diagonal matrix whose eigenvalues are the ordered feasible values for a variable.
+# For Boolean variables, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
 # This looks like type piracy,
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
-ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
+function ITensors.op(::OpName"D", ::SiteType"Qudit", d::Int; domain=0:(d - 1))
+  values = collect(domain)
+  length(values) == d || throw(DimensionMismatch("operator domain length must match the site dimension"))
+  return diagm(values)
+end
 
 function ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index)
   d = ITensorMPS.dim(s)
@@ -30,25 +34,48 @@ struct DMRGBackend <: AbstractTenSolverBackend end
 
 normalize_backend(::Val{:dmrg}) = default_backend
 
+function normalize_solve_domain(domain, domain_dim)
+  if !isnothing(domain) && !isnothing(domain_dim)
+    throw(ArgumentError("`domain` and `domain_dim` cannot be specified together"))
+  end
+
+  if isnothing(domain)
+    dim = isnothing(domain_dim) ? 2 : domain_dim
+    dim > 0 || throw(ArgumentError("`domain_dim` must be positive, got $dim"))
+    return collect(0:(dim - 1))
+  end
+
+  applicable(iterate, domain) || throw(ArgumentError("`domain` must be an iterable collection of values"))
+  values = collect(domain)
+  values == [0, 1] && return [0, 1]
+  values == [-1, 1] && return [-1, 1]
+
+  throw(ArgumentError("unsupported domain $(repr(values)); supported domains are [0, 1] and [-1, 1]"))
+end
+
 """
-    minimize(::DRMGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
+    minimize(::DMRGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
 
 This function uses DMRG with tensor networks to calculate the optimal solution,
 by finding the ground state (least eigenspace) of the Hamiltonian
 
     H = Σ Q_ij D_iD_j + Σ l_i D_i
 
-where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |1>.
+where D_i is diagonal with the variable's domain values. By default,
+`domain = [0, 1]`; pass `domain = [-1, 1]` to optimize an Ising model directly.
 
 
 Backend-specific keyword arguments:
 
 - `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
   Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
-  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled bitstring.
+  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled assignment.
   For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
   If the constraints admit no solution at all, the solve does not error: it logs a warning and
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
+- `domain` - The variable domain. Supported values are `[0, 1]` (the default)
+  and `[-1, 1]` for Ising spins. `domain_dim` remains available for the legacy
+  nonnegative integer domain `0:(domain_dim - 1)`; do not pass both keywords.
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -66,14 +93,16 @@ Backend-specific keyword arguments:
 function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::T
   ; cutoff=1e-8
   , preprocess::Bool=false
-  , domain_dim::Integer = 2
+  , domain = nothing
+  , domain_dim::Union{Nothing,Integer} = nothing
   , kwargs...
 ) where T
+  domain_values = normalize_solve_domain(domain, domain_dim)
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, lp; cutoff, dim = domain_dim)
+  H      = tensorize(Qp, lp; cutoff, dim = length(domain_values), domain = domain_values)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, domain_dim, kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain = domain_values, kwargs...)
 end
 
 """
@@ -91,15 +120,17 @@ function minimize(
   p::AbstractPolynomial{T}
   ;
   cutoff=1e-8,
-  domain_dim::Integer = 2,
+  domain = nothing,
+  domain_dim::Union{Nothing,Integer} = nothing,
   kwargs...,
 ) where T
-  H      = tensorize(p; cutoff, dim = domain_dim)
+  domain_values = normalize_solve_domain(domain, domain_dim)
+  H      = tensorize(p; cutoff, dim = length(domain_values), domain = domain_values)
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
 
-  return minimize_mpo(H, cte, obj ; cutoff, domain_dim, kwargs...)
+  return minimize_mpo(H, cte, obj ; cutoff, domain = domain_values, kwargs...)
 end
 
 
@@ -145,10 +176,10 @@ end
 # Infeasibility is a solver outcome, not an argument error: report it as a
 # status like other optimization packages (objective +Inf, empty Solution),
 # so it maps onto MOI.INFEASIBLE at the JuMP layer. See the discussion in #94.
-function infeasible_result(::Type{T}) where {T}
+function infeasible_result(::Type{T}, domain) where {T}
   @warn "constraints define an empty feasible subspace"
   F = float(T)
-  return real(T)(+Inf), infeasible_solution(F)
+  return real(T)(+Inf), infeasible_solution(F, domain)
 end
 
 
@@ -164,13 +195,21 @@ for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
 """
 function tensorize end
 
-function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T), dim::Integer) where T
+function tensorize(
+  Q::AbstractArray{T},
+  rest::Vararg{AbstractArray{T}};
+  cutoff = zero(T),
+  dim::Integer,
+  domain = 0:(dim - 1),
+) where T
   Qs = [Q, rest...]
   if !allequal(Iterators.flatmap(size, Qs))
     throw(DimensionMismatch("All arrays should act on the same number of variables.\nEncountered dimensions $(collect(map(size, Qs)))."))
   end
 
   N = size(Q, 1)
+  domain_values = collect(domain)
+  length(domain_values) == dim || throw(DimensionMismatch("domain length must match `dim`"))
   sites = ITensors.siteinds("Qudit", N; dim = dim)
   os = OpSum{T}()
 
@@ -182,7 +221,7 @@ function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff =
       coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
 
       if abs(coeff) > cutoff
-        op   = Iterators.flatmap(v -> ("D", v), idx)
+        op   = Iterators.flatmap(v -> ("D", (domain = domain_values,), v), idx)
         os .+= (coeff, op...)
       end
     end
@@ -191,8 +230,15 @@ function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff =
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T), dim::Integer) where T
+function tensorize(
+  p::AbstractPolynomial{T};
+  cutoff = zero(T),
+  dim::Integer,
+  domain = 0:(dim - 1),
+) where T
   N = length(effective_variables(p))
+  domain_values = collect(domain)
+  length(domain_values) == dim || throw(DimensionMismatch("domain length must match `dim`"))
   sites = ITensors.siteinds("Qudit", N; dim = dim)
   os = OpSum{T}()
 
@@ -206,7 +252,9 @@ function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T), dim::Integer) whe
       op = Iterators.flatten(
         map(powers(t)) do p
           v, e = p
-          Iterators.flatten(Iterators.repeated(("D", indices[v]), e))
+          Iterators.flatten(
+            Iterators.repeated(("D", (domain = domain_values,), indices[v]), e),
+          )
         end
       )
       os .+= (coeff, op...)
@@ -223,7 +271,7 @@ function minimize_mpo( H :: MPO
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
                      , verbosity   = 1
                      , constraints = AbstractConstraint[]
-                     , domain_dim :: Integer
+                     , domain :: AbstractVector
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
@@ -254,7 +302,7 @@ function minimize_mpo( H :: MPO
   # Constraints
   projections = map(
     device,
-    projection_mpos(T, constraints, sites; permutation),
+    projection_mpos(T, constraints, sites; permutation, domain),
   )
 
   # Hamiltonian construction
@@ -264,7 +312,7 @@ function minimize_mpo( H :: MPO
   # Initial state
   psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
   if isnothing(psi)
-    return infeasible_result(T)
+    return infeasible_result(T, domain)
   end
   psi = device(psi)
 
@@ -344,11 +392,11 @@ function minimize_mpo( H :: MPO
 
 
   if isinf(energy)
-    optimal, dist = infeasible_result(T)
+    optimal, dist = infeasible_result(T, domain)
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
-    dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation)
+    dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation, domain)
     optimal = obj(sample(dist))
   end
 
