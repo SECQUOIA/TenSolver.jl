@@ -24,11 +24,13 @@ include(filepath("ising_conversion.jl"))
 # Binary constraint API
 include(filepath("constraints.jl"))
 include(filepath("projection_mpo.jl"))
-include(filepath("constrained_solve.jl"))
 
 # Traditional interface
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
+include(filepath("domains.jl"))
+include(filepath("spin_domains.jl"))
+include(filepath("constrained_solve.jl"))
 
 # JuMP interface
 include(filepath("jump.jl"))

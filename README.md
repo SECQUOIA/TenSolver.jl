@@ -2,19 +2,24 @@
 
 [![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://SECQUOIA.github.io/TenSolver.jl/stable/)
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://SECQUOIA.github.io/TenSolver.jl/dev/)
+[![NeurIPS 2025 ScaleOPT paper](https://img.shields.io/badge/paper-NeurIPS_ScaleOPT_2025-orange)](https://openreview.net/pdf?id=EL002DTBRA)
+[![JuMP-dev 2026](https://img.shields.io/badge/JuMP--dev-2026-8A2BE2)](https://www.youtube.com/watch?v=nvbv1NzMRMg&feature=youtu.be)
 
-Tensor Network-based solver for binary optimization problems:
-quadratic (QUBO), higher-order polynomial (PUBO), and constrained.
+
+Tensor Network-based solver for discrete polynomial optimization problems,
 
 $$\begin{array}{rl}
   \min_x      & p(x) \\
   \text{s.t.} & Ax = b \\
-   P x \le q \\
-   x \text{ satisfies other constraints} \\
-              & x \in \mathbb{B}^{n}
+              & P x \le q \\
+              & x \in \mathtt{Constraints} \\
+              & x_i \in \\{u_0,\ldots,u_{d-1}\\} \subseteq \mathbb{Z}
 \end{array}$$
 
-Here `p` may be a quadratic form `x' Q x + l' x + c` or an arbitrary polynomial.
+Additionally, TenSolver provides special support
+for special classes of optimization problems,
+with particular emphasis put in _Quadratic Unconstrained Binary Optimization_ (QUBO).
+
 
 ## Installation
 
@@ -28,19 +33,22 @@ Pkg.add("TenSolver")
 
 ## Usage
 
-The simplest way to use this package is passing a matrix to the solver
+The simplest way to use this package is passing a matrix to the solver,
+while defining an integer domain.
 
 ```julia
 using TenSolver
 
-Q = randn(40, 40)
+Q = [ 1.0  0.0 -3.0;
+      1.5 -4.5 -5.0;
+     12.0  0.0 -1.0]
 
-E, psi = TenSolver.minimize(Q)
+E, psi = TenSolver.minimize(Q; domain = [-1, 1])
 ```
 
 The returned argument `E` is the calculated estimate for the minimum value,
 while `psi` is a probability distribution over all possible solutions to the problem.
-You can sample Boolean vectors from it.
+You can sample solution vectors from it.
 These vectors are the (approximate) optimal solutions to the original optimization problem.
 
 ```julia
@@ -49,12 +57,12 @@ x = TenSolver.sample(psi)
 
 ### Constraints
 
-TenSolver can also enforce hard constraints on the binary variables. Every
-sampled solution is guaranteed feasible, with no penalty terms involved:
+TenSolver can also enforce hard constraints on the variables.
+Every sampled solution is guaranteed feasible, with no penalty terms involved:
 
 ```julia
 budget = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
-E, psi = TenSolver.maximize(zeros(3, 3), values; constraints = [budget])
+E, psi = TenSolver.maximize([5.5, 2.1, 3.2]; constraints = [budget])
 ```
 
 The constraint API is experimental and subject to change; see the
@@ -81,6 +89,9 @@ begin
 end
 ```
 
+Higher-order polynomial, constrained and non-binary optimization features
+are currently unavailable via the JuMP interface.
+
 ### Running on GPU
 
 The solver uses the tensor networks machinery from [ITensors.jl](https://itensor.org/)
@@ -102,3 +113,17 @@ E, psi = minimize(Q; device = CUDA.cu)
 Since ITensor's GPU platform support is always improving,
 be sure to check out their [documentation](https://itensor.github.io/ITensors.jl/stable/)
 to know which GPUs are accepted.
+
+## Citing TenSolver
+
+If you use TenSolver in your research, please cite our [NeurIPS 2025 Workshop paper](https://openreview.net/pdf?id=EL002DTBRA):
+
+```bibtex
+@inproceedings{tensolver2025,
+  title     = {Quantum-Inspired Tensor Network Methods for Quadratic Unconstrained Binary Optimization},
+  author    = {Iago {Leal de Freitas} and Jo{\~a}o Victor {Paim de Cerqueira Melo Souza} and David E. {Bernal Neira}},
+  booktitle = {NeurIPS Workshop on GPU-Accelerated and Scalable Optimization},
+  year      = {2025},
+  url       = {https://openreview.net/forum?id=EL002DTBRA}
+}
+```

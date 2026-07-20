@@ -61,13 +61,13 @@ const default_backend = DMRGBackend()
 """
     minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
 
-Solve the Quadratic Unconstrained Binary Optimization (QUBO) problem
+Solve a quadratic discrete optimization problem
 
-    min  b'Qb + l'b + c
-    s.t. b_i in {0, 1}
+    min  x'Qx + l'x + c
+    s.t. x_i in domain
 
 Return the optimal value `E` and a probability distribution `ψ` over optimal solutions.
-You can use [`sample`](@ref) to get an actual bitstring from `ψ`.
+You can use [`sample`](@ref) to get an actual solution vector from `ψ`.
 
 There are multiple backends available, selected through the keyword `backend`.
 By default, it uses DMRG to calculate the optimal solution.
@@ -75,6 +75,15 @@ By default, it uses DMRG to calculate the optimal solution.
 
 Keyword arguments:
 
+- `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
+  Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
+  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled assignment.
+  For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
+  If the constraints admit no solution at all, the solve does not error: it logs a warning and
+  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
+- `domain` - Possible variable values. Defaults to `[0, 1]`;
+  Use `[-1, 1]` for Ising spins or `0:(d - 1)` for a nonnegative integer domain of size `d`.
+  Domains are sorted and deduplicated before solving.
 - `iterations :: Int` - Maximum iterations the solver should run. Defaults to `10`.
 - `cutoff :: Float64` - Any absolute value below this threshold is considered zero. Defaults to `1e-8`.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -99,6 +108,9 @@ Keyword arguments:
   Other keywords might be available depending on the chosen backend.
   See the documentation for each backend for comprehensive lists.
 
+  Some keywords, such as `constraints` and `domain`,
+  may have limited support depending on the backend.
+
 The returned `Solution` carries per-iteration stats in the fields `energies`, `bond_dims`, and `elapsed_times`.
 
 Provably infeasible constrained models are reported as a status:
@@ -120,17 +132,16 @@ import Metal
 minimize(Q; device = Metal.mtl)
 ```
 
-
 See also [`maximize`](@ref).
 """
 function minimize end
 
 function minimize(
   Q :: AbstractMatrix{T},
-  l :: Union{AbstractVector{T}, Nothing} = nothing,
+  l :: AbstractVector{T} = zeros(T, size(Q, 1)),
   c :: T = zero(T)
   ;
-  backend=default_backend,
+  backend = default_backend,
   kwargs...,
 ) where T
   return minimize(normalize_backend(backend), Q, l, c; kwargs...)
@@ -150,6 +161,18 @@ function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
 end
 
 """
+    minimize(l::Vector, c::Number; kwargs...)
+
+Solve the linear optimization problem.
+
+    min  l'b + c
+    s.t. b_i in {0, 1}
+"""
+function minimize(l :: AbstractVector{T}, c :: T = zero(T); kwargs...) where T
+  return minimize(zeros(T, size(l, 1), size(l, 1)), l, c; kwargs...)
+end
+
+"""
     minimize(Q::Matrix, c::Number; kwargs...)
 
 Solve the Quadratic Unconstrained Binary Optimization problem with no linear term.
@@ -157,7 +180,9 @@ Solve the Quadratic Unconstrained Binary Optimization problem with no linear ter
     min  b'Qb + c
     s.t. b_i in {0, 1}
 """
-minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T = minimize(Q, nothing, c; kwargs...)
+function minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T
+  return minimize(Q, zeros(T, size(Q, 1)), c; kwargs...)
+end
 
 """
     maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)

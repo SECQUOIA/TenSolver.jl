@@ -1,7 +1,7 @@
 # Constrained Optimization
 
 Besides the unconstrained objective, TenSolver can enforce **hard constraints**
-on the binary variables. Instead of adding penalty terms to the objective
+on the variables. Instead of adding penalty terms to the objective
 (which only discourage infeasible solutions), each constraint is lowered to a
 *projection MPO* that removes the infeasible subspace exactly, so every sampled
 solution is guaranteed feasible.
@@ -23,13 +23,13 @@ A solve with `constraints` proceeds in three steps:
 1. The objective is turned into an MPO Hamiltonian ``H``, exactly as in the
    unconstrained case.
 2. Each constraint is lowered to a deterministic finite automaton (DFA) that
-   accepts exactly the feasible bitstrings, and the automaton is threaded into
+   accepts exactly the feasible vectors, and the automaton is threaded into
    an MPO ``P`` that is **diagonal with entries 1 on feasible basis states and
    0 on infeasible ones** — an exact projector, not a penalty.
 3. DMRG minimizes the projected Hamiltonian ``P' H P``. Because numerical noise
    and truncation can leak amplitude back into the (zero-energy) infeasible
    kernel, the state is re-projected at every iteration, which is what makes
-   every sampled bitstring feasible.
+   every sampled solution feasible.
 
 Each of the four built-in constraint types has a specialized automaton with a
 compact bond dimension (see the table below).
@@ -67,7 +67,7 @@ x = TenSolver.sample(psi)
 
 # output
 
-(true, [1, 0, 1], true)
+(true, [1.0, 0.0, 1.0], true)
 ```
 
 You can also check an assignment against constraints directly with
@@ -93,10 +93,15 @@ You can also check an assignment against constraints directly with
 \;\; \texttt{relation} \;\; \texttt{rhs},
 ```
 
-where `relation` is one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`. The `sites` are unique positive integers representing variable indices, while `weights` and
-`rhs` must be **nonnegative integers**. Its automaton tracks the capped partial
-sum, so the projection bond dimension is `rhs + 2` regardless of how many
-variables the sum touches.
+where `relation` is one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`.
+The `sites` are unique positive integers representing variable indices,
+while `weights` and `rhs` must be **nonnegative integers**.
+Furthermore, the solver currently only supports `SumConstraint`
+when the variable domains are nonnegative integers.
+
+
+Its automaton tracks a capped partial sum,
+so the projection bond dimension is `rhs + 2` regardless of how many variables the sum touches.
 
 ### NotEqualsConstraint
 
@@ -118,7 +123,7 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; constraints = [exclude], 
 
 # output
 
-(true, [1, 0])
+(true, [1.0, 0.0])
 ```
 
 ### ExactlyOneConstraint
@@ -144,15 +149,14 @@ E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; constraints = [one_
 
 # output
 
-(true, [0, 1, 0])
+(true, [0.0, 1.0, 0.0])
 ```
 
 ### RelationConstraint
 
 `RelationConstraint(left_site, relation, right_site)` enforces the pairwise
 relation ``x_{\texttt{left}} \lessgtr x_{\texttt{right}}`` with the same four
-relations as `SumConstraint`. For binary variables, `:(<=)` reads as an
-implication: selecting the left site forces the right one. Bond dimension 2.
+relations as `SumConstraint`.  Bond dimension 2.
 
 ```jldoctest relation
 using TenSolver
@@ -167,7 +171,7 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, 1.0]; constraints = [implies], v
 
 # output
 
-(true, [1, 1])
+(true, [1.0, 1.0])
 ```
 
 ## Combining constraints
@@ -192,17 +196,17 @@ x = TenSolver.sample(psi)
 
 # output
 
-(true, [1, 0, 1], true)
+(true, [1.0, 0.0, 1.0], true)
 ```
 
 ## Infeasible models
 
-When the constraints admit no feasible assignment at all, the solve does not
-throw, it logs a
-warning and reports the outcome as a status: [`minimize`](@ref) returns `+Inf`
-(the minimum over an empty feasible set) together with an infeasible solution,
-and [`maximize`](@ref) returns `-Inf`. Check with [`is_feasible`](@ref);
-sampling an infeasible solution throws.
+When the constraints admit no feasible assignment,
+the solve does not throw,
+but logs a warning and reports the outcome as a status:
+[`minimize`](@ref) returns `+Inf` (the minimum over an empty feasible set) together with an infeasible solution,
+and [`maximize`](@ref) returns `-Inf`.
+Check with [`is_feasible`](@ref); sampling an infeasible solution throws.
 
 ```julia
 impossible = [SumConstraint([1, 2], [1, 1], 3; relation = :(==))]

@@ -4,16 +4,16 @@
 =#
 
 """
-    brute_force(f, n[, constraints])
+    brute_force(f, n[, constraints]; domain = 0:1)
 
 A QUBO solver using a brute force approach instead of Tensor networks.
 Despite being painfully slow, this is useful as a sanity check.
 """
-function brute_force(obj, n, constraints = AbstractConstraint[])
+function brute_force(obj, n, constraints = AbstractConstraint[]; domain = 0:1)
   best = +Inf
   solution = Vector{Float64}[]
 
-  for bits in Iterators.product(fill(0:1, n)...)
+  for bits in Iterators.product(fill(domain, n)...)
     x = collect(bits)
 
     if is_feasible(x, constraints)

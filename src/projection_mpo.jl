@@ -221,18 +221,14 @@ end
 dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
 
 """
-    projection_mpo([T], constraint, sites)
+    projection_mpo([T], constraint, sites; domain)
 
-Build a projection MPO over the binary Qudit register `sites`.
+Build a projection MPO representing a `constraint` applicable to any MPS over `sites`.
 
-The diagonal entry is `one(T)` for computational basis states whose bits satisfy
-`constraint`, and zero otherwise. Constraint site numbers use the same 1-based
-register indexing as `sites`. The generic construction is exact and
-uncompressed: each feasible assignment of the constrained sites is represented
-as one MPO path.
-
-The construction is exact and uncompressed. Constraint site numbers use the same
-1-based register indexing as `sites`.
+The diagonal entry is `one(T)` for computational basis states
+satisfying `constraint`, and `zero(T)` otherwise.
+The current construction is exact and uncompressed.
+Constraint site numbers use the same 1-based register indexing as `sites`.
 
 # Known constraints
 
@@ -251,24 +247,23 @@ function projection_mpo end
 function projection_mpo(::Type{T}
                        , constraint::AbstractConstraint
                        , sites
-                       ; permutation = 1:length(sites)) where {T}
-  domain = [0, 1] # Fixed for now. In the future, we may upgrade.
-  dfa = permute_dfa!(constraint_to_dfa(constraint, length(sites), domain), permutation)
-  return dfa_to_mpo(T, dfa, sites)
+                       ; permutation = 1:length(sites)
+                       , domain) where {T}
+  dfa = constraint_to_dfa(constraint, length(sites), domain)
+  dfa_perm = permute_dfa!(dfa, permutation)
+  return dfa_to_mpo(T, dfa_perm, sites)
 end
 
 projection_mpo(constraint::AbstractConstraint, sites; kws...) =
   projection_mpo(Float64, constraint, sites; kws...)
 
 """
-    projection_mpos([T], constraints, sites)
+    projection_mpos([T], constraints, sites; domain)
 
-Build one projection MPO per constraint over the shared binary Qudit register
-`sites`.
+Build a list of projection MPOs representing  `constraints` applicable to any MPS over `sites`.
 
 This is a convenience wrapper around [`projection_mpo`](@ref).
-`T` controls the numeric
-element type of the assembled MPO tensors.
+`T` controls the numeric element type of the assembled MPO tensors.
 """
 function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites; kws...) where {T}
   return [projection_mpo(T, constraint, sites; kws...) for constraint in constraints]
@@ -346,135 +341,6 @@ end
 
 
 ##############################################
-# Generic constraint construction path
-##############################################
-
-"""
-    SparseTensorEntry{T}
-
-One nonzero term in the sparse representation used to assemble a projection
-MPO. `coordinates` maps 1-based register sites to 1-based local basis states;
-sites omitted from the dictionary are unconstrained by this entry. `value` is
-the coefficient carried by that partial assignment.
-"""
-struct SparseTensorEntry{T}
-  coordinates::Dict{Int,Int}
-  value::T
-end
-
-function validate_projection_sites(sites)
-  if isempty(sites)
-    throw(ArgumentError("sites must not be empty"))
-  end
-  if any(site -> ITensors.dim(site) != 2, sites)
-    throw(ArgumentError("projection MPO construction only supports Qudit sites with dim=2"))
-  end
-end
-
-function validate_constraint_site_bounds(constraint_sites, sites)
-  if !all(site -> 1 <= site <= length(sites), constraint_sites)
-    throw(BoundsError(sites, maximum(constraint_sites)))
-  end
-end
-
-"""
-    projection_entries(::Type{T}, constraint::AbstractConstraint)
-
-Enumerate feasible assignments on the sites touched by `constraint`.
-"""
-function projection_entries(::Type{T}, constraint::AbstractConstraint) where {T}
-  cs = constraint_sites(constraint)
-  assignments = Iterators.product(fill(0:1, length(cs))...)
-  entries = SparseTensorEntry{T}[]
-
-  for assignment in assignments
-    x = zeros(Int, maximum(cs))
-    coordinates = Dict{Int,Int}()
-
-    for (site, bit) in zip(cs, assignment)
-      x[site] = bit
-      coordinates[site] = bit + 1
-    end
-
-    if is_feasible(x, constraint)
-      push!(entries, SparseTensorEntry{T}(coordinates, one(T)))
-    end
-  end
-
-  return entries
-end
-
-function projection_entries_to_dfa(entries, num_sites::Integer, constrained_sites)
-  constrained_positions = sort(collect(constrained_sites))
-  position_to_depth = Dict(site_position => depth for (depth, site_position) in enumerate(constrained_positions))
-
-  children = [Dict{Int,Int}()]
-  states_by_depth = Vector{Vector{Int}}(undef, length(constrained_positions) + 1)
-  states_by_depth[1] = [1]
-  for depth in 2:length(states_by_depth)
-    states_by_depth[depth] = Int[]
-  end
-
-  accepting = Set{Int}()
-
-  for entry in entries
-    node = 1
-    for (depth, site_position) in enumerate(constrained_positions)
-      bit = get(entry.coordinates, site_position, 1) - 1
-      child = get(children[node], bit, 0)
-
-      if child == 0
-        child = length(children) + 1
-        push!(children, Dict{Int,Int}())
-        push!(states_by_depth[depth + 1], child)
-        children[node][bit] = child
-      end
-
-      node = child
-    end
-
-    push!(accepting, node)
-  end
-
-  states = eachindex(children)
-  transitions = [Dict{Tuple{Int,Int},Int}() for _ in 1:num_sites]
-
-  for site_position in 1:num_sites
-    if !haskey(position_to_depth, site_position)
-      for state in states
-        transitions[site_position][(state, 0)] = state
-        transitions[site_position][(state, 1)] = state
-      end
-      continue
-    end
-
-    depth = position_to_depth[site_position]
-    for state in states_by_depth[depth]
-      for bit in 0:1
-        child = get(children[state], bit, 0)
-        child == 0 && continue
-        transitions[site_position][(state, bit)] = child
-      end
-    end
-  end
-
-  return DFA(states, [0, 1], 1, accepting, transitions)
-end
-
-function default_constraint_to_dfa(constraint::AbstractConstraint, sites, alphabet=[0,1])
-  validate_projection_sites(sites)
-
-  cs = constraint_sites(constraint)
-  validate_constraint_site_bounds(cs, sites)
-
-  return projection_entries_to_dfa(
-    projection_entries(Bool, constraint),
-    length(sites),
-    cs,
-  )
-end
-
-##############################################
 # Constraint to DFA
 ##############################################
 
@@ -486,9 +352,9 @@ The `alphabet` parameter represents the domain for a constraint's variables.
 """
 function constraint_to_dfa end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
-  if minimum(alphabet) < 0
-    throw(ArgumentError("SumConstraint only supports nonnegative domains."))
+function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet) where {S}
+  if !all(a -> isinteger(a) && a >= 0, alphabet)
+    throw(ArgumentError("SumConstraint only supports nonnegative integer domains."))
   end
 
   (; weights, rhs, relation) = constraint
@@ -511,7 +377,7 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphab
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet) where {S}
   states    = [:mismatch, :all_matched]
   initial   = :all_matched
   accepting = Set([:mismatch])
@@ -531,7 +397,7 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer, alphabet=S[0,1]) where {S}
+function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer, alphabet) where {S}
   target = constraint.value
 
   states    = [:not_seen, :seen_once]
@@ -552,7 +418,7 @@ function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer,
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alphabet=[0,1])
+function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alphabet)
   left  = constraint.left_site
   right = constraint.right_site
 

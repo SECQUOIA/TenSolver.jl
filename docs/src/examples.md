@@ -30,6 +30,46 @@ x = TenSolver.sample(psi)
 (true, "Wind, Battery")
 ```
 
+## Ising Model
+
+Use `domain = [-1, 1]` when the variables are Ising spins:
+
+```jldoctest ising-domain
+using TenSolver
+
+J = [0.0 -1.0;
+     -1.0 0.0]
+h = [0.25, -0.5]
+
+E, psi = TenSolver.minimize(J, h; domain = [-1, 1], verbosity = 0)
+s = TenSolver.sample(psi)
+
+(E ≈ -2.25, s, all(in((-1, 1)), s))
+
+# output
+
+(true, [1.0, 1.0], true)
+```
+
+## Non-consecutive Integer Domains
+
+Use any finite integer domain:
+
+```jldoctest sparse-domain
+using TenSolver
+
+l = [1.0, -4.0, 2.0]
+
+E, psi = TenSolver.minimize(l; domain = [-2, 0, 3], verbosity = 0)
+x = TenSolver.sample(psi)
+
+(E ≈ -18.0, x, psi.domain)
+
+# output
+
+(true, [-2.0, 3.0, -2.0], [-2.0, 0.0, 3.0])
+```
+
 ## QUBO with Linear and Constant Terms
 
 You can also specify linear and constant terms:

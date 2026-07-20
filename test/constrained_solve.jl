@@ -186,7 +186,15 @@ end
       on_iteration=(mps; iteration, objective, kw...) -> begin
         push!(calls, iteration)
         push!(objectives, objective)
-        @test is_feasible(TenSolver.sample(TenSolver.Solution(deepcopy(mps), Float64[], Int[], Float64[])), constraints)
+        callback_solution = TenSolver.Solution{Float64}(
+          deepcopy(mps),
+          0:1,
+          collect(1:length(mps)),
+          Float64[],
+          Int[],
+          Float64[],
+        )
+        @test is_feasible(TenSolver.sample(callback_solution), constraints)
       end,
     )
 
