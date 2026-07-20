@@ -7,16 +7,24 @@ using LinearAlgebra
 
 const __VERSION__ = pkgversion(@__MODULE__)
 
-include("objective.jl")
+include("preprocess.jl")
 
-include("backends.jl")
-export AbstractBackend, DMRGBackend, GTNBackend, solution_space
+include("ising.jl")
+export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
+
+include("constraints.jl")
+export AbstractConstraint
+export SumConstraint, NotEqualsConstraint, ExactlyOneConstraint, RelationConstraint
+export is_feasible
+
+include("projection_mpo.jl")
 
 include("solution.jl")
-export Solution, GTNSolution, sample
+export sample
 
 include("solver.jl")
 export minimize, maximize
+export DMRGBackend, GTNBackend, solution_space
 
 # Convergence logging
 include("log.jl")
@@ -35,11 +43,6 @@ QUBODrivers.@setup Optimizer begin
     # JuMP-specific
     NumberOfReads["num_reads"] :: Integer = 1_000
     # Solver keywords
-    Backend["backend"]                       :: Union{AbstractBackend, String, Symbol} = DMRGBackend()
-    GTNProperty["gtn_property"]              :: Symbol                          = :single
-    GTNK["gtn_k"]                            :: Int                             = 1
-    GTNUseCUDA["gtn_usecuda"]                :: Bool                            = false
-    GTNElementType["gtn_T"]                  :: Type                            = Float64
     Cutoff["cutoff"]                         :: Float64                         = 1e-8
     Device["device"]                         :: Function                        = cpu
     Vtol["vtol"]                             :: Float64                         = 0.0
@@ -74,46 +77,41 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
     error("Number of reads must be a non-negative integer")
   end
 
-  backend = backend_from_attribute(
-    get("backend");
-    property = get("gtn_property"),
-    k = get("gtn_k"),
-    usecuda = get("gtn_usecuda"),
-    T = get("gtn_T"),
-  )
-
   # ~ Solve ~ #
   n, l, Q, a, b = QUBOTools.qubo(sampler, :sparse; sense = :min)
   # min_x a*(x'Qx + l'x + b)
   #  s.t. x in {0, 1}^n
   results = @timed minimize(Q, l, b;
+    time_limit,
+    verbosity,
     cutoff      = get("cutoff"),
     vtol        = get("vtol"),
     iterations  = get("iterations"),
-    time_limit,
     maxdim      = get("maxdim"),
     mindim      = get("mindim"),
     noise       = get("noise"),
     device      = get("device"),
-    verbosity,
+    preprocess  = get("preprocess"),
     eigsolve_krylovdim =  get("eigsolve_krylovdim"),
     eigsolve_tol       =  get("eigsolve_tol"),
     eigsolve_maxiter   =  get("eigsolve_maxiter"),
-    backend     = backend,
   )
   _, psi = results.value
 
   # ~ Samples and Output ~ #
-  samples = Vector{QUBOTools.Sample{T,Int}}(undef, final_num_reads)
-  for i in 1:final_num_reads
-    x = sample(psi)
+  # Infeasible models have no samples; they are reported through the
+  # termination status alone, like other MOI solvers.
+  reads = is_feasible(psi) ? final_num_reads : 0
+  samples = Vector{QUBOTools.Sample{T,Int}}(undef, reads)
+  for i in 1:reads
+    x = Int.(sample(psi))
     E = QUBOTools.value(x, l, Q, a, b)
 
     samples[i] = QUBOTools.Sample{T,Int}(x, E)
   end
 
   # ~ Metadata ~ #
-  metadata = _tensolver_metadata(
+  metadata = tensolver_metadata(
     psi;
     effective_time  = results.time,
     num_reads,
@@ -128,7 +126,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   return QUBOTools.SampleSet{T}(samples, metadata; sense = :min, domain = :bool)
 end
 
-function _tensolver_metadata(
+function tensolver_metadata(
   solution::Solution;
   effective_time::Real,
   num_reads::Integer,
@@ -140,7 +138,7 @@ function _tensolver_metadata(
   maxdim,
 )
   optimizer_iterations = length(solution.energies)
-  termination_status, status = _tensolver_status(
+  termination_status, status = tensolver_status(
     solution;
     iterations,
     time_limit,
@@ -162,7 +160,7 @@ function _tensolver_metadata(
   metadata["tensolver"] = Dict{String,Any}(
     "dmrg" => Dict{String,Any}(
       "sweep_elapsed" => copy(solution.elapsed_times),
-      "sweep_times"   => _sweep_times(solution.elapsed_times),
+      "sweep_times"   => sweep_times(solution.elapsed_times),
     ),
     "parameters" => Dict{String,Any}(
       "cutoff"     => cutoff,
@@ -176,9 +174,11 @@ function _tensolver_metadata(
   return metadata
 end
 
-function _tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
+function tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
   elapsed_time = isempty(solution.elapsed_times) ? 0.0 : last(solution.elapsed_times)
-  if length(solution.energies) >= iterations
+  if !is_feasible(solution)
+    return MOI.INFEASIBLE, "infeasible"
+  elseif length(solution.energies) >= iterations
     return MOI.ITERATION_LIMIT, "iteration_limit"
   elseif isfinite(time_limit) && elapsed_time > time_limit
     return MOI.TIME_LIMIT, "time_limit"
@@ -187,7 +187,7 @@ function _tensolver_status(solution::Solution; iterations::Integer, time_limit::
   end
 end
 
-function _sweep_times(elapsed_times::Vector{Float64})
+function sweep_times(elapsed_times::Vector{Float64})
   isempty(elapsed_times) && return Float64[]
 
   return diff(vcat(0.0, elapsed_times))

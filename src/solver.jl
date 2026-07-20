@@ -1,157 +1,100 @@
 using LinearAlgebra
 import Combinatorics: multiset_permutations
 
-import ITensors: inner
-import ITensorMPS: MPS, MPO, dmrg, OpSum, @OpName_str, @SiteType_str, @StateName_str, dim
-
-import ITensors, ITensorMPS
-
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, isconstant
-
-# Strict upper triangular part of an array
-function upper_indices(a)
-  return (Tuple(ci)
-            for ci in CartesianIndices(size(a))
-            if issorted(Tuple(ci); lt = (<=)))
-end
-
-function constant(p::AbstractPolynomial{T}) where T
-  ts  = terms(p)
-  idx = findfirst(isconstant, ts)
-
-  return isnothing(idx) ? zero(T) : coefficient(ts[idx])
-end
 
 maybe(f::Function, mx::Nothing; default=nothing) = default
 maybe(f::Function, mx; default=nothing) = f(mx)
 
-expectation(H, x) = inner(x', H, x)
-variance(H::MPO, x::MPS) = real(inner(H, x, H, x) - expectation(H, x)^2)
-
-# Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
-# For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
-# This looks like type piracy,
-# but is, in fact, ITensors' way to extend the OpSum mechanism.
-ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
-
-ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index) = (d = dim(s); fill(1/sqrt(d), d))
+ifnotnothing(a, b) = maybe(_ -> b, a)
 
 """
-    tensorize(p)
+    AbstractTenSolverBackend
 
-Turn a polynomial function action on bitstrings
-into an equivalent MPO Hamiltonian acting on Qudit sites.
-The conversion consists of exchanging each integer variable `x_i`
-for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
+Abstract solver backend marker for TenSolver implementations.
 
-    ∑ Q_ij x_i x_j + ∑ l_i x_i --> H = Σ Q_ij D_i D_j + ∑ l_i D_i
+Backends must provide backend-specific `minimize` methods for the normalized
+optimization inputs they support. Matrix backends implement
+`minimize(::MyBackend, Q::AbstractMatrix, l, c; kwargs...)`; polynomial
+backends implement `minimize(::MyBackend, p::AbstractPolynomial; kwargs...)`.
+Extensions that support symbolic selection must also define
+`normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
+
+# See also
+
+[`DMRGBackend`](@ref), [`normalize_backend`](@ref)
 """
-function tensorize end
+abstract type AbstractTenSolverBackend end
 
-function tensorize(model::PseudoBooleanModel{T}; cutoff = zero(T)) where T
-  N = length(model)
-  sites = ITensors.siteinds("Qudit", N; dim = 2)
-  os = OpSum{T}()
+"""
+    normalize_backend(backend)
 
-  for (vars, coeff) in model.terms
-    if abs(coeff) > cutoff
-      op = Iterators.flatmap(v -> ("D", v), vars)
-      os .+= (coeff, op...)
-    end
+Normalize a user-facing backend selector into a backend object.
+
+Backends can support `backend = :my_backend` by defining
+`normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
+"""
+function normalize_backend end
+
+function backend_error(backend)
+  if backend === :peps
+    return ArgumentError("backend :peps is not available. Install/load the PEPS extension or use backend = :dmrg.")
   end
 
-  return isempty(os) ? MPO(T, sites) : MPO(T, os, sites)
+  return ArgumentError("No backend-specific `minimize` method is available for backend $(repr(backend)). Use backend = :dmrg or provide a backend-specific `minimize` method.")
 end
 
-function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T)) where T
-  Qs = [Q, rest...]
-  if !allequal(Iterators.flatmap(size, Qs))
-    throw(DimensionMismatch("All arrays should act on the same number of variables.\nEncountered dimensions $(collect(map(size, Qs)))."))
-  end
-
-  N = size(Q, 1)
-  sites = ITensors.siteinds("Qudit", N; dim = 2)
-  os = OpSum{T}()
-
-  for t in Qs
-    for idx in upper_indices(t)
-      # Due to commutativity, we can group all terms that have the same indices.
-      # This speeds up the calculations.
-      # e.g., Q_ij x_i x_j + Q_ji x_j x_i = (Q_ij + Q_ji) x_i x_j
-      coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
-
-      if abs(coeff) > cutoff
-        op   = Iterators.flatmap(v -> ("D", v), idx)
-        os .+= (coeff, op...)
-      end
-    end
-  end
-
-  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
+normalize_backend(backend::AbstractTenSolverBackend) = backend
+normalize_backend(backend::Symbol) = normalize_backend(Val(backend))
+function normalize_backend(::Val{backend}) where {backend}
+  throw(backend_error(backend))
 end
+normalize_backend(backend) = throw(backend_error(backend))
 
-function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
-  N = length(effective_variables(p))
-  sites = ITensors.siteinds("Qudit", N; dim = 2)
-  os = OpSum{T}()
 
-  # Map: var name => index
-  indices = Dict(v => i for (i, v) in enumerate(effective_variables(p)))
-
-  for t in terms(p)
-    coeff = coefficient(t)
-
-    if abs(coeff) > cutoff && ! isconstant(t)
-      vars = effective_variables(t)
-      op   = Iterators.flatmap(v -> ("D", indices[v]), vars)
-      os .+= (coeff, op...)
-    end
-  end
-
-  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
-end
-
+#
+# Backends
+#
+include("backends/dmrg.jl")
+include("backends/gtn.jl")
+const default_backend = DMRGBackend()
 
 """
     minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
 
-Solve the Quadratic Unconstrained Binary Optimization (QUBO) problem
+Solve a quadratic discrete optimization problem
 
-    min  b'Qb + l'b + c
-    s.t. b_i in {0, 1}
+    min  x'Qx + l'x + c
+    s.t. x_i in domain
 
 Return the optimal value `E` and a probability distribution `ψ` over optimal solutions.
-You can use [`sample`](@ref) to get an actual bitstring from `ψ`.
+You can use [`sample`](@ref) to get an actual solution vector from `ψ`.
 
-This function uses DMRG with tensor networks to calculate the optimal solution,
-by finding the ground state (least eigenspace) of the Hamiltonian
+There are multiple backends available, selected through the keyword `backend`.
+By default, it uses DMRG to calculate the optimal solution.
 
-    H = Σ Q_ij D_iD_j + Σ l_i D_i
-
-where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |1>.
 
 Keyword arguments:
 
+- `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
+  Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
+  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled assignment.
+  For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
+  If the constraints admit no solution at all, the solve does not error: it logs a warning and
+  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
+- `domain` - Possible variable values. Defaults to `[0, 1]`;
+  Use `[-1, 1]` for Ising spins or `0:(d - 1)` for a nonnegative integer domain of size `d`.
+  Domains are sorted and deduplicated before solving.
 - `iterations :: Int` - Maximum iterations the solver should run. Defaults to `10`.
 - `cutoff :: Float64` - Any absolute value below this threshold is considered zero. Defaults to `1e-8`.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
-- `maxdim` - The maximum allowed bond dimension.
-  Integer or array of integer specifying the bond dimension per iteration.
-  You can use this keyword to control the solver's accuracy vs resources trade-off.
-- `mindim` - The minimum allowed bond dimension, if possible.
-  Integer or array of integer specifying the bond dimension per iteration.
 - `time_limit :: Float64` - If specified, determines the maximum running time in seconds.
   It only determines whether a new iteration should start or not, thus the solver may run for longer if the threshold happens during an iteration.
 - `device = cpu` - Accelerator device used during computation.
   See the section below for how to run on GPUs.
-- `vtol :: Float64` - If specified, determines the variance tolerance before the algorithm stops.
-  The variance test determines whether DMRG converged to an eigenstate (not necessarily the ground state),
-  but is expensive to calculate.
-- `noise` - A float or array of floats (per iteration) specifying the noise term added to the system to help with convergence.
-  It is recommended to use a large noise (~ 1e-5) on the initial iterations and let it go to zero on later iterations.
-- `eigsolve_krylovdim :: Int = 3` - Maximum Krylov space dimension used in the local eigensolver.
-- `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
-- `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
+- `preprocess :: Bool` - Defaults to `false`. If `true`, permute QUBO variables before constructing the MPS Hamiltonian
+  so coupled variables are closer in the one-dimensional tensor order. Samples are returned in the
+  caller's original variable order. This is an experimental feature and may be subject to changes.
 - `on_iteration :: Function` - Called after each recorded iteration as
   `f(psi::MPS; iteration, objective, bond_dim, elapsed_time)`.
   `objective` is the expected objective function ⟨ψ|H|ψ⟩ at this iteration.
@@ -159,8 +102,22 @@ Keyword arguments:
   `psi` is the MPS for that iteration.
   Default: `nothing` (no callback).
 - `callback_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
+- `backend` - Solver backend. Defaults to the current DMRG implementation.
+  Use `backend = :dmrg` or `backend = DMRGBackend()` to select it explicitly.
+  Other backends are reserved for optional extensions.
 
-The returned `Solution` carries per-iteration stats in `.energies`, `.bond_dims`, and `.elapsed_times`.
+  Other keywords might be available depending on the chosen backend.
+  See the documentation for each backend for comprehensive lists.
+
+  Some keywords, such as `constraints` and `domain`,
+  may have limited support depending on the backend.
+
+The returned `Solution` carries per-iteration stats in the fields `energies`, `bond_dims`, and `elapsed_times`.
+
+Provably infeasible constrained models are reported as a status:
+`minimize` logs a warning and returns `+Inf` (the minimum over an empty feasible set)
+together with an infeasible [`Solution`](@ref), which cannot be sampled.
+Check it with [`is_feasible`](@ref).
 
 Running on GPU:
 
@@ -176,204 +133,44 @@ import Metal
 minimize(Q; device = Metal.mtl)
 ```
 
-
 See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(model::PseudoBooleanModel; backend=DMRGBackend(), cutoff=1e-8, kwargs...)
-  selected_backend = backend isa AbstractBackend ? backend : backend_from_attribute(backend)
-  return _solve_backend(selected_backend, model; cutoff, kwargs...)
+function minimize(
+  Q :: AbstractMatrix{T},
+  l :: AbstractVector{T} = zeros(T, size(Q, 1)),
+  c :: T = zero(T)
+  ;
+  backend = default_backend,
+  kwargs...,
+) where T
+  return minimize(normalize_backend(backend), Q, l, c; kwargs...)
 end
 
-const _DMRG_SOLVER_KEYWORDS = Set([
-  :device,
-  :verbosity,
-  :iterations,
-  :time_limit,
-  :vtol,
-  :check_variance_every_iteration,
-  :inidim,
-  :maxdim,
-  :mindim,
-  :noise,
-  :eigsolve_krylovdim,
-  :eigsolve_maxiter,
-  :eigsolve_tol,
-  :on_iteration,
-  :callback_every,
-])
-
-function _check_dmrg_backend_kwargs(kwargs)
-  unknown = filter(key -> !(key in _DMRG_SOLVER_KEYWORDS), keys(kwargs))
-  isempty(unknown) && return
-  names = join(("`$key`" for key in unknown), ", ")
-  throw(ArgumentError("Unsupported solver keyword(s): $names"))
+function minimize(
+  p::AbstractPolynomial{T}
+  ;
+  backend=default_backend,
+  kwargs...,
+) where T
+  return minimize(normalize_backend(backend), p; kwargs...)
 end
 
-function _solve_backend(::DMRGBackend, model::PseudoBooleanModel{T}; cutoff=1e-8, kwargs...) where {T}
-  _check_dmrg_backend_kwargs(kwargs)
-  H = tensorize(model; cutoff)
-  return _minimize(H, model.constant, x -> evaluate(model, x); cutoff, kwargs...)
+function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
+  throw(backend_error(backend))
 end
 
-function minimize(Q :: AbstractMatrix{T} , l :: Union{AbstractVector{T}, Nothing} = nothing , c :: T = zero(T); cutoff=1e-8, backend=DMRGBackend(), kwargs...) where T
-  model = pseudoboolean(Q, l, c; cutoff=zero(T))
-  return minimize(model; backend, cutoff, kwargs...)
-end
+"""
+    minimize(l::Vector, c::Number; kwargs...)
 
-function minimize(p::AbstractPolynomial{T}; cutoff=1e-8, backend=DMRGBackend(), kwargs...) where T
-  model = pseudoboolean(p; cutoff=zero(T))
-  return minimize(model; backend, cutoff, kwargs...)
-end
+Solve the linear optimization problem.
 
-function _single_variable_minimize(::Type{T}, sites, obj, initial_time; device, verbosity, on_iteration, callback_every) where {T}
-  x0 = [0]
-  x1 = [1]
-  e0 = obj(x0)
-  e1 = obj(x1)
-
-  energy, state = if e0 == e1
-    (T(e0), ["full"])
-  elseif e0 < e1
-    (T(e0), string.(x0))
-  else
-    (T(e1), string.(x1))
-  end
-
-  psi = ITensorMPS.MPS(sites, state) |> device
-  elapsed_time = time() - initial_time
-  bond_dim = ITensorMPS.maxlinkdim(psi)
-
-  iterlog_header(verbosity)
-  iterlog_iteration(verbosity, 1, energy, bond_dim, 0.0, elapsed_time)
-
-  dist = Solution{T}(psi, T[energy], Int[bond_dim], Float64[elapsed_time])
-  if !isnothing(on_iteration) && 1 % callback_every == 0
-    on_iteration(psi; iteration=1, objective=energy, bond_dim, elapsed_time)
-  end
-
-  iterlog_footer(verbosity, energy, elapsed_time)
-
-  return energy, dist
-end
-
-function _minimize( H :: MPO
-                  , c :: T
-                  , obj
-                  ; device     :: Function = cpu
-                  , cutoff     = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
-                  , verbosity  = 1
-                  # Stopping criteria
-                  , iterations :: Union{Nothing, Int} = nothing
-                  , time_limit = +Inf
-                  , vtol       = cutoff
-                  , check_variance_every_iteration = 10
-                  # DMRG keywords
-                  , inidim     = 40
-                  , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
-                  , mindim     = 1
-                  , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
-                  , eigsolve_krylovdim :: Int     = 3
-                  , eigsolve_maxiter   :: Int     = 2
-                  , eigsolve_tol       :: Float64 = 1e-14
-                  # Iteration callback
-                  , on_iteration :: Union{Nothing, Function} = nothing
-                  , callback_every   :: Int = 1
-                  ) where {T}
-  callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  initial_time      = time()
-  energies_log      = T[]
-  bond_dims_log     = Int[]
-  elapsed_times_log = Float64[]
-
-  # Quantization
-  sites = ITensorMPS.siteinds(first, H; plev=0)
-  if length(sites) == 1
-    return _single_variable_minimize(T, sites, obj, initial_time; device, verbosity, on_iteration, callback_every)
-  end
-
-  H     = device(H)
-  psi   = ITensorMPS.random_mps(T, sites; linkdims=inidim) |> device
-
-  @debug("MPO construction finished",
-    time=(time() - initial_time),
-    max_bond = ITensorMPS.maxlinkdim(H),
-    num_coefficients = sum(prod(m) for m in H),
-  )
-
-  iterlog_header(verbosity)
-  var = Inf
-  local energy, psi
-
-  for i in Iterators.countfrom(1)
-    energy, psi = dmrg(H, device(psi)
-                      ; nsweeps     = 1
-                      , ishermitian = true
-                      , outputlevel = 0
-                      , cutoff
-                      , maxdim = maxdim[min(i, length(maxdim))]
-                      , mindim = mindim[min(i, length(mindim))]
-                      , noise  = noise[min(i, length(noise))]
-                      , eigsolve_krylovdim
-                      , eigsolve_tol
-                      , eigsolve_maxiter
-                      , eigsolve_verbosity = 0
-                 )
-
-    # Get metadata #
-    if i % check_variance_every_iteration == 0
-      vtime = time()
-      var = variance(H, psi)
-      @debug "Calculate variance" variance=var time=(time() - vtime())
-    end
-
-    elapsed_time = time() - initial_time
-
-    bond_dim = ITensorMPS.maxlinkdim(psi)
-
-    iterlog_iteration(
-      verbosity,
-      i,
-      energy + c,
-      bond_dim,
-      i % check_variance_every_iteration == 0 ? var : nothing,
-      elapsed_time,
-    )
-
-    # Per-iteration stats (always collected)
-    push!(energies_log,      energy + c)
-    push!(bond_dims_log,     bond_dim)
-    push!(elapsed_times_log, elapsed_time)
-
-    # Optional callback
-    if !isnothing(on_iteration) && i % callback_every == 0
-      on_iteration(psi; iteration=i, objective=energy+c, bond_dim, elapsed_time)
-    end
-
-    # Stopping criteria #
-    if !isnothing(iterations) && i >= iterations
-      @debug "Stopping: maximum iterations reached" iteration=i
-      break
-    elseif elapsed_time > time_limit
-      @debug "Stopping: maximum time reached" iteration=i limit=time_limit time=elapsed_time
-      break
-    elseif var < vtol
-      @debug "Stopping: variance below tolerance" variance=var tolerance=vtol
-      break
-    end
-  end
-
-  # The calculated energy has approximation errors compared to the true solution.
-  # It makes more sense to sample a solution and calculate the true objective function applied to it.
-  dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log)
-  x    = sample(dist)
-  optimal = obj(x)
-  elapsed_time = time() - initial_time
-
-  iterlog_footer(verbosity, optimal, elapsed_time)
-
-  return optimal, dist
+    min  l'b + c
+    s.t. b_i in {0, 1}
+"""
+function minimize(l :: AbstractVector{T}, c :: T = zero(T); kwargs...) where T
+  return minimize(zeros(T, size(l, 1), size(l, 1)), l, c; kwargs...)
 end
 
 """
@@ -383,10 +180,10 @@ Solve the Quadratic Unconstrained Binary Optimization problem with no linear ter
 
     min  b'Qb + c
     s.t. b_i in {0, 1}
-
-See also [`maximize`](@ref).
 """
-minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T = minimize(Q, nothing, c; kwargs...)
+function minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T
+  return minimize(Q, zeros(T, size(Q, 1)), c; kwargs...)
+end
 
 """
     maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
@@ -397,6 +194,10 @@ for maximization.
     max  b'Qb + l'b + c
     s.t. b_i in {0, 1}
 
+All keywords accepted by [`minimize`](@ref) can also be used for maximization problems.
+Provably infeasible constrained models return `-Inf` (the supremum over an
+empty feasible set) together with an infeasible [`Solution`](@ref).
+
 See also [`minimize`](@ref).
 """
 function maximize(qs... ; kwargs...)
@@ -405,5 +206,5 @@ function maximize(qs... ; kwargs...)
   mqs = map(q -> maybe(-, q), qs)
   E, psi = minimize(mqs...; kwargs...)
 
-  return -E, _with_objective(psi, -E)
+  return -E, psi
 end

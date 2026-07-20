@@ -1,6 +1,25 @@
 @testset "QUBO Correctness" begin
   dim = 5
 
+  qubo_bandwidth(Q) = begin
+    bw = 0
+    for i in axes(Q, 1), j in (i + 1):last(axes(Q, 2))
+      if abs(Q[i, j] + Q[j, i]) > 0
+        bw = max(bw, j - i)
+      end
+    end
+    bw
+  end
+
+  @testset "Ill-formed input" begin
+    # Should throw when the matrix is not square
+    Q = randn(dim, dim - 2)
+    @test_throws DimensionMismatch minimize(Q)
+
+    Q = randn(dim - 2, dim)
+    @test_throws DimensionMismatch minimize(Q)
+  end
+
   @testset "Ultra simple sanity checks" begin
     @testset "Zero matrix" begin
       E, psi = minimize([0.0 0; 0 0])
@@ -54,6 +73,30 @@
       @test length(psi.elapsed_times) == 1
     end
 
+    @testset "Single variable callback" begin
+      Q = reshape([-2.0], 1, 1)
+      callback = Dict{Symbol,Any}()
+      E, psi = minimize(
+        Q;
+        verbosity = 0,
+        on_iteration = (mps; iteration, objective, bond_dim, elapsed_time) -> begin
+          callback[:iteration] = iteration
+          callback[:objective] = objective
+          callback[:bond_dim] = bond_dim
+          callback[:elapsed_time] = elapsed_time
+          callback[:mps_objectid] = objectid(mps)
+        end,
+      )
+
+      @test E ≈ -2.0
+      @test TenSolver.sample(psi) == [1]
+      @test callback[:iteration] == 1
+      @test callback[:objective] ≈ -2.0
+      @test callback[:bond_dim] == 1
+      @test callback[:elapsed_time] isa Float64
+      @test callback[:mps_objectid] isa UInt
+    end
+
     @testset "Single variable with linear and constant terms" begin
       Q = reshape([0.0], 1, 1)
       E, psi = minimize(Q, [-3.0], 2.0)
@@ -84,6 +127,14 @@
 
       @test E ≈ 0.0
       @test TenSolver.sample(psi) == [0, 0]
+    end
+
+    @testset "One variable" begin
+      E, psi = minimize(reshape([2.0], 1, 1), [-3.0]; verbosity=0)
+
+      @test E ≈ -1.0
+      @test TenSolver.sample(psi) == [1]
+      @test [1] in psi
     end
 
     @testset "Max: Identity" begin
@@ -153,6 +204,55 @@
 
   end
 
+  @testset "Q-matrix preprocessing" begin
+    @testset "Permutation reduces coupling bandwidth" begin
+      path = zeros(5, 5)
+      for i in 1:4
+        path[i, i + 1] = 1.0
+        path[i + 1, i] = 1.0
+      end
+
+      scramble = [1, 3, 5, 2, 4]
+      Q = path[scramble, scramble]
+      permutation = TenSolver.qmatrix_permutation(Q)
+      original_bandwidth = qubo_bandwidth(Q)
+      permuted_bandwidth = qubo_bandwidth(Q[permutation, permutation])
+
+      @test sort(permutation) == collect(1:5)
+      @test original_bandwidth == 3
+      @test permuted_bandwidth == 1
+    end
+
+    @testset "Permutation cutoff" begin
+      Q = zeros(3, 3)
+      Q[3, 1] = 1e-9
+
+      @test TenSolver.qmatrix_permutation(Q; cutoff=0) == [3, 1, 2]
+      @test TenSolver.qmatrix_permutation(Q; cutoff=1e-8) == [1, 2, 3]
+    end
+
+    @testset "Preprocessing preserves solution and original variable order" begin
+      Q = [0.0 0.0 -2.0;
+           0.0 0.0  0.0;
+          -2.0 0.0  0.0]
+      l = [0.5, 1.0, 0.5]
+
+      Random.seed!(1)
+      E0, psi0 = minimize(Q, l; preprocess=false, iterations=3, verbosity=0)
+      x0 = TenSolver.sample(psi0)
+
+      Random.seed!(1)
+      E, psi = minimize(Q, l; preprocess=true, iterations=3, verbosity=0)
+      x = TenSolver.sample(psi)
+
+      @test E0 ≈ -3.0
+      @test E ≈ -3.0
+      @test x0 == [1, 0, 1]
+      @test x == [1, 0, 1]
+      @test [1, 0, 1] in psi
+    end
+  end
+
   @testset "Pure quadratic" begin
     Q = randn(dim, dim)
 
@@ -173,7 +273,7 @@
 
     # ~:~ Exact solution ~:~ #
 
-    e0, x0 = brute_force(x -> dot(x, Q, x), Float64, dim)
+    e0, x0 = brute_force(x -> dot(x, Q, x), dim)
     # Same minimum value
     @test e ≈ e0
     # Same solution
@@ -203,7 +303,7 @@
     end
 
     # ~:~ Exact solution ~:~ #
-    e0, x0 = brute_force(obj, Float64, dim)
+    e0, x0 = brute_force(obj, dim)
     # Same minimum value
     @test e ≈ e0
     # Solution is sampleable

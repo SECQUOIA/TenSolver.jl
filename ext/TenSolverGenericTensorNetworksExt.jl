@@ -4,123 +4,175 @@ import TenSolver
 import GenericTensorNetworks
 import ProblemReductions
 
+import MultivariatePolynomials: AbstractPolynomial, coefficient, effective_variables,
+  isconstant, terms
+
 struct PseudoBooleanCSP{T <: Real} <: ProblemReductions.ConstraintSatisfactionProblem{T}
-  n     :: Int
-  terms :: Vector{Pair{Vector{Int}, T}}
+  n::Int
+  terms::Vector{Pair{Vector{Int}, T}}
 end
 
 ProblemReductions.num_variables(problem::PseudoBooleanCSP) = problem.n
 ProblemReductions.num_flavors(::Type{<:PseudoBooleanCSP}) = 2
-ProblemReductions.problem_size(problem::PseudoBooleanCSP) = (; num_variables=problem.n, num_terms=length(problem.terms))
+ProblemReductions.problem_size(problem::PseudoBooleanCSP) =
+  (; num_variables=problem.n, num_terms=length(problem.terms))
 ProblemReductions.constraints(::PseudoBooleanCSP) = ProblemReductions.LocalConstraint[]
-ProblemReductions.energy_mode(::Type{<:PseudoBooleanCSP}) = ProblemReductions.SmallerSizeIsBetter()
-ProblemReductions.weights(problem::PseudoBooleanCSP) = [coeff for (_vars, coeff) in problem.terms]
+ProblemReductions.energy_mode(::Type{<:PseudoBooleanCSP}) =
+  ProblemReductions.SmallerSizeIsBetter()
+ProblemReductions.weights(problem::PseudoBooleanCSP{T}) where {T} =
+  T[term.second for term in problem.terms]
 
 function ProblemReductions.objectives(problem::PseudoBooleanCSP{T}) where {T}
-  return map(problem.terms) do term
-    vars, coeff = term.first, term.second
-    spec = zeros(T, 2^length(vars))
-    spec[end] = coeff
-    ProblemReductions.LocalSolutionSize(2, vars, spec)
-  end
+  return ProblemReductions.LocalSolutionSize{T}[
+    ProblemReductions.LocalSolutionSize(
+      2,
+      variables,
+      vcat(zeros(T, 2^length(variables) - 1), coefficient),
+    )
+    for (variables, coefficient) in problem.terms
+  ]
 end
 
-function _qubo_matrix(model::TenSolver.PseudoBooleanModel{T}) where {T}
-  matrix = zeros(T, length(model), length(model))
+function validate_gtn_inputs(domain, constraints, k, cutoff)
+  domain_values = collect(TenSolver.validate_solve_domain(domain))
+  domain_values == [0, 1] || throw(ArgumentError(
+    "GTNBackend currently supports only the Boolean domain [0, 1], got $(repr(domain_values)).",
+  ))
+  isempty(constraints) || throw(ArgumentError(
+    "GTNBackend does not yet support TenSolver constraints; use backend = :dmrg.",
+  ))
+  k >= 1 || throw(ArgumentError("GTNBackend k must be >= 1, got $k."))
+  cutoff >= 0 || throw(ArgumentError("GTNBackend cutoff must be nonnegative, got $cutoff."))
+  return nothing
+end
 
-  for (vars, coeff) in model.terms
-    if length(vars) == 1
-      matrix[vars[1], vars[1]] += coeff
-    elseif length(vars) == 2
-      matrix[vars[1], vars[2]] += coeff
-    else
-      throw(ArgumentError("Cannot map degree-$(length(vars)) term to ProblemReductions.QUBO."))
+function reject_gtn_keywords(kwargs)
+  isempty(kwargs) && return nothing
+  names = join(("`$name`" for name in keys(kwargs)), ", ")
+  throw(ArgumentError("Unsupported GTNBackend solver keyword(s): $names"))
+end
+
+function qubo_problem(Q::AbstractMatrix{T}, l::AbstractVector{T}; cutoff) where {T <: Real}
+  size(Q, 1) == size(Q, 2) || throw(DimensionMismatch(
+    "QUBO matrix must be square, got size $(size(Q)).",
+  ))
+  n = size(Q, 1)
+  length(l) == n || throw(DimensionMismatch(
+    "Linear term length $(length(l)) does not match QUBO dimension $n.",
+  ))
+
+  matrix = zeros(T, n, n)
+  for i in 1:n
+    linear = Q[i, i] + l[i]
+    abs(linear) > cutoff && (matrix[i, i] = linear)
+    for j in (i + 1):n
+      quadratic = Q[i, j] + Q[j, i]
+      abs(quadratic) > cutoff && (matrix[i, j] = quadratic)
     end
   end
 
-  return matrix
+  return ProblemReductions.QUBO(matrix)
 end
 
-function _gtn_problem(model::TenSolver.PseudoBooleanModel{T}) where {T}
-  if TenSolver.isquadratic(model)
-    return ProblemReductions.QUBO(_qubo_matrix(model))
-  else
-    return PseudoBooleanCSP{T}(length(model), collect(model.terms))
+function polynomial_problem(p::AbstractPolynomial{T}; cutoff) where {T <: Real}
+  model_variables = collect(effective_variables(p))
+  indices = Dict(variable => i for (i, variable) in enumerate(model_variables))
+  coefficients = Dict{Vector{Int}, T}()
+  constant = zero(T)
+
+  for term in terms(p)
+    term_coefficient = coefficient(term)
+    if isconstant(term)
+      constant += term_coefficient
+      continue
+    end
+
+    term_variables = sort!([indices[variable] for variable in effective_variables(term)])
+    coefficients[term_variables] =
+      get(coefficients, term_variables, zero(T)) + term_coefficient
   end
+
+  model_terms = Pair{Vector{Int}, T}[]
+  for (term_variables, term_coefficient) in coefficients
+    abs(term_coefficient) > cutoff || continue
+    push!(model_terms, term_variables => term_coefficient)
+  end
+  sort!(model_terms; by=term -> Tuple(term.first))
+
+  return PseudoBooleanCSP{T}(length(model_variables), model_terms), constant
 end
 
-function _generic_tensor_network(problem, backend::TenSolver.GTNBackend)
-  optimizer = isnothing(backend.optimizer) ? GenericTensorNetworks.TreeSA() : backend.optimizer
-  return GenericTensorNetworks.GenericTensorNetwork(problem; optimizer, slicer=backend.slicer)
+function generic_tensor_network(problem; optimizer, slicer)
+  contraction_optimizer =
+    isnothing(optimizer) ? GenericTensorNetworks.TreeSA() : optimizer
+  return GenericTensorNetworks.GenericTensorNetwork(
+    problem;
+    optimizer=contraction_optimizer,
+    slicer,
+  )
 end
 
-function _property(property::Symbol, backend::TenSolver.GTNBackend)
-  k = backend.k
-  k >= 1 || throw(ArgumentError("GTNBackend k must be >= 1, got $k."))
-
+function gtn_property(property::Symbol; k, bounded, tree_storage)
   if property in (:size, :value)
     return k == 1 ? GenericTensorNetworks.SizeMin() : GenericTensorNetworks.SizeMin(k)
   elseif property in (:single, :config)
-    return k == 1 ? GenericTensorNetworks.SingleConfigMin(; bounded=backend.bounded) : GenericTensorNetworks.SingleConfigMin(k; bounded=false)
+    return k == 1 ?
+      GenericTensorNetworks.SingleConfigMin(; bounded) :
+      GenericTensorNetworks.SingleConfigMin(k; bounded=false)
   elseif property in (:count, :degeneracy)
-    k == 1 || throw(ArgumentError("GTNBackend property `$(property)` only supports k=1 for TenSolver pseudo-Boolean objectives."))
-    return k == 1 ? GenericTensorNetworks.CountingMin() : GenericTensorNetworks.CountingMin(k)
+    k == 1 || throw(ArgumentError(
+      "GTNBackend property `$(property)` currently supports only k == 1.",
+    ))
+    return GenericTensorNetworks.CountingMin()
   elseif property in (:configs, :enumerate)
-    k == 1 || throw(ArgumentError("GTNBackend property `$(property)` only supports k=1 for TenSolver pseudo-Boolean objectives. Use property=:single with k > 1 to request representative k-best configurations."))
-    return k == 1 ? GenericTensorNetworks.ConfigsMin(; bounded=backend.bounded, tree_storage=backend.tree_storage) :
-                    GenericTensorNetworks.ConfigsMin(k; bounded=backend.bounded, tree_storage=backend.tree_storage)
+    k == 1 || throw(ArgumentError(
+      "GTNBackend property `$(property)` currently supports only k == 1; " *
+      "use property = :single with k > 1 for representative k-best configurations.",
+    ))
+    return GenericTensorNetworks.ConfigsMin(; bounded, tree_storage)
   elseif property in (:kbest_sizes, :spectrum)
     return GenericTensorNetworks.SizeMin(k)
-  else
-    throw(ArgumentError("Unsupported GTN property `$(property)`. Supported properties are :size, :single, :count, :configs, and :kbest_sizes."))
   end
+
+  throw(ArgumentError(
+    "Unsupported GTN property `$(property)`. Supported properties are " *
+    ":size, :single, :count, :configs, and :kbest_sizes.",
+  ))
 end
 
-_scalar(x::AbstractArray) = x[]
-_scalar(x) = x
+scalar_result(x::AbstractArray) = x[]
+scalar_result(x) = x
 
-_number(x) = hasproperty(x, :n) ? getproperty(x, :n) : x
+unwrap_number(x) = hasproperty(x, :n) ? getproperty(x, :n) : x
+unwrap_numbers(x::AbstractArray) = map(unwrap_number, x)
+unwrap_numbers(x::Tuple) = map(unwrap_number, x)
+unwrap_numbers(x) = unwrap_number(x)
 
-function _numbers(x)
-  if x isa AbstractVector
-    return map(_number, x)
-  else
-    return _number(x)
-  end
+function primary_size(raw_size)
+  values = unwrap_numbers(raw_size)
+  return values isa Union{AbstractArray, Tuple} ? minimum(values) : values
 end
 
-function _primary_size(size)
-  numbers = _numbers(size)
-  return numbers isa AbstractVector ? minimum(numbers) : numbers
-end
+config_vector(config) = [Int(value) for value in collect(config)]
+is_config(config) =
+  config isa AbstractVector && all(value -> value isa Integer, config)
 
-function _config_vector(config)
-  return [Int(v) for v in collect(config)]
-end
-
-function _is_config(config)
-  return config isa AbstractVector && all(v -> v isa Integer, config)
-end
-
-function _append_configs!(out, config)
+function append_configs!(output, config)
   if config isa Pair
-    _append_configs!(out, config.second)
-  elseif _is_config(config)
-    push!(out, _config_vector(config))
+    append_configs!(output, config.second)
+  elseif is_config(config)
+    push!(output, config_vector(config))
   elseif config isa AbstractVector
-    foreach(c -> _append_configs!(out, c), config)
+    foreach(item -> append_configs!(output, item), config)
   else
-    push!(out, _config_vector(config))
+    push!(output, config_vector(config))
   end
-
-  return out
+  return output
 end
 
-function _configs_from_read_config(config)
-  return _append_configs!(Vector{Int}[], config)
-end
+configs_from_result(config) = append_configs!(Vector{Int}[], config)
 
-function _try_read_size(item)
+function try_read_size(item)
   try
     return GenericTensorNetworks.read_size(item)
   catch
@@ -128,7 +180,7 @@ function _try_read_size(item)
   end
 end
 
-function _try_read_count(item)
+function try_read_count(item)
   try
     return GenericTensorNetworks.read_count(item)
   catch
@@ -136,48 +188,137 @@ function _try_read_count(item)
   end
 end
 
-function _try_read_configs(item)
+function try_read_configs(item)
   try
-    return _configs_from_read_config(GenericTensorNetworks.read_config(item; keeptree=false))
+    return configs_from_result(
+      GenericTensorNetworks.read_config(item; keeptree=false),
+    )
   catch
     return Vector{Int}[]
   end
 end
 
-function TenSolver._solve_backend(backend::TenSolver.GTNBackend, model::TenSolver.PseudoBooleanModel; cutoff=1e-8, property::Symbol=backend.property, kwargs...)
-  problem = _gtn_problem(model)
-  gtn = _generic_tensor_network(problem, backend)
-  gtn_property = _property(property, backend)
-  raw = GenericTensorNetworks.solve(gtn, gtn_property; T=backend.T, usecuda=backend.usecuda)
-  item = _scalar(raw)
+function solve_gtn(
+  problem,
+  constant;
+  property,
+  k,
+  usecuda,
+  element_type,
+  optimizer,
+  slicer,
+  bounded,
+  tree_storage,
+)
+  network = generic_tensor_network(problem; optimizer, slicer)
+  selected_property = gtn_property(property; k, bounded, tree_storage)
+  raw = GenericTensorNetworks.solve(
+    network,
+    selected_property;
+    T=element_type,
+    usecuda,
+  )
+  item = scalar_result(raw)
 
-  size = _try_read_size(item)
-  objective = isnothing(size) ? model.constant : model.constant + _primary_size(size)
-  configs = _try_read_configs(item)
-  count = _try_read_count(item)
+  raw_size = try_read_size(item)
+  objective = isnothing(raw_size) ? constant : constant + primary_size(raw_size)
+  configs = try_read_configs(item)
+  count = try_read_count(item)
 
   metadata = Dict{String, Any}(
     "backend" => "GenericTensorNetworks",
     "property" => property,
-    "constant" => model.constant,
-    "quadratic" => TenSolver.isquadratic(model),
-    "size" => _numbers(size),
+    "constant" => constant,
+    "size" => unwrap_numbers(raw_size),
     "count" => count,
   )
 
   try
-    metadata["contraction_complexity"] = GenericTensorNetworks.contraction_complexity(gtn)
-  catch err
-    metadata["contraction_complexity_error"] = sprint(showerror, err)
+    metadata["contraction_complexity"] =
+      GenericTensorNetworks.contraction_complexity(network)
+  catch error
+    metadata["contraction_complexity_error"] = sprint(showerror, error)
   end
 
   try
-    metadata["estimated_memory"] = GenericTensorNetworks.estimate_memory(gtn, gtn_property; T=backend.T)
-  catch err
-    metadata["estimated_memory_error"] = sprint(showerror, err)
+    metadata["estimated_memory"] = GenericTensorNetworks.estimate_memory(
+      network,
+      selected_property;
+      T=element_type,
+    )
+  catch error
+    metadata["estimated_memory_error"] = sprint(showerror, error)
   end
 
-  return objective, TenSolver.GTNSolution(objective, configs, raw, property, metadata)
+  return objective, TenSolver.GTNSolution(configs, raw, property, metadata)
+end
+
+function TenSolver.minimize(
+  ::TenSolver.GTNBackend,
+  Q::AbstractMatrix{T},
+  l::AbstractVector{T},
+  c::T;
+  property::Symbol=:single,
+  k::Int=1,
+  usecuda::Bool=false,
+  element_type::Type=Float64,
+  optimizer=nothing,
+  slicer=nothing,
+  bounded::Bool=true,
+  tree_storage::Bool=false,
+  cutoff::Real=1e-8,
+  domain=0:1,
+  constraints=TenSolver.AbstractConstraint[],
+  kwargs...,
+) where {T <: Real}
+  validate_gtn_inputs(domain, constraints, k, cutoff)
+  reject_gtn_keywords(kwargs)
+  problem = qubo_problem(Q, l; cutoff)
+  return solve_gtn(
+    problem,
+    c;
+    property,
+    k,
+    usecuda,
+    element_type,
+    optimizer,
+    slicer,
+    bounded,
+    tree_storage,
+  )
+end
+
+function TenSolver.minimize(
+  ::TenSolver.GTNBackend,
+  p::AbstractPolynomial{T};
+  property::Symbol=:single,
+  k::Int=1,
+  usecuda::Bool=false,
+  element_type::Type=Float64,
+  optimizer=nothing,
+  slicer=nothing,
+  bounded::Bool=true,
+  tree_storage::Bool=false,
+  cutoff::Real=1e-8,
+  domain=0:1,
+  constraints=TenSolver.AbstractConstraint[],
+  kwargs...,
+) where {T <: Real}
+  validate_gtn_inputs(domain, constraints, k, cutoff)
+  reject_gtn_keywords(kwargs)
+  problem, constant = polynomial_problem(p; cutoff)
+  return solve_gtn(
+    problem,
+    constant;
+    property,
+    k,
+    usecuda,
+    element_type,
+    optimizer,
+    slicer,
+    bounded,
+    tree_storage,
+  )
 end
 
 end

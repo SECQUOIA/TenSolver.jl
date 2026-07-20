@@ -30,6 +30,46 @@ x = TenSolver.sample(psi)
 (true, "Wind, Battery")
 ```
 
+## Ising Model
+
+Use `domain = [-1, 1]` when the variables are Ising spins:
+
+```jldoctest ising-domain
+using TenSolver
+
+J = [0.0 -1.0;
+     -1.0 0.0]
+h = [0.25, -0.5]
+
+E, psi = TenSolver.minimize(J, h; domain = [-1, 1], verbosity = 0)
+s = TenSolver.sample(psi)
+
+(E ≈ -2.25, s, all(in((-1, 1)), s))
+
+# output
+
+(true, [1.0, 1.0], true)
+```
+
+## Non-consecutive Integer Domains
+
+Use any finite integer domain:
+
+```jldoctest sparse-domain
+using TenSolver
+
+l = [1.0, -4.0, 2.0]
+
+E, psi = TenSolver.minimize(l; domain = [-2, 0, 3], verbosity = 0)
+x = TenSolver.sample(psi)
+
+(E ≈ -18.0, x, psi.domain)
+
+# output
+
+(true, [-2.0, 3.0, -2.0], [-2.0, 0.0, 3.0])
+```
+
 ## QUBO with Linear and Constant Terms
 
 You can also specify linear and constant terms:
@@ -374,14 +414,16 @@ Q = [0.0 2.0; 0.0 0.0]
 l = [-1.0, -1.0]
 c = 3.0
 
-E, sol = TenSolver.minimize(Q, l, c; backend=TenSolver.GTNBackend())
+E, sol = TenSolver.minimize(Q, l, c; backend=:gtn)
 TenSolver.sample(sol)  # one exact optimum bitstring
 
 E_count, count_sol = TenSolver.solution_space(Q, l, c; property=:count)
 count_sol.metadata["count"]  # exact optimum degeneracy for this instance
 ```
 
-The default backend remains `TenSolver.DMRGBackend()`. GTN-backed solves return a
+GTN settings are passed as solve keywords, for example
+`solution_space(Q; property=:single, k=3)`. The backend object itself carries no
+tunable state. The default backend remains `TenSolver.DMRGBackend()`. GTN-backed solves return a
 [`TenSolver.GTNSolution`](@ref), which stores exact solution-space data when the selected
 property produces configurations. MPS-specific APIs such as coefficient/probability queries
 remain specific to the default DMRG [`TenSolver.Solution`](@ref).
@@ -416,3 +458,10 @@ println("Number of conflicts: ", conflicts)
 Graph coloring: [0, 1, 0, 1]
 Number of conflicts: 0.0
 ```
+
+## Constraints
+
+TenSolver can also enforce hard constraints on the binary variables, so every
+sampled solution is guaranteed feasible. This is a larger topic with its own
+page — see [Constrained Optimization](@ref) for the projection method behind it,
+the available constraint types, and worked examples.
