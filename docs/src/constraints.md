@@ -93,10 +93,15 @@ You can also check an assignment against constraints directly with
 \;\; \texttt{relation} \;\; \texttt{rhs},
 ```
 
-where `relation` is one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`. The `sites` are unique positive integers representing variable indices, while `weights` and
-`rhs` must be **nonnegative integers**. Its automaton tracks the capped partial
-sum, so the projection bond dimension is `rhs + 2` regardless of how many
-variables the sum touches.
+where `relation` is one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`.
+The `sites` are unique positive integers representing variable indices,
+while `weights` and `rhs` must be **nonnegative integers**.
+Furthermore, the solver currently only supports `SumConstraint`
+when the variable domains are nonnegative integers.
+
+
+Its automaton tracks a capped partial sum,
+so the projection bond dimension is `rhs + 2` regardless of how many variables the sum touches.
 
 ### NotEqualsConstraint
 
@@ -196,12 +201,12 @@ x = TenSolver.sample(psi)
 
 ## Infeasible models
 
-When the constraints admit no feasible assignment at all, the solve does not
-throw, it logs a
-warning and reports the outcome as a status: [`minimize`](@ref) returns `+Inf`
-(the minimum over an empty feasible set) together with an infeasible solution,
-and [`maximize`](@ref) returns `-Inf`. Check with [`is_feasible`](@ref);
-sampling an infeasible solution throws.
+When the constraints admit no feasible assignment,
+the solve does not throw,
+but logs a warning and reports the outcome as a status:
+[`minimize`](@ref) returns `+Inf` (the minimum over an empty feasible set) together with an infeasible solution,
+and [`maximize`](@ref) returns `-Inf`.
+Check with [`is_feasible`](@ref); sampling an infeasible solution throws.
 
 ```julia
 impossible = [SumConstraint([1, 2], [1, 1], 3; relation = :(==))]
