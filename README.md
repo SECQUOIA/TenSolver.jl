@@ -68,8 +68,6 @@ E, psi = TenSolver.maximize([5.5, 2.1, 3.2]; constraints = [budget])
 The constraint API is experimental and subject to change; see the
 [constraints documentation](https://SECQUOIA.github.io/TenSolver.jl/dev/constraints/)
 for the available types, the projection method behind them, and worked examples.
-The repository also provides a reproducible
-[knapsack penalty-vs-projection benchmark](benchmarks/knapsack/).
 
 ### JuMP interface
 

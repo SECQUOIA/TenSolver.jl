@@ -1,0 +1,14 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+ITensorMPS = "0d1a4710-d33b-49a5-8f18-73bdf49b47e2"
+ITensors = "9136182c-28ba-11e9-034c-db9fb085ebd5"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+TenSolver = "cfd60579-01bf-4b47-9b3b-7c8dc91a23e2"
+
+[compat]
+BenchmarkTools = "1"
+ITensorMPS = "0.3, 0.4"
+ITensors = "0.9"
+TenSolver = "0.2"
+julia = "1.10"
