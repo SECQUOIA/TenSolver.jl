@@ -33,6 +33,9 @@ include(filepath("fractional_domains.jl"))
 include(filepath("spin_domains.jl"))
 include(filepath("constrained_solve.jl"))
 
+# Benchmark encoding and resource smoke tests (no DMRG benchmark runs)
+include(filepath("knapsack_benchmark.jl"))
+
 # JuMP interface
 include(filepath("jump.jl"))
 
