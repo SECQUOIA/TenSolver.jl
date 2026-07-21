@@ -16,7 +16,6 @@ TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
 TenSolver.GTNBackend
 TenSolver.normalize_backend
-TenSolver.solution_space
 ```
 
 ## Solution

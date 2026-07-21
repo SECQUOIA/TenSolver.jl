@@ -24,7 +24,7 @@ export sample
 
 include("solver.jl")
 export minimize, maximize
-export DMRGBackend, GTNBackend, solution_space
+export DMRGBackend
 
 # Convergence logging
 include("log.jl")

@@ -417,13 +417,14 @@ c = 3.0
 E, sol = TenSolver.minimize(Q, l, c; backend=:gtn)
 TenSolver.sample(sol)  # one exact optimum bitstring
 
-E_count, count_sol = TenSolver.solution_space(Q, l, c; property=:count)
+E_count, count_sol = TenSolver.minimize(Q, l, c; backend=:gtn, property=:count)
 count_sol.metadata["count"]  # exact optimum degeneracy for this instance
 ```
 
 GTN settings are passed as solve keywords, for example
-`solution_space(Q; property=:single, k=3)`. The backend object itself carries no
-tunable state. The default backend remains `TenSolver.DMRGBackend()`. GTN-backed solves return a
+`minimize(Q; backend=:gtn, property=:single, k=3)`. The first return value is the
+true optimum for every supported property. The backend object itself carries no tunable
+state. The default backend remains `TenSolver.DMRGBackend()`. GTN-backed solves return a
 [`TenSolver.GTNSolution`](@ref), which stores exact solution-space data when the selected
 property produces configurations. MPS-specific APIs such as coefficient/probability queries
 remain specific to the default DMRG [`TenSolver.Solution`](@ref).

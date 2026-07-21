@@ -22,7 +22,9 @@ end
     @test TenSolver.sample(symbol_solution) == [1]
   end
 
-  @test GTNBackend() isa TenSolver.AbstractTenSolverBackend
+  @test TenSolver.GTNBackend() isa TenSolver.AbstractTenSolverBackend
+  @test :GTNBackend ∉ names(TenSolver)
+  @test !isdefined(TenSolver, :solution_space)
 
   @testset "Maximize forwards backend selection" begin
     Q = reshape([2.0], 1, 1)
@@ -30,10 +32,6 @@ end
 
     @test E ≈ 2.0
     @test TenSolver.sample(psi) == [1]
-  end
-
-  @testset "Solution-space dispatch rejects unsupported backends" begin
-    @test_throws ArgumentError solution_space(reshape([1.0], 1, 1); backend=:dmrg)
   end
 
   @testset "Symbol backends can be provided by extensions" begin

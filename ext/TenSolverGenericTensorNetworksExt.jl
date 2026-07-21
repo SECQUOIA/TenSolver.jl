@@ -172,30 +172,16 @@ end
 
 configs_from_result(config) = append_configs!(Vector{Int}[], config)
 
-function try_read_size(item)
-  try
-    return GenericTensorNetworks.read_size(item)
-  catch
-    return nothing
-  end
+function read_configs(item, property)
+  property in (:single, :config, :configs, :enumerate) || return Vector{Int}[]
+  return configs_from_result(
+    GenericTensorNetworks.read_config(item; keeptree=false),
+  )
 end
 
-function try_read_count(item)
-  try
-    return GenericTensorNetworks.read_count(item)
-  catch
-    return nothing
-  end
-end
-
-function try_read_configs(item)
-  try
-    return configs_from_result(
-      GenericTensorNetworks.read_config(item; keeptree=false),
-    )
-  catch
-    return Vector{Int}[]
-  end
+function read_count(item, property)
+  property in (:count, :degeneracy) || return nothing
+  return GenericTensorNetworks.read_count(item)
 end
 
 function solve_gtn(
@@ -220,10 +206,10 @@ function solve_gtn(
   )
   item = scalar_result(raw)
 
-  raw_size = try_read_size(item)
-  objective = isnothing(raw_size) ? constant : constant + primary_size(raw_size)
-  configs = try_read_configs(item)
-  count = try_read_count(item)
+  raw_size = GenericTensorNetworks.read_size(item)
+  objective = constant + primary_size(raw_size)
+  configs = read_configs(item, property)
+  count = read_count(item, property)
 
   metadata = Dict{String, Any}(
     "backend" => "GenericTensorNetworks",

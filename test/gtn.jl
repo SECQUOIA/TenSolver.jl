@@ -32,24 +32,57 @@ import DynamicPolynomials
       @test Emax ≈ 3.0
       @test TenSolver.sample(max_sol) in [[0, 0], [1, 1]]
 
-      E_count, count_sol = TenSolver.solution_space(Q, l, c; property=:count)
+      E_size, size_sol = TenSolver.minimize(Q, l, c; backend=:gtn, property=:size)
+      @test E_size ≈ 2.0
+      @test size_sol.metadata["size"] ≈ -1.0
+      @test_throws ArgumentError TenSolver.sample(size_sol)
+
+      E_count, count_sol = TenSolver.minimize(Q, l, c; backend=:gtn, property=:count)
       @test E_count ≈ 2.0
       @test count_sol.metadata["count"] ≈ 2
 
-      E_configs, config_sol = TenSolver.solution_space(Q, l, c; property=:configs)
+      E_configs, config_sol = TenSolver.minimize(Q, l, c; backend=:gtn, property=:configs)
       @test E_configs ≈ 2.0
       @test sort(config_sol.configs) == sort(optimum_configs)
 
-      E_kbest, kbest_sol = TenSolver.solution_space(Q, l, c; property=:kbest_sizes, k=2)
+      E_kbest, kbest_sol = TenSolver.minimize(
+        Q,
+        l,
+        c;
+        backend=:gtn,
+        property=:kbest_sizes,
+        k=2,
+      )
       @test E_kbest ≈ 2.0
       @test sort(kbest_sol.metadata["size"]) ≈ [-1.0, -1.0]
 
-      E_single_k, single_k_sol = TenSolver.solution_space(Q, l, c; property=:single, k=2)
+      E_single_k, single_k_sol = TenSolver.minimize(
+        Q,
+        l,
+        c;
+        backend=:gtn,
+        property=:single,
+        k=2,
+      )
       @test E_single_k ≈ 2.0
       @test sort(single_k_sol.configs) == sort(optimum_configs)
 
-      @test_throws ArgumentError TenSolver.solution_space(Q, l, c; property=:configs, k=2)
-      @test_throws ArgumentError TenSolver.solution_space(Q, l, c; property=:count, k=2)
+      @test_throws ArgumentError TenSolver.minimize(
+        Q,
+        l,
+        c;
+        backend=:gtn,
+        property=:configs,
+        k=2,
+      )
+      @test_throws ArgumentError TenSolver.minimize(
+        Q,
+        l,
+        c;
+        backend=:gtn,
+        property=:count,
+        k=2,
+      )
 
       @test_throws ArgumentError TenSolver.minimize(Q, l, c; backend=:gtn, domain=[-1, 1])
       @test_throws ArgumentError TenSolver.minimize(
