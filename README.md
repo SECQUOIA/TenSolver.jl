@@ -34,7 +34,7 @@ Pkg.add("TenSolver")
 ## Usage
 
 The simplest way to use this package is passing a matrix to the solver,
-while defining an integer domain.
+while defining a finite domain of real values.
 
 ```julia
 using TenSolver
