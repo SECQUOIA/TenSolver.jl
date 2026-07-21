@@ -70,6 +70,29 @@ x = TenSolver.sample(psi)
 (true, [-2.0, 3.0, -2.0], [-2.0, 0.0, 3.0])
 ```
 
+## Fractional Domains
+
+Unconstrained DMRG optimization accepts any finite domain of real values,
+including fractional values:
+
+```jldoctest fractional-domain
+using TenSolver
+
+l = [-2.0, 3.0]
+
+E, psi = TenSolver.minimize(l; domain = [0.0, 0.5, 1.0], verbosity = 0)
+x = TenSolver.sample(psi)
+
+(E ≈ -2.0, x, psi.domain)
+
+# output
+
+(true, [1.0, 0.0], [0.0, 0.5, 1.0])
+```
+
+Hard constraints can impose narrower domain requirements. In particular,
+[`SumConstraint`](@ref) currently requires a nonnegative integer domain.
+
 ## QUBO with Linear and Constant Terms
 
 You can also specify linear and constant terms:

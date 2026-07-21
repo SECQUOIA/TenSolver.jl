@@ -81,9 +81,10 @@ Keyword arguments:
   For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
   If the constraints admit no solution at all, the solve does not error: it logs a warning and
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
-- `domain` - Possible variable values. Defaults to `[0, 1]`;
-  Use `[-1, 1]` for Ising spins or `0:(d - 1)` for a nonnegative integer domain of size `d`.
-  Domains are sorted and deduplicated before solving.
+- `domain` - Possible variable values. Defaults to `[0, 1]`.
+  Unconstrained DMRG optimization accepts any finite collection of real values;
+  individual constraint types can impose narrower requirements. Use `[-1, 1]`
+  for Ising spins. Domains are sorted and deduplicated before solving.
 - `iterations :: Int` - Maximum iterations the solver should run. Defaults to `10`.
 - `cutoff :: Float64` - Any absolute value below this threshold is considered zero. Defaults to `1e-8`.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
