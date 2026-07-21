@@ -1,17 +1,16 @@
 module KnapsackBenchmark
 
 using LinearAlgebra: dot
-using Random: MersenneTwister, Random, rand
+using Random: Random, rand
 
+import BenchmarkTools
 import ITensorMPS
+import ITensors
 import TenSolver
 
-export KnapsackInstance
-export benchmark_rows, brute_force_optimum, default_instances
-export is_capacity_feasible, item_value, item_weight
-export penalty_qubo, penalty_value, projection_resource_metrics
-export projection_scaling_rows, reference_instance, seeded_family
-export slack_weights, write_csv
+export benchmark_rows, projection_scaling_rows, write_csv
+
+const SOLVER_SEED = 66
 
 """A deterministic binary knapsack instance used by the benchmark."""
 struct KnapsackInstance
@@ -31,7 +30,7 @@ struct KnapsackInstance
   end
 end
 
-"""The small hand-checkable instance used in benchmark documentation and tests."""
+"""The small hand-checkable instance used to validate the benchmark output."""
 reference_instance() = KnapsackInstance(
   "reference_4",
   [4, 3, 2, 3],
@@ -39,19 +38,47 @@ reference_instance() = KnapsackInstance(
   6,
 )
 
-"""Build a reproducible family of positive-integer knapsack instances."""
-function seeded_family(sizes=(8, 12, 16); seed=66)
-  rng = MersenneTwister(seed)
-  return map(sizes) do n
-    n > 0 || throw(ArgumentError("family sizes must be positive"))
-    weights = rand(rng, 1:10, n)
-    values = rand(rng, 1:15, n)
-    capacity = max(1, round(Int, 0.4sum(weights)))
-    KnapsackInstance("seed$(seed)_n$(n)", weights, values, capacity)
+"""
+Build one of the standard 0-1 knapsack instance classes from Martello,
+Pisinger, and Toth's generator: uncorrelated, weakly correlated, strongly
+correlated, or subset-sum. The half-total-weight capacity is one slice of the
+generator's varying-capacity series.
+"""
+function pisinger_instance(kind, n; coefficient_range=10, seed)
+  n > 0 || throw(ArgumentError("instance size must be positive"))
+  coefficient_range >= 10 || throw(ArgumentError("coefficient range must be at least 10"))
+
+  Random.seed!(seed)
+  weights = rand(1:coefficient_range, n)
+  correlation_range = div(coefficient_range, 10)
+  values = if kind == :uncorrelated
+    rand(1:coefficient_range, n)
+  elseif kind == :weakly_correlated
+    max.(1, weights .+ rand(-correlation_range:correlation_range, n))
+  elseif kind == :strongly_correlated
+    weights .+ correlation_range
+  elseif kind == :subset_sum
+    copy(weights)
+  else
+    throw(ArgumentError("unsupported Pisinger instance class: $(repr(kind))"))
   end
+
+  capacity = max(maximum(weights), div(sum(weights), 2))
+  return KnapsackInstance("pisinger_$(kind)_n$(n)", weights, values, capacity)
 end
 
-default_instances(; seed=66) = [reference_instance(); seeded_family(; seed)]
+function default_instances()
+  specifications = (
+    (kind=:uncorrelated, n=8, seed=6601),
+    (kind=:weakly_correlated, n=12, seed=6602),
+    (kind=:strongly_correlated, n=16, seed=6603),
+    (kind=:subset_sum, n=16, seed=6604),
+  )
+  instances = map(specifications) do spec
+    pisinger_instance(spec.kind, spec.n; seed=spec.seed)
+  end
+  return [reference_instance(), instances...]
+end
 
 item_weight(instance::KnapsackInstance, items) = dot(instance.weights, items)
 item_value(instance::KnapsackInstance, items) = dot(instance.values, items)
@@ -223,6 +250,91 @@ function penalty_resource_metrics(model; cutoff=1e-10)
   )
 end
 
+function qubo_hamiltonian(Q, l, sites; cutoff)
+  os = ITensorMPS.OpSum{Float64}()
+  nvariables = length(sites)
+
+  for i in 1:nvariables
+    linear_coefficient = Q[i, i] + l[i]
+    if abs(linear_coefficient) > cutoff
+      os += (linear_coefficient, "D", (domain=0:1,), i)
+    end
+
+    for j in (i + 1):nvariables
+      quadratic_coefficient = Q[i, j] + Q[j, i]
+      if abs(quadratic_coefficient) > cutoff
+        os += (
+          quadratic_coefficient,
+          "D",
+          (domain=0:1,),
+          i,
+          "D",
+          (domain=0:1,),
+          j,
+        )
+      end
+    end
+  end
+
+  return isempty(os) ? ITensorMPS.MPO(Float64, sites) : ITensorMPS.MPO(Float64, os, sites)
+end
+
+function projection_hamiltonian(instance, sites; cutoff)
+  nitems = length(instance.weights)
+  H = qubo_hamiltonian(zeros(nitems, nitems), -instance.values, sites; cutoff)
+  constraint = TenSolver.SumConstraint(
+    collect(1:nitems),
+    instance.weights,
+    instance.capacity;
+    relation=:(<=),
+  )
+  P = TenSolver.projection_mpo(constraint, sites; domain=0:1)
+  H_effective = TenSolver.project_hamiltonian(H, P; cutoff)
+  for i in eachindex(H_effective)
+    source = (
+      only(ITensorMPS.siteinds(H_effective, i; plev=0)),
+      only(ITensorMPS.siteinds(H_effective, i; plev=1)),
+    )
+    target = (sites[i], sites[i]')
+    H_effective[i] = ITensors.replaceinds(H_effective[i], source, target)
+  end
+  return H_effective
+end
+
+function state_variance(H, mps)
+  expectation = real(ITensors.inner(mps', H, mps))
+  second_moment = real(ITensors.inner(H, mps, H, mps))
+  return max(0.0, second_moment - expectation^2)
+end
+
+function variance_observer(hamiltonian_builder)
+  hamiltonian = Ref{Any}()
+  variances = Float64[]
+  callback = function(mps; kw...)
+    if !isassigned(hamiltonian)
+      hamiltonian[] = hamiltonian_builder(ITensorMPS.siteinds(mps))
+    end
+    push!(variances, state_variance(hamiltonian[], mps))
+    return nothing
+  end
+  return variances, callback
+end
+
+function benchmark_once(f)
+  output = Ref{Any}()
+  capture() = (output[] = f())
+  benchmark = BenchmarkTools.@benchmarkable $capture() samples=1 evals=1
+  trial = BenchmarkTools.run(benchmark; warmup=false)
+  estimate = minimum(trial)
+  return (
+    value=output[],
+    time=estimate.time / 1e9,
+    gctime=estimate.gctime / 1e9,
+    memory=estimate.memory,
+    allocs=estimate.allocs,
+  )
+end
+
 function solution_stats(solution)
   return (
     sweeps=length(solution.energies),
@@ -275,7 +387,7 @@ function best_penalty_sample(instance, model, samples)
   return best
 end
 
-function solver_options(iterations, cutoff)
+function solver_options(iterations, cutoff, on_iteration)
   return (
     iterations=iterations,
     cutoff=cutoff,
@@ -283,6 +395,8 @@ function solver_options(iterations, cutoff)
     maxdim=[10, 20, 40, 80, 120, 200],
     noise=[1e-6, 1e-8, 0.0],
     check_variance_every_iteration=iterations + 1,
+    on_iteration,
+    callback_every=1,
     verbosity=0,
   )
 end
@@ -296,6 +410,7 @@ function benchmark_result_row(
   timed,
   solution,
   resources;
+  variances,
   nvariables,
   penalty_factor=missing,
   penalty=missing,
@@ -320,9 +435,14 @@ function benchmark_result_row(
     penalized_objective,
     solver_reported_objective=reported_objective,
     wall_seconds=timed.time,
+    gc_seconds=timed.gctime,
+    allocated_bytes=timed.memory,
+    allocations=timed.allocs,
     solver_elapsed_seconds=stats.solver_elapsed_seconds,
     sweeps=stats.sweeps,
     solution_max_bond=stats.solution_max_bond,
+    final_variance=isempty(variances) ? missing : last(variances),
+    truncation_error=missing,
     objective_mpo_bond=resources.objective_mpo_bond,
     projection_mpo_bond=resources.projection_mpo_bond,
     effective_hamiltonian_bond=resources.effective_hamiltonian_bond,
@@ -335,7 +455,6 @@ function projection_row(
   iterations,
   reads,
   cutoff,
-  seed,
 )
   nitems = length(instance.weights)
   constraint = TenSolver.SumConstraint(
@@ -344,13 +463,18 @@ function projection_row(
     instance.capacity;
     relation=:(<=),
   )
-  Random.seed!(seed)
-  options = solver_options(iterations, cutoff)
-  timed = @timed TenSolver.maximize(
-    instance.values;
-    constraints=[constraint],
-    options...,
+  variances, callback = variance_observer(
+    sites -> projection_hamiltonian(instance, sites; cutoff),
   )
+  Random.seed!(SOLVER_SEED)
+  options = solver_options(iterations, cutoff, callback)
+  timed = benchmark_once() do
+    TenSolver.maximize(
+      instance.values;
+      constraints=[constraint],
+      options...,
+    )
+  end
   reported_objective, solution = timed.value
   items = best_projection_sample(instance, TenSolver.sample(solution, reads))
   resources = projection_resource_metrics(instance; cutoff)
@@ -363,6 +487,7 @@ function projection_row(
     timed,
     solution,
     resources;
+    variances,
     nvariables=nitems,
   )
 end
@@ -374,18 +499,22 @@ function penalty_row(
   iterations,
   reads,
   cutoff,
-  seed,
 )
   penalty = Float64(penalty_factor) * sum(instance.values)
   model = penalty_qubo(instance, penalty)
-  Random.seed!(seed)
-  options = solver_options(iterations, cutoff)
-  timed = @timed TenSolver.minimize(
-    model.Q,
-    model.l,
-    model.constant;
-    options...,
+  variances, callback = variance_observer(
+    sites -> qubo_hamiltonian(model.Q, model.l, sites; cutoff),
   )
+  Random.seed!(SOLVER_SEED)
+  options = solver_options(iterations, cutoff, callback)
+  timed = benchmark_once() do
+    TenSolver.minimize(
+      model.Q,
+      model.l,
+      model.constant;
+      options...,
+    )
+  end
   reported_objective, solution = timed.value
   assignment = best_penalty_sample(instance, model, TenSolver.sample(solution, reads))
   items = item_bits(assignment, model.nitems)
@@ -399,6 +528,7 @@ function penalty_row(
     timed,
     solution,
     resources;
+    variances,
     nvariables=length(assignment),
     penalty_factor=Float64(penalty_factor),
     penalty,
@@ -406,24 +536,24 @@ function penalty_row(
   )
 end
 
-function warmup_solvers(; cutoff, seed)
+function warmup_solvers(; cutoff)
   instance = KnapsackInstance("warmup", [1, 1], [2, 1], 1)
   exact = brute_force_optimum(instance)
-  projection_row(instance, exact; iterations=1, reads=1, cutoff, seed)
-  penalty_row(instance, exact, 1.1; iterations=1, reads=1, cutoff, seed=seed + 1)
+  projection_row(instance, exact; iterations=1, reads=1, cutoff)
+  penalty_row(instance, exact, 1.1; iterations=1, reads=1, cutoff)
   return nothing
 end
 
 """
-    benchmark_rows([instances]; penalty_factors, iterations, reads, cutoff, seed, warmup)
+    benchmark_rows([instances]; penalty_factors, iterations, reads, cutoff, warmup)
 
 Run the hard-projection solve and a penalty-QUBO sensitivity sweep for every
 instance. Returned rows report the original knapsack objective and feasibility,
 not just each solver's encoded objective.
 
-Variance and truncation error are deliberately absent: TenSolver's public
-`Solution` currently exposes sweep energies, bond dimensions, and elapsed times,
-but not those two diagnostics.
+Final-state variance is calculated from the MPS supplied to `on_iteration`.
+Truncation error remains unavailable because the callback runs after discarded
+singular values have been removed.
 """
 function benchmark_rows(
   instances=default_instances();
@@ -431,22 +561,20 @@ function benchmark_rows(
   iterations=6,
   reads=64,
   cutoff=1e-10,
-  seed=66,
   warmup=true,
 )
   iterations > 0 || throw(ArgumentError("iterations must be positive"))
   reads > 0 || throw(ArgumentError("reads must be positive"))
   all(>(0), penalty_factors) || throw(ArgumentError("penalty factors must be positive"))
 
-  warmup && warmup_solvers(; cutoff, seed)
+  warmup && warmup_solvers(; cutoff)
 
   rows = NamedTuple[]
-  for (instance_index, instance) in enumerate(instances)
+  for instance in instances
     exact = brute_force_optimum(instance)
-    base_seed = seed + 1000instance_index
-    push!(rows, projection_row(instance, exact; iterations, reads, cutoff, seed=base_seed))
+    push!(rows, projection_row(instance, exact; iterations, reads, cutoff))
 
-    for (factor_index, factor) in enumerate(penalty_factors)
+    for factor in penalty_factors
       push!(
         rows,
         penalty_row(
@@ -456,7 +584,6 @@ function benchmark_rows(
           iterations,
           reads,
           cutoff,
-          seed=base_seed + factor_index,
         ),
       )
     end
