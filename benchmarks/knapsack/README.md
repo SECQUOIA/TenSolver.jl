@@ -13,29 +13,47 @@ which evaluate two physics problems rather than this knapsack penalty baseline.
 
 ## Run
 
-From the repository root:
+The benchmark has its own environment and treats TenSolver as an external
+dependency. From the repository root, develop the current checkout into that
+environment once:
 
 ```bash
-julia --project=. benchmarks/knapsack/run.jl
+julia --project=benchmarks -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+```
+
+Then run the solver comparison:
+
+```bash
+julia --project=benchmarks benchmarks/knapsack/run.jl
 ```
 
 Pass one path to also save the CSV output:
 
 ```bash
-julia --project=. benchmarks/knapsack/run.jl results.csv
+julia --project=benchmarks benchmarks/knapsack/run.jl results.csv
 ```
 
-The fixed workload contains a four-item hand-checkable instance and random
-families of 8, 12, and 16 items generated from seed 66. Random weights are
-integers from 1 through 10, values are integers from 1 through 15, and capacity
-is 40% of total weight rounded to the nearest integer. Integer weights and
-capacity are required by the projection formulation. Every instance is checked
-against a brute-force constrained optimum. Heavy benchmark execution is
-intentionally outside normal CI; CI only checks the encoding, exact reference,
-seed reproducibility, and small MPO resource construction.
+The fixed workload contains a four-item hand-checkable instance plus
+uncorrelated, weakly correlated, strongly correlated, and subset-sum instance
+classes from Martello, Pisinger, and Toth's standard 0-1 knapsack generator
+([paper](https://doi.org/10.1287/mnsc.45.3.414),
+[generator archive](https://hjemmesider.diku.dk/~pisinger/codes.html)). The
+instances use 8, 12, or 16 items, coefficient range 10, and the half-total-weight
+capacity slice. These small parameters keep the projection's capacity register
+tractable and allow every instance to be checked against a brute-force optimum.
+Integer weights and capacity are required by the projection formulation.
+
+Each generated instance resets Julia's standard RNG at its start. Every solver
+case likewise resets to seed 66 immediately before execution, so formulations
+receive comparable initial randomness without derived or incremented seeds.
+The benchmark remains entirely outside the package test and documentation
+environments.
 
 Before collecting rows, the runner performs one unreported two-item solve with
 each formulation to reduce one-sided Julia compilation bias in the timing.
+Reported wall time, GC time, allocations, and allocated bytes come from
+`BenchmarkTools.jl`; each expensive solver case uses one evaluation and one
+sample.
 
 For each instance the runner executes the projection formulation once and the
 penalty formulation at factors `0.001`, `0.01`, `0.1`, and `1.1` times the sum
@@ -48,7 +66,7 @@ a finite DMRG run reaches that optimum.
 The projection-only resource table is fast to generate:
 
 ```bash
-julia --project=. benchmarks/knapsack/run.jl --resources
+julia --project=benchmarks benchmarks/knapsack/run.jl --resources
 ```
 
 It controls capacity, item count, and weight magnitude in separate sweeps. This
@@ -67,9 +85,11 @@ Rows report:
 - penalty factor, coefficient, and encoded objective for penalty-QUBO rows;
 - wall time, solver-reported elapsed time, sweep count, and maximum solution MPS
   bond dimension;
+- GC time, allocation count, allocated bytes, and final-state variance;
 - objective, projection, and effective projected-Hamiltonian MPO bond dimensions.
 
 The projection and effective-Hamiltonian bonds are separate because the latter
-drives constrained DMRG cost. Variance and truncation error are not reported:
-the current public `Solution` records energies, bond dimensions, and elapsed
-times, but does not expose those diagnostics.
+drives constrained DMRG cost. Final variance is calculated independently from
+the per-sweep MPS supplied by `on_iteration`. Truncation error remains empty:
+the callback runs after the DMRG sweep has discarded singular values, so that
+error cannot be reconstructed from the retained MPS.

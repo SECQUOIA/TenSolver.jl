@@ -46,16 +46,6 @@ keep constrained solves close to the unconstrained cost.
 | [`ExactlyOneConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i = k) = 1`` | 2 |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
 
-## Penalty comparison benchmark
-
-The repository includes a deterministic
-[knapsack benchmark](https://github.com/SECQUOIA/TenSolver.jl/tree/main/benchmarks/knapsack)
-that compares `SumConstraint` projection MPOs with a bounded-slack penalty QUBO
-on the same instances. It reports feasibility and the original knapsack value,
-alongside runtime, sweep, and tensor-network bond metrics, and sweeps several
-penalty coefficients to expose their sensitivity. Heavy benchmark runs stay out
-of the default test suite.
-
 ## Using constraints
 
 Pass a vector of constraints to [`minimize`](@ref) or [`maximize`](@ref)
