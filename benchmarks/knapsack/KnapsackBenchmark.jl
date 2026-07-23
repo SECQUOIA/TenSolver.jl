@@ -339,8 +339,12 @@ function benchmark_repeated(f; samples)
   trial = BenchmarkTools.run(benchmark; warmup = false)
   estimate = BenchmarkTools.median(trial)
   measured_outputs = last(outputs, min(samples, length(outputs)))
+  length(measured_outputs) == length(trial.times) || error(
+    "could not associate every benchmark timing with its measured output",
+  )
+  median_index = sortperm(trial.times)[cld(length(trial.times), 2)]
   return (
-    value = last(measured_outputs),
+    value = measured_outputs[median_index],
     outputs = measured_outputs,
     time = estimate.time / 1e9,
     gctime = estimate.gctime / 1e9,
