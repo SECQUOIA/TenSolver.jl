@@ -33,6 +33,18 @@ Pass one path to also save the CSV output:
 julia --project=benchmarks benchmarks/knapsack/run.jl results.csv
 ```
 
+The solver workload is configurable without editing the harness:
+
+```bash
+julia --project=benchmarks benchmarks/knapsack/run.jl \
+  --iterations=6 --reads=64 --timing-samples=3 --time-limit=120 \
+  --benchmark-id=<commit-or-run-id> results.csv
+```
+
+The time limit is soft and is checked after each DMRG sweep. Use `--help` for
+the complete option list. Add `--pilot` to run the same penalty sweep only on
+the four-item reference instance before committing to the complete workload.
+
 The fixed workload contains a four-item hand-checkable instance plus
 uncorrelated, weakly correlated, strongly correlated, and subset-sum instance
 classes from Martello, Pisinger, and Toth's standard 0-1 knapsack generator
@@ -52,8 +64,14 @@ environments.
 Before collecting rows, the runner performs one unreported two-item solve with
 each formulation to reduce one-sided Julia compilation bias in the timing.
 Reported wall time, GC time, allocations, and allocated bytes come from
-`BenchmarkTools.jl`; each expensive solver case uses one evaluation and one
-sample.
+`BenchmarkTools.jl`. Each expensive solver case uses one evaluation per sample
+and, by default, the median of three fixed-seed samples. Formulation construction
+is measured separately from the public solver call. Callback-Hamiltonian setup
+and final sampling are also reported separately, while `end_to_end_wall_seconds`
+includes formulation construction and the complete measured solver/sample case.
+`solver_excluding_observer_setup_seconds` subtracts only the independently
+measured callback-Hamiltonian construction; it still includes the public solver's
+own tensorization/projection work and per-sweep variance calculations.
 
 For each instance the runner executes the projection formulation once and the
 penalty formulation at factors `0.001`, `0.01`, `0.1`, and `1.1` times the sum
@@ -83,10 +101,18 @@ Rows report:
 
 - original knapsack value, feasibility, and gap from the exact feasible optimum;
 - penalty factor, coefficient, and encoded objective for penalty-QUBO rows;
-- wall time, solver-reported elapsed time, sweep count, and maximum solution MPS
-  bond dimension;
-- GC time, allocation count, allocated bytes, and final-state variance;
+- formulation, solve, callback-Hamiltonian setup, sampling, and end-to-end wall
+  times, with timing sample count and per-solve limit;
+- solver-reported elapsed time, requested/actual sweep count, time-limit status,
+  maximum solution MPS bond dimension, and final-state variance;
+- GC time and allocations for the formulation and measured solve case;
 - objective, projection, and effective projected-Hamiltonian MPO bond dimensions.
+
+Every solver row also records the Julia/package versions, thread count, system,
+architecture, seed, cutoff, reads, and caller-supplied benchmark identifier.
+Runtime comparisons are meaningful only alongside feasibility, original-objective
+gap, variance, and whether the time limit was reached; equal sweep counts do not
+imply equal convergence quality.
 
 The projection and effective-Hamiltonian bonds are separate because the latter
 drives constrained DMRG cost. Final variance is calculated independently from
