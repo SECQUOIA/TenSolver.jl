@@ -423,6 +423,35 @@ true
 
 This interface automatically handles the conversion of polynomial expressions into the tensor network representation used internally by the solver. The variables in the polynomial are treated as binary variables taking values in {0, 1}.
 
+## Optional GenericTensorNetworks Backend
+
+TenSolver can use [GenericTensorNetworks.jl](https://github.com/QuEraComputing/GenericTensorNetworks.jl)
+as an optional exact backend for QUBO/PUBO objectives already expressible through TenSolver.
+This does not expose GenericTensorNetworks' native structured problem types through TenSolver.
+
+```julia
+using TenSolver
+using GenericTensorNetworks, ProblemReductions
+
+Q = [0.0 2.0; 0.0 0.0]
+l = [-1.0, -1.0]
+c = 3.0
+
+E, sol = TenSolver.minimize(Q, l, c; backend=:gtn)
+TenSolver.sample(sol)  # one exact optimum bitstring
+
+E_count, count_sol = TenSolver.minimize(Q, l, c; backend=:gtn, property=:count)
+count_sol.metadata["count"]  # exact optimum degeneracy for this instance
+```
+
+GTN settings are passed as solve keywords, for example
+`minimize(Q; backend=:gtn, property=:single, k=3)`. The first return value is the
+true optimum for every supported property. The backend object itself carries no tunable
+state. The default backend remains `TenSolver.DMRGBackend()`. GTN-backed solves return a
+[`TenSolver.GTNSolution`](@ref), which stores exact solution-space data when the selected
+property produces configurations. MPS-specific APIs such as coefficient/probability queries
+remain specific to the default DMRG [`TenSolver.Solution`](@ref).
+
 ### Example: Graph Coloring
 
 Here's an example of using the polynomial interface for a graph coloring problem:

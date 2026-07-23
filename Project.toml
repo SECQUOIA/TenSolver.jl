@@ -14,12 +14,21 @@ QUBODrivers = "a3f166f7-2cd3-47b6-9e1e-6fbfe0449eb0"
 QUBOTools = "60eb5b62-0a39-4ddc-84c5-97d2adff9319"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
+[weakdeps]
+GenericTensorNetworks = "3521c873-ad32-4bb4-b63d-f4f178f42b49"
+ProblemReductions = "899c297d-f7d2-4ebf-8815-a35996def416"
+
+[extensions]
+TenSolverGenericTensorNetworksExt = ["GenericTensorNetworks", "ProblemReductions"]
+
 [compat]
 Combinatorics = "1"
+GenericTensorNetworks = "4"
 ITensorMPS = "0.3, 0.4"
 ITensors = "0.9"
 LinearAlgebra = "1.10"
 MultivariatePolynomials = "0.5.9"
+ProblemReductions = "0.3"
 Printf = "1"
 QUBODrivers = "0.6.1"
 QUBOTools = "0.13, 0.14, 0.15, 0.16"

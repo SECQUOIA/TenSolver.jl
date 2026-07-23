@@ -56,6 +56,7 @@ normalize_backend(backend) = throw(backend_error(backend))
 # Backends
 #
 include("backends/dmrg.jl")
+include("backends/gtn.jl")
 const default_backend = DMRGBackend()
 
 """

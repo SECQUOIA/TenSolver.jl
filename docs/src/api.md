@@ -14,6 +14,7 @@ TenSolver.maximize
 ```@docs
 TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
+TenSolver.GTNBackend
 TenSolver.normalize_backend
 ```
 
@@ -21,6 +22,7 @@ TenSolver.normalize_backend
 
 ```@docs
 TenSolver.Solution
+TenSolver.GTNSolution
 ```
 
 ## Sampling Functions

@@ -81,6 +81,37 @@ end
 sample(psi::Solution, n :: Integer) = [sample(psi) for _ in 1:n]
 
 """
+    GTNSolution
+
+Result wrapper for exact solution-space data returned by the optional
+GenericTensorNetworks backend.
+
+Unlike [`Solution`](@ref), this is not an MPS. It stores exact configurations
+when the selected GTN property produces them, together with the raw backend
+result and metadata.
+"""
+struct GTNSolution{C, R}
+    configs   :: C
+    result    :: R
+    property  :: Symbol
+    metadata  :: Dict{String, Any}
+end
+
+function sample(psi::GTNSolution)
+    if psi.configs isa AbstractVector && !isempty(psi.configs)
+        return rand(psi.configs)
+    else
+        throw(ArgumentError("GTNSolution with property `$(psi.property)` does not contain sampleable configurations."))
+    end
+end
+
+sample(psi::GTNSolution, n::Integer) = [sample(psi) for _ in 1:n]
+
+function Base.in(bs, psi::GTNSolution)
+    return psi.configs isa AbstractVector && collect(Int, bs) in psi.configs
+end
+
+"""
     in(xs, psi::Solution [; cutoff)
 
 Whether the vector `xs` has a positive probability of being sampleable from `psi`.
