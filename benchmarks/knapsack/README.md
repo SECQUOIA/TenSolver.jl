@@ -119,3 +119,9 @@ drives constrained DMRG cost. Final variance is calculated independently from
 the per-sweep MPS supplied by `on_iteration`. Truncation error remains empty:
 the callback runs after the DMRG sweep has discarded singular values, so that
 error cannot be reconstructed from the retained MPS.
+
+## Recorded results
+
+The repository includes a pinned complete run with its raw CSV, exact command,
+machine and package metadata, quality-aware interpretation, and limitations in
+[`results/README.md`](results/README.md).
