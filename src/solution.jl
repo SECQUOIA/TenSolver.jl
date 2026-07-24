@@ -14,38 +14,52 @@ Use [`sample`](@ref) to draw vectors from it.
 - `tensor`: the underlying MPS, or `nothing` when the model is infeasible.
 - `domain`: possible variable values.
 - `permutation`: original variable index represented by each tensor site.
-- `energies`: expected objective value of the problem recorded at each iteration of the solver.
-- `bond_dims`: maximum MPS bond dimension at each iteration.
-- `elapsed_times`: wall-clock time in seconds from the start of the solve at each iteration.
+- `stats`: per-iteration convergence stats, with fields:
+  - `energies`: expected objective value of the problem recorded at each iteration of the solver.
+  - `bond_dims`: maximum MPS bond dimension at each iteration.
+  - `elapsed_times`: wall-clock time in seconds from the start of the solve at each iteration.
 
-The three stats vectors are parallel — `energies[i]`, `bond_dims[i]`, and `elapsed_times[i]`
+
+The stats vectors are parallel:
+`stats.energies[i]`, `stats.bond_dims[i]`, and `stats.elapsed_times[i]`
 all correspond to iteration `i`.
 
 Provably infeasible models produce a `Solution` with no MPS and empty stats
 vectors; check with [`is_feasible`](@ref) before sampling.
 """
 struct Solution{T <: Real}
-    tensor        :: Union{MPS, Nothing}
-    domain        :: Vector{T}
-    permutation   :: Vector{Int}
-    energies      :: Vector{T}
-    bond_dims     :: Vector{Int}
-    elapsed_times :: Vector{Float64}
+  tensor      :: Union{MPS, Nothing}
+  domain      :: Vector{T}
+  permutation :: Vector{Int}
+  stats       :: NamedTuple{
+    (:energies, :bond_dims, :elapsed_times, :max_bonds),
+    Tuple{
+      Vector{T},
+      Vector{Int},
+      Vector{Float64},
+      NamedTuple{
+        (:projections, :objective, :initial_state, :hamiltonian),
+        Tuple{Vector{Int}, Int, Int, Int},
+      },
+    },
+  }
 
-    function Solution{T}(
-      tensor::Union{MPS,Nothing},
-      domain,
-      permutation::Vector{Int},
-      energies::Vector{T},
-      bond_dims::Vector{Int},
-      elapsed_times::Vector{Float64},
-    ) where {T <: Real}
-      return new{T}(tensor, domain, permutation, energies, bond_dims, elapsed_times)
-    end
+  function Solution{T}(
+    tensor::Union{MPS,Nothing},
+    domain,
+    permutation::Vector{Int},
+    energies::Vector{T},
+    bond_dims::Vector{Int},
+    elapsed_times::Vector{Float64},
+    max_bonds,
+  ) where {T <: Real}
+    stats = (; energies, bond_dims, elapsed_times, max_bonds)
+    return new{T}(tensor, domain, permutation, stats)
+  end
 end
 
 function infeasible_solution(::Type{T}, domain) where {T <: Real}
-  return Solution{T}(nothing, domain, Int[], T[], Int[], Float64[])
+  return Solution{T}(nothing, domain, Int[], T[], Int[], Float64[], (; projections = [], objective = 0, initial_state = 0, hamiltonian = 0))
 end
 
 """

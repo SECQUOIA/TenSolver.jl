@@ -225,8 +225,8 @@ function tensorize(
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-function minimize_mpo( H :: MPO
-                     , c :: T
+function minimize_mpo( H_obj :: MPO
+                     , c     :: T
                      , obj
                      ; device      = cpu
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
@@ -258,7 +258,7 @@ function minimize_mpo( H :: MPO
   elapsed_times_log = Float64[]
 
   # Quantization
-  sites = ITensorMPS.siteinds(first, H; plev=0)
+  sites = ITensorMPS.siteinds(first, H_obj; plev=0)
 
   # Constraints
   projections = map(
@@ -267,8 +267,8 @@ function minimize_mpo( H :: MPO
   )
 
   # Hamiltonian construction
-  H = device(H)
-  H = is_zero_tensor(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
+  H_obj = device(H_obj)
+  H = is_zero_tensor(H_obj; cutoff) ? H_obj : device(project_hamiltonian(H_obj, projections; cutoff))
 
   # Initial state
   psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
@@ -276,6 +276,13 @@ function minimize_mpo( H :: MPO
     return infeasible_result(T, domain)
   end
   psi = device(psi)
+
+  bond_stats = (;
+    projections   = ITensorMPS.maxlinkdim.(projections),
+    objective     = ITensorMPS.maxlinkdim(H_obj),
+    initial_state = ITensorMPS.maxlinkdim(psi),
+    hamiltonian   = ITensorMPS.maxlinkdim(H),
+  )
 
   @debug(
     "Constraint projection MPO construction finished",
@@ -332,7 +339,7 @@ function minimize_mpo( H :: MPO
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
-      on_iteration(psi; iteration=i, objective=energy+c, bond_dim, elapsed_time)
+      on_iteration(psi; iteration=i, objective=energy+c, bond_dim, elapsed_time, variance = var)
     end
 
     # Stopping criteria #
@@ -357,7 +364,7 @@ function minimize_mpo( H :: MPO
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
-    dist = Solution{T}(psi, domain, permutation, energies_log, bond_dims_log, elapsed_times_log)
+    dist = Solution{T}(psi, domain, permutation, energies_log, bond_dims_log, elapsed_times_log, bond_stats)
     optimal = obj(sample(dist))
   end
 
