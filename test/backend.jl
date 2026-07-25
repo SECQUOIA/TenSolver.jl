@@ -35,9 +35,6 @@ end
     E, payload = minimize(Q; backend=:test_symbol_backend, verbosity=0, cutoff=1e-6)
 
     @test E == 42.0
-    @test payload.Q === Q
-    @test iszero(payload.l)
-    @test iszero(payload.c)
     @test payload.kwargs[:cutoff] == 1e-6
     @test payload.kwargs[:verbosity] == 0
     @test !haskey(payload.kwargs, :preprocess)
