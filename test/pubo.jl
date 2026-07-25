@@ -1,7 +1,6 @@
-import DynamicPolynomials, TypedPolynomials
-import MultivariatePolynomials: maxdegree
-const DP = DynamicPolynomials
-const TP = TypedPolynomials
+import DynamicPolynomials as DP
+import TypedPolynomials   as TP
+import MultivariatePolynomials: maxdegree, effective_variables
 
 form(a, x) = sum(a[t] * prod(x[i] for i in Tuple(t)) for t in CartesianIndices(a))
 
@@ -14,7 +13,7 @@ end
 
 function test_correctness(dim, obj, args...)
     # TenSolver solution
-    e, psi = TenSolver.minimize(args...)
+    e, psi = TenSolver.minimize(args...; verbosity = 0)
     x = TenSolver.sample(psi)
 
     # Does the ground energy match solution?
@@ -47,6 +46,18 @@ end
     p = randpoly(x, 3)
     @test maxdegree(p) == 3
     test_correctness(dim, a -> p(x => a), p)
+  end
+
+  @testset "Domain Simplification" begin
+    domains = [[0, 1], [-1, 1], [-3, 4, 5.7]]
+    for (deg, domain) in Iterators.product([2, 3, 5], domains)
+      p = randpoly(x, deg)
+      q = TenSolver.simplify_polynomial(p, domain)
+
+      for v in effective_variables(q)
+        @test maxdegree(q, v) <= length(domain)
+      end
+    end
   end
 end
 

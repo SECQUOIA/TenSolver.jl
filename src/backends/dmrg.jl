@@ -31,27 +31,7 @@ Select TenSolver's default ITensorMPS DMRG backend.
 """
 struct DMRGBackend <: AbstractTenSolverBackend end
 
-normalize_backend(::Val{:dmrg}) = default_backend
-
-function validate_solve_domain(domain)
-  # Preprocessing to dedeplicate domain values
-  domain = (ismutable(domain) ? unique! : unique)(sort(domain))
-  d = length(domain)
-
-  if !applicable(iterate, domain)
-    throw(ArgumentError("`domain` must be an iterable collection of values."))
-  elseif !applicable(length, domain)
-    throw(ArgumentError("`domain` must have a finite length."))
-  elseif isempty(domain)
-    throw(ArgumentError("`domain` must contain at least one value."))
-  elseif !all(u -> u isa Real, domain)
-    throw(ArgumentError("`domain` values must be values of a real type."))
-  elseif !allunique(domain)
-    throw(ArgumentError("`domain` values must be unique."))
-  end
-
-  return domain
-end
+normalize_backend(::Val{:dmrg}) = DMRGBackend()
 
 """
     minimize(::DMRGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
@@ -87,12 +67,11 @@ function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::
   , domain::AbstractVector = 0:1
   , kwargs...
 ) where T
-  domain_values = validate_solve_domain(domain)
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, lp; cutoff, domain = domain_values)
+  H      = tensorize(Qp, lp; cutoff, domain)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, domain = domain_values, kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, kwargs...)
 end
 
 """
@@ -113,13 +92,12 @@ function minimize(
   domain::AbstractVector = 0:1,
   kwargs...,
 ) where T
-  domain_values = validate_solve_domain(domain)
-  H      = tensorize(p; cutoff, domain = domain_values)
+  H      = tensorize(p; cutoff, domain)
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
 
-  return minimize_mpo(H, cte, obj ; cutoff, domain = domain_values, kwargs...)
+  return minimize_mpo(H, cte, obj ; cutoff, domain, kwargs...)
 end
 
 

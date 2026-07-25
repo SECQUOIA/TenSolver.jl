@@ -58,13 +58,24 @@ normalize_backend(backend) = throw(backend_error(backend))
 include("backends/dmrg.jl")
 const default_backend = DMRGBackend()
 
+
+#=======================================================================#
+# Minimization and Maximization                                         #
+#=======================================================================#
+
 """
-    minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
+    minimize([Q::Matrix], [l::Vector], [c::Number] ; domain, kwargs...)
+    minimize(p::AbstractPolynomial ; domain, kwargs...)
 
-Solve a quadratic discrete optimization problem
+Solve a polynomial discrete optimization problem
 
-    min  x'Qx + l'x + c
+    min  p(x)
     s.t. x_i in domain
+         constraints
+
+In the matrix version, the objective is limited to quadratic forms x -> x'Qx + l'x + c.
+Missing arguments (quadratic, linear or constant term)
+are allowed and taken to be zero.
 
 Return the optimal value `E` and a probability distribution `ψ` over optimal solutions.
 You can use [`sample`](@ref) to get an actual solution vector from `ψ`.
@@ -137,56 +148,55 @@ See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(
-  Q :: AbstractMatrix{T},
-  l :: AbstractVector{T} = zeros(T, size(Q, 1)),
-  c :: T = zero(T)
-  ;
-  backend = default_backend,
-  kwargs...,
-) where T
-  return minimize(normalize_backend(backend), Q, l, c; kwargs...)
+function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
+  throw(backend_error(backend))
 end
 
 function minimize(
   p::AbstractPolynomial{T}
   ;
   backend=default_backend,
+  domain::AbstractVector = 0:1,
   kwargs...,
 ) where T
-  return minimize(normalize_backend(backend), p; kwargs...)
+  domain = validate_solve_domain(domain)
+  p      = simplify_polynomial(p, domain)
+  return minimize(normalize_backend(backend), p; domain, kwargs...)
 end
 
-function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
-  throw(backend_error(backend))
+function minimize(
+  Q :: AbstractMatrix{T},
+  l :: AbstractVector{T} = zeros(T, size(Q, 1)),
+  c :: T = zero(T)
+  ;
+  backend = default_backend,
+  domain::AbstractVector = 0:1,
+  kwargs...,
+) where {T<:Real}
+  domain = validate_solve_domain(domain)
+  if domain == [0, 1]
+    # Variables satisfy: x^2 = x
+    l = l + diag(Q)
+    Q = Q .- Diagonal(view(Q, diagind(Q)))
+  elseif domain == [-1, 1]
+    # Variables satisfy: x^2 = 1
+    c = c + sum(diag(Q))
+    Q = Q .- Diagonal(view(Q, diagind(Q)))
+  end
+  return minimize(normalize_backend(backend), Q, l, c; domain, kwargs...)
 end
 
-"""
-    minimize(l::Vector, c::Number; kwargs...)
-
-Solve the linear optimization problem.
-
-    min  l'b + c
-    s.t. b_i in {0, 1}
-"""
-function minimize(l :: AbstractVector{T}, c :: T = zero(T); kwargs...) where T
+function minimize(l :: AbstractVector{T}, c :: T = zero(T); kwargs...) where {T<:Real}
   return minimize(zeros(T, size(l, 1), size(l, 1)), l, c; kwargs...)
 end
 
-"""
-    minimize(Q::Matrix, c::Number; kwargs...)
-
-Solve the Quadratic Unconstrained Binary Optimization problem with no linear term.
-
-    min  b'Qb + c
-    s.t. b_i in {0, 1}
-"""
-function minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T
+function minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where {T<:Real}
   return minimize(Q, zeros(T, size(Q, 1)), c; kwargs...)
 end
 
 """
     maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
+    maximize(p::AbstractPolynomial; kwargs...)
 
 Solve the Quadratic Unconstrained Binary Optimization problem
 for maximization.
@@ -207,4 +217,32 @@ function maximize(qs... ; kwargs...)
   E, psi = minimize(mqs...; kwargs...)
 
   return -E, psi
+end
+
+#=====================================================================#
+# Domain validation                                                   #
+#=====================================================================#
+
+function validate_solve_domain(domain)
+  # Preprocessing to dedeplicate domain values
+  domain = (ismutable(domain) ? unique! : unique)(sort(domain))
+
+  if !applicable(iterate, domain)
+    throw(ArgumentError("`domain` must be an iterable collection of values."))
+  elseif !applicable(length, domain)
+    throw(ArgumentError("`domain` must have a finite length."))
+  elseif isempty(domain)
+    throw(ArgumentError("`domain` must contain at least one value."))
+  elseif !all(u -> u isa Real, domain)
+    throw(ArgumentError("`domain` values must be values of a real type."))
+  elseif !allunique(domain)
+    throw(ArgumentError("`domain` values must be unique."))
+  end
+
+  return domain
+end
+
+function simplify_polynomial(p::AbstractPolynomial, domain)
+  rooted(x) = prod(x - a for a in domain)
+  return mapfoldl(rooted, rem, effective_variables(p); init = p)
 end
