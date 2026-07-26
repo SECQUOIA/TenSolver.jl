@@ -1,4 +1,48 @@
-import DynamicPolynomials
+import DynamicPolynomials as DP
+using LinearAlgebra
+
+@testset "Domain Simplification" begin
+  domains = [[0, 1], [-1, 1], [-3, 4, 5.7]]
+  dim = 3
+
+  @testset "Quadratic Objectives" begin
+    Q, l, c = TenSolver.simplify_polynomial([1 0; 0 1.0], [0.0, 0.0], 0.0, [-1, 1])
+    @test iszero(Q)
+    @test iszero(l)
+    @test c ≈ 2
+
+    for domain in domains
+      Q, l, c    = randn(dim, dim), randn(dim), randn()
+      Qr, lr, cr = TenSolver.simplify_polynomial(Q, l, c, domain)
+      obj(x)   = dot(x, Q, x) + dot(l, x) + c
+      obj_r(x) = dot(x, Qr, x) + dot(lr, x) + cr
+
+      if length(domain) == 2
+        @test iszero(Diagonal(Qr))
+      end
+      for a in domain, b in domain, c in domain
+        @test obj([a, b, c]) ≈ obj_r([a, b, c])
+      end
+    end
+  end
+
+  @testset "Polynomial Objectives" begin
+    DP.@polyvar x[1:3]
+
+    for (deg, domain) in Iterators.product([2, 3, 5], domains)
+      p = randpoly(x, deg)
+      q = TenSolver.simplify_polynomial(p, domain)
+
+      for v in DP.effective_variables(q)
+        @test DP.maxdegree(q, v) <= length(domain)
+      end
+
+      for a in domain, b in domain, c in domain
+        @test p(a, b, c) ≈ q(a, b, c)
+      end
+    end
+  end
+end
 
 @testset "Non-binary domains" begin
   @testset "Unconstrained quadratic" begin
@@ -56,7 +100,7 @@ import DynamicPolynomials
   end
 
   @testset "Small polynomial case" begin
-    DynamicPolynomials.@polyvar y[1:3]
+    DP.@polyvar y[1:3]
     p = y[1]^2 + y[1] * y[2] + 2y[2]^2 - y[2] * y[3] - 3.0y[3]
     obj(x) = p(y => x)
 
@@ -68,7 +112,7 @@ import DynamicPolynomials
   end
 
   @testset "Polynomial exponents are preserved" begin
-    DynamicPolynomials.@polyvar y[1:2]
+    DP.@polyvar y[1:2]
     p = 2.0y[1]^2 - 3.0y[1] + 2.0y[2]^2 - 3.0y[2]
 
     E, psi = maximize(p; domain = 0:2, iterations = 5, cutoff = 1e-12, verbosity = 0)

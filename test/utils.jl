@@ -39,3 +39,11 @@ function mps_amplitude(psi, sites, bits)
   basis = ITensorMPS.MPS(sites, string.(bits))
   return real(ITensors.inner(basis, psi))
 end
+
+function randpoly(x, maxdegree)
+  dim = length(x)
+  mkarray(i) = randn(Iterators.repeated(dim, i)...)
+  form(a, x) = sum(a[t] * prod(x[i] for i in Tuple(t)) for t in CartesianIndices(a))
+
+  return sum(form(mkarray(i), x) for i in 1:maxdegree) + randn()
+end
