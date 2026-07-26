@@ -25,6 +25,9 @@ include(filepath("ising_conversion.jl"))
 include(filepath("constraints.jl"))
 include(filepath("projection_mpo.jl"))
 
+# MPO construction
+include(filepath("tensorize.jl"))
+
 # Traditional interface
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))

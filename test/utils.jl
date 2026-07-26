@@ -47,3 +47,13 @@ function randpoly(x, maxdegree)
 
   return sum(form(mkarray(i), x) for i in 1:maxdegree) + randn()
 end
+
+function bandwidth(Q)
+  bw = 0
+  for i in axes(Q, 1), j in (i + 1):last(axes(Q, 2))
+    if abs(Q[i, j] + Q[j, i]) > 0
+      bw = max(bw, j - i)
+    end
+  end
+  return bw
+end
