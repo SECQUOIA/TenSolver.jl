@@ -173,16 +173,8 @@ function minimize(
   domain::AbstractVector = 0:1,
   kwargs...,
 ) where {T<:Real}
-  domain = validate_solve_domain(domain)
-  if domain == [0, 1]
-    # Variables satisfy: x^2 = x
-    l = l + diag(Q)
-    Q = Q .- Diagonal(view(Q, diagind(Q)))
-  elseif domain == [-1, 1]
-    # Variables satisfy: x^2 = 1
-    c = c + sum(diag(Q))
-    Q = Q .- Diagonal(view(Q, diagind(Q)))
-  end
+  domain  = validate_solve_domain(domain)
+  Q, l, c = simplify_polynomial(Q, l, c, domain)
   return minimize(normalize_backend(backend), Q, l, c; domain, kwargs...)
 end
 
@@ -243,6 +235,30 @@ function validate_solve_domain(domain)
 end
 
 function simplify_polynomial(p::AbstractPolynomial, domain)
+  # A finite domain xi in U = {u1, ..., ud} is equivalent
+  # to the root set of a single variable polynomial
+  # q(x) = (xi - u1)...(xi - ud)
   rooted(x) = prod(x - a for a in domain)
+  # By dividing p // q, we get
+  # p(x) = m(x)q(x) + r(x).
+  # Notice that for any a in U, q(a) = 0, and
+  # p(a) = m(a)*0 + r(a) = r(a).
+  # Thus, we transform p -> r as a degree reduction procedure.
   return mapfoldl(rooted, rem, effective_variables(p); init = p)
+end
+
+function simplify_polynomial(Q::AbstractMatrix, l, c, domain)
+  # A variable x in {a, b} satifies
+  #   (x - a)(x - b) = 0
+  #   x^2 = (a + b)x - ab
+  #   Thus, we exchange the diagonal terms x^2 by linear and constant terms.
+  if length(domain) == 2
+    s, p = sum(domain), prod(domain)
+
+    l = l .+ s .* diag(Q)
+    c = c  - p  * sum(diag(Q))
+    Q = Q .- Diagonal(view(Q, diagind(Q)))
+  end
+
+  return Q, l, c
 end
