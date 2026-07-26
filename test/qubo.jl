@@ -1,16 +1,6 @@
 @testset "QUBO Correctness" begin
   dim = 5
 
-  qubo_bandwidth(Q) = begin
-    bw = 0
-    for i in axes(Q, 1), j in (i + 1):last(axes(Q, 2))
-      if abs(Q[i, j] + Q[j, i]) > 0
-        bw = max(bw, j - i)
-      end
-    end
-    bw
-  end
-
   @testset "Ill-formed input" begin
     # Should throw when the matrix is not square
     Q = randn(dim, dim - 2)
@@ -215,8 +205,8 @@
       scramble = [1, 3, 5, 2, 4]
       Q = path[scramble, scramble]
       permutation = TenSolver.qmatrix_permutation(Q)
-      original_bandwidth = qubo_bandwidth(Q)
-      permuted_bandwidth = qubo_bandwidth(Q[permutation, permutation])
+      original_bandwidth = bandwidth(Q)
+      permuted_bandwidth = bandwidth(Q[permutation, permutation])
 
       @test sort(permutation) == collect(1:5)
       @test original_bandwidth == 3
