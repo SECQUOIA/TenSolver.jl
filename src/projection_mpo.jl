@@ -85,18 +85,16 @@ function DFA(states, alphabet, initial, accepting, transitions)
   return DFA{S,A}(states, alphabet, initial, accepting, transitions)
 end
 
-DFA(; states, alphabet, initial, accepting, transitions) =
-  DFA(states, alphabet, initial, accepting, transitions)
+function DFA(; states, alphabet, initial, accepting, transitions)
+  return DFA(states, alphabet, initial, accepting, transitions)
+end
 
 function permute_dfa!(dfa::DFA, permutation::AbstractVector{<:Integer})
-  length(permutation) == length(dfa.transitions) ||
+  if length(permutation) != length(dfa.transitions)
     throw(DimensionMismatch("DFA permutation length must match the number of transition tables"))
-
-  reordered = dfa.transitions[permutation]
-  for i in eachindex(reordered)
-    dfa.transitions[i] = reordered[i]
   end
 
+  permute!(dfa.transitions, permutation)
   return dfa
 end
 
