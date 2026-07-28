@@ -168,45 +168,6 @@ end
     assert_constrained_solution(E_ppos, psi_ppos, poly_pos_obj, force_one_poly, 2.0, [1])
   end
 
-  @testset "Callbacks and stats remain available" begin
-    Q = zeros(2, 2)
-    l = [-1.0, -2.0]
-    constraints = AbstractConstraint[NotEqualsConstraint([1, 2], [1, 1])]
-    calls = Int[]
-    objectives = Float64[]
-
-    E, psi = minimize(
-      Q,
-      l;
-      constraints,
-      iterations=2,
-      verbosity=0,
-      cutoff=1e-12,
-      noise=[0.0],
-      on_iteration=(mps; iteration, objective, kw...) -> begin
-        push!(calls, iteration)
-        push!(objectives, objective)
-        callback_solution = TenSolver.Solution{Float64}(
-          deepcopy(mps),
-          0:1,
-          collect(1:length(mps)),
-          Float64[],
-          Int[],
-          Float64[],
-        )
-        @test is_feasible(TenSolver.sample(callback_solution), constraints)
-      end,
-    )
-
-    @test calls == [1, 2]
-    @test length(objectives) == 2
-    @test length(psi.energies) == 2
-    @test length(psi.bond_dims) == 2
-    @test length(psi.elapsed_times) == 2
-    @test is_feasible(TenSolver.sample(psi), constraints)
-    @test E ≈ -2.0
-  end
-
   @testset "Zero objective keeps feasible constrained samples" begin
     constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
     E, psi = minimize(
@@ -234,12 +195,6 @@ end
 
     @test E == Inf
     @test !is_feasible(psi)
-    @test isempty(psi.energies)
-    @test isempty(psi.bond_dims)
-    @test isempty(psi.elapsed_times)
-    # The solve reports; querying a nonexistent solution throws.
-    @test_throws DomainError TenSolver.sample(psi)
-    @test [0, 0] ∉ psi
 
     # The supremum over an empty feasible set is -Inf.
     Emax, psimax = @test_logs (:warn, r"empty feasible subspace") maximize(

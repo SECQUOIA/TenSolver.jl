@@ -91,11 +91,11 @@ function minimize(
   cutoff=1e-8,
   domain::AbstractVector = 0:1,
   kwargs...,
-) where T
-  H      = tensorize(p; cutoff, domain)
+) where {T}
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
+  H      = tensorize(p; cutoff, domain)
 
   return minimize_mpo(H, cte, obj ; cutoff, domain, kwargs...)
 end
@@ -143,10 +143,10 @@ end
 # Infeasibility is a solver outcome, not an argument error: report it as a
 # status like other optimization packages (objective +Inf, empty Solution),
 # so it maps onto MOI.INFEASIBLE at the JuMP layer. See the discussion in #94.
-function infeasible_result(::Type{T}, domain) where {T}
+function infeasible_result(::Type{T}, domain, stats) where {T}
   @warn "constraints define an empty feasible subspace"
   F = float(T)
-  return real(T)(+Inf), infeasible_solution(F, domain)
+  return real(T)(+Inf), infeasible_solution(F, domain, stats)
 end
 
 
@@ -249,7 +249,7 @@ function minimize_mpo( H_obj :: MPO
                      # Iteration callback
                      , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
-                     , permutation :: Vector{Int} = collect(1:length(H))
+                     , permutation :: Vector{Int} = collect(1:length(H_obj))
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
   initial_time      = time()
@@ -272,15 +272,12 @@ function minimize_mpo( H_obj :: MPO
 
   # Initial state
   psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
-  if isnothing(psi)
-    return infeasible_result(T, domain)
-  end
   psi = device(psi)
 
-  bond_stats = (;
+  stats = SolverStatistics{T}(;
     projections   = ITensorMPS.maxlinkdim.(projections),
     objective     = ITensorMPS.maxlinkdim(H_obj),
-    initial_state = ITensorMPS.maxlinkdim(psi),
+    initial_state = isnothing(psi) ? 0 : ITensorMPS.maxlinkdim(psi),
     hamiltonian   = ITensorMPS.maxlinkdim(H),
   )
 
@@ -296,7 +293,9 @@ function minimize_mpo( H_obj :: MPO
   var    = T(Inf)
   energy = T(Inf)
 
-  for i in Iterators.countfrom(1)
+  iter = isnothing(psi) ? [] : Iterators.countfrom(1)
+
+  for i in iter
     energy, psi = groundstate(H, device(psi)
                       ; projections
                       , nsweeps     = 1
@@ -323,6 +322,9 @@ function minimize_mpo( H_obj :: MPO
 
     bond_dim = ITensorMPS.maxlinkdim(psi)
 
+    # Per-iteration stats (always collected)
+    record_stats!(stats, i; energy = energy+c, bond_dim, elapsed_time)
+
     iterlog_iteration(
       verbosity,
       i,
@@ -331,11 +333,6 @@ function minimize_mpo( H_obj :: MPO
       i % check_variance_every_iteration == 0 ? var : nothing,
       elapsed_time,
     )
-
-    # Per-iteration stats (always collected)
-    push!(energies_log,      energy + c)
-    push!(bond_dims_log,     bond_dim)
-    push!(elapsed_times_log, elapsed_time)
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
@@ -358,13 +355,12 @@ function minimize_mpo( H_obj :: MPO
     end
   end
 
-
   if isinf(energy)
-    optimal, dist = infeasible_result(T, domain)
+    optimal, dist = infeasible_result(T, domain, stats)
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
-    dist = Solution{T}(psi, domain, permutation, energies_log, bond_dims_log, elapsed_times_log, bond_stats)
+    dist = Solution{T}(psi, domain, permutation, stats)
     optimal = obj(sample(dist))
   end
 

@@ -2,7 +2,46 @@ import ITensors, ITensorMPS
 import ITensorMPS: MPS, siteinds
 
 """
-    Solution
+    SolverStatistics{T}
+
+## Fields
+
+- `energies`: per-iteration calculated energy/objective value;
+- `bond_dims`: per-iteration solution maximum bond dimension;
+- `elapsed_times`: per-iteration total until the iteration completed;
+- `max_bonds`: structure containing bond dimensions for multiple tensors used throughout the iteration
+  - `initial_state`: bond for the initial MPS guess;
+  - `objective`: bond for the MPO representing the objective function `H`;
+  - `projections`: bonds for the MPOs representing each constraint;
+  - `hamiltonian`: bond for the MPO representing the actual Hamiltonian `P'HP` representing both objective and constraints;
+"""
+struct SolverStatistics{T <: Real}
+  energies      :: Vector{T}
+  bond_dims     :: Vector{Int64}
+  elapsed_times :: Vector{Float64}
+  max_bonds     :: @NamedTuple begin
+    projections   :: Vector{Int64}
+    objective     :: Int64
+    initial_state :: Int64
+    hamiltonian   :: Int64
+  end
+
+  function SolverStatistics{T}(; projections, objective, initial_state, hamiltonian) where {T}
+    new{T}(T[], Int64[], Float64[], (; projections, objective, initial_state, hamiltonian))
+  end
+end
+
+function record_stats!(stats::SolverStatistics, _i::Integer; energy, bond_dim, elapsed_time)
+    push!(stats.energies,      energy)
+    push!(stats.bond_dims,     bond_dim)
+    push!(stats.elapsed_times, elapsed_time)
+
+    return stats
+end
+
+
+"""
+    Solution{T}
 
 The result of running [`minimize`](@ref) or [`maximize`](@ref): an MPS wave function
 over the optimal solution space, together with per-iteration convergence stats.
@@ -14,15 +53,7 @@ Use [`sample`](@ref) to draw vectors from it.
 - `tensor`: the underlying MPS, or `nothing` when the model is infeasible.
 - `domain`: possible variable values.
 - `permutation`: original variable index represented by each tensor site.
-- `stats`: per-iteration convergence stats, with fields:
-  - `energies`: expected objective value of the problem recorded at each iteration of the solver.
-  - `bond_dims`: maximum MPS bond dimension at each iteration.
-  - `elapsed_times`: wall-clock time in seconds from the start of the solve at each iteration.
-
-
-The stats vectors are parallel:
-`stats.energies[i]`, `stats.bond_dims[i]`, and `stats.elapsed_times[i]`
-all correspond to iteration `i`.
+- `stats`: per-iteration convergence stats. See [`SolverStatistics`](@ref).
 
 Provably infeasible models produce a `Solution` with no MPS and empty stats
 vectors; check with [`is_feasible`](@ref) before sampling.
@@ -31,35 +62,20 @@ struct Solution{T <: Real}
   tensor      :: Union{MPS, Nothing}
   domain      :: Vector{T}
   permutation :: Vector{Int}
-  stats       :: NamedTuple{
-    (:energies, :bond_dims, :elapsed_times, :max_bonds),
-    Tuple{
-      Vector{T},
-      Vector{Int},
-      Vector{Float64},
-      NamedTuple{
-        (:projections, :objective, :initial_state, :hamiltonian),
-        Tuple{Vector{Int}, Int, Int, Int},
-      },
-    },
-  }
+  stats       :: SolverStatistics{T}
 
   function Solution{T}(
     tensor::Union{MPS,Nothing},
     domain,
     permutation::Vector{Int},
-    energies::Vector{T},
-    bond_dims::Vector{Int},
-    elapsed_times::Vector{Float64},
-    max_bonds,
+    stats::SolverStatistics,
   ) where {T <: Real}
-    stats = (; energies, bond_dims, elapsed_times, max_bonds)
     return new{T}(tensor, domain, permutation, stats)
   end
 end
 
-function infeasible_solution(::Type{T}, domain) where {T <: Real}
-  return Solution{T}(nothing, domain, Int[], T[], Int[], Float64[], (; projections = [], objective = 0, initial_state = 0, hamiltonian = 0))
+function infeasible_solution(::Type{T}, domain, stats) where {T <: Real}
+  return Solution{T}(nothing, domain, Int[], stats)
 end
 
 """
