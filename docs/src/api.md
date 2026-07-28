@@ -21,6 +21,7 @@ TenSolver.normalize_backend
 
 ```@docs
 TenSolver.Solution
+TenSolver.SolverStatistics
 ```
 
 ## Sampling Functions

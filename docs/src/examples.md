@@ -239,18 +239,9 @@ x = TenSolver.sample(psi)
 
 ## Tracking Optimization Progress
 
-The returned `Solution` always carries lightweight per-iteration stats:
+The returned `Solution` always carries lightweight per-iteration statistics in the `stats` field.
+See [`TenSolver.SolverStatistics`](@ref) for more details.
 
-```julia
-using TenSolver
-
-Q = randn(40, 40)
-E, psi = TenSolver.minimize(Q; iterations=50)
-
-psi.energies       # objective value at each iteration
-psi.bond_dims      # MPS bond dimension at each iteration
-psi.elapsed_times  # wall-clock time at each iteration
-```
 
 For per-iteration sampling, pass an `on_iteration` callback.
 The callback receives the MPS for that iteration alongside metadata as keyword arguments.
