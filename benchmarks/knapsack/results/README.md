@@ -26,6 +26,14 @@ julia +1.12 --project=benchmarks benchmarks/knapsack/run.jl \
 
 All 25 rows completed all six requested sweeps without reaching the time limit.
 
+This pinned dataset predates TenSolver's solver-reported variance and operator
+bond statistics. Its `observer_setup_*` and
+`solver_excluding_observer_setup_seconds` columns describe the historical
+harness that produced it. Current benchmark runs no longer reconstruct the
+Hamiltonian or recalculate variance in the callback, and instead report
+`solver_call_seconds` plus `initial_state_bond`; timings across the two schemas
+should not be compared as if their instrumentation were identical.
+
 ## Results
 
 "Best feasible penalty" selects the penalty row with the highest original

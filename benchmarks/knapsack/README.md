@@ -66,12 +66,11 @@ each formulation to reduce one-sided Julia compilation bias in the timing.
 Reported wall time, GC time, allocations, and allocated bytes come from
 `BenchmarkTools.jl`. Each expensive solver case uses one evaluation per sample
 and, by default, the median of three fixed-seed samples. Formulation construction
-is measured separately from the public solver call. Callback-Hamiltonian setup
-and final sampling are also reported separately, while `end_to_end_wall_seconds`
-includes formulation construction and the complete measured solver/sample case.
-`solver_excluding_observer_setup_seconds` subtracts only the independently
-measured callback-Hamiltonian construction; it still includes the public solver's
-own tensorization/projection work and per-sweep variance calculations.
+is measured separately from the public solver call. Final sampling is also
+reported separately, while `end_to_end_wall_seconds` includes formulation
+construction and the complete measured solver/sample case.
+`solver_call_seconds` subtracts sampling from that measured case and includes
+TenSolver's tensorization, projection, and per-sweep variance calculations.
 
 For each instance the runner executes the projection formulation once and the
 penalty formulation at factors `0.001`, `0.01`, `0.1`, and `1.1` times the sum
@@ -101,10 +100,10 @@ Rows report:
 
 - original knapsack value, feasibility, and gap from the exact feasible optimum;
 - penalty factor, coefficient, and encoded objective for penalty-QUBO rows;
-- formulation, solve, callback-Hamiltonian setup, sampling, and end-to-end wall
-  times, with timing sample count and per-solve limit;
+- formulation, solver-call, sampling, measured-case, and end-to-end wall times,
+  with timing sample count and per-solve limit;
 - solver-reported elapsed time, requested/actual sweep count, time-limit status,
-  maximum solution MPS bond dimension, and final-state variance;
+  initial/maximum solution MPS bond dimensions, and final-state variance;
 - GC time and allocations for the formulation and measured solve case;
 - objective, projection, and effective projected-Hamiltonian MPO bond dimensions.
 
@@ -115,13 +114,17 @@ gap, variance, and whether the time limit was reached; equal sweep counts do not
 imply equal convergence quality.
 
 The projection and effective-Hamiltonian bonds are separate because the latter
-drives constrained DMRG cost. Final variance is calculated independently from
-the per-sweep MPS supplied by `on_iteration`. Truncation error remains empty:
-the callback runs after the DMRG sweep has discarded singular values, so that
-error cannot be reconstructed from the retained MPS.
+drives constrained DMRG cost. The solver reports these bonds through
+`solution.stats.max_bonds` and supplies its calculated variance to
+`on_iteration`, so the benchmark does not reconstruct the Hamiltonian or repeat
+the variance calculation. Truncation error remains empty: the callback runs
+after the DMRG sweep has discarded singular values, so that error cannot be
+reconstructed from the retained MPS.
 
 ## Recorded results
 
 The repository includes a pinned complete run with its raw CSV, exact command,
 machine and package metadata, quality-aware interpretation, and limitations in
-[`results/README.md`](results/README.md).
+[`results/README.md`](results/README.md). That historical run predates
+solver-reported statistics and therefore retains the old observer-setup timing
+columns; new output uses the simpler schema documented above.

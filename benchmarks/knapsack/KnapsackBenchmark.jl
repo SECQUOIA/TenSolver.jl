@@ -251,79 +251,13 @@ function projection_scaling_rows(; cutoff = 1e-10)
   end
 end
 
-function penalty_resource_metrics(model; cutoff = 1e-10)
-  H = TenSolver.tensorize(model.Q, model.l; cutoff, domain = 0:1)
-  bond = ITensorMPS.maxlinkdim(H)
-  return (
-    objective_mpo_bond = bond,
-    projection_mpo_bond = missing,
-    effective_hamiltonian_bond = bond,
-  )
-end
-
-function qubo_hamiltonian(Q, l, sites; cutoff)
-  os = ITensorMPS.OpSum{Float64}()
-  nvariables = length(sites)
-
-  for i in 1:nvariables
-    linear_coefficient = Q[i, i] + l[i]
-    if abs(linear_coefficient) > cutoff
-      os += (linear_coefficient, "D", (domain = 0:1,), i)
-    end
-
-    for j in (i + 1):nvariables
-      quadratic_coefficient = Q[i, j] + Q[j, i]
-      if abs(quadratic_coefficient) > cutoff
-        os += (quadratic_coefficient, "D", (domain = 0:1,), i, "D", (domain = 0:1,), j)
-      end
-    end
-  end
-
-  return isempty(os) ? ITensorMPS.MPO(Float64, sites) : ITensorMPS.MPO(Float64, os, sites)
-end
-
-function projection_hamiltonian(instance, sites; cutoff)
-  nitems = length(instance.weights)
-  H = qubo_hamiltonian(zeros(nitems, nitems), -instance.values, sites; cutoff)
-  constraint = TenSolver.SumConstraint(
-    collect(1:nitems),
-    instance.weights,
-    instance.capacity;
-    relation = :(<=),
-  )
-  P = TenSolver.projection_mpo(constraint, sites; domain = 0:1)
-  H_effective = TenSolver.project_hamiltonian(H, P; cutoff)
-  for i in eachindex(H_effective)
-    source = (
-      only(ITensorMPS.siteinds(H_effective, i; plev = 0)),
-      only(ITensorMPS.siteinds(H_effective, i; plev = 1)),
-    )
-    target = (sites[i], sites[i]')
-    H_effective[i] = ITensors.replaceinds(H_effective[i], source, target)
-  end
-  return H_effective
-end
-
-function state_variance(H, mps)
-  expectation = real(ITensors.inner(mps', H, mps))
-  second_moment = real(ITensors.inner(H, mps, H, mps))
-  return max(0.0, second_moment - expectation^2)
-end
-
-function variance_observer(hamiltonian_builder)
-  hamiltonian = Ref{Any}()
-  setup = Ref{Any}()
+function variance_observer()
   variances = Float64[]
-  callback = function (mps; kw...)
-    if !isassigned(hamiltonian)
-      timed = @timed hamiltonian_builder(ITensorMPS.siteinds(mps))
-      hamiltonian[] = timed.value
-      setup[] = (time = timed.time, gctime = timed.gctime, memory = timed.bytes)
-    end
-    push!(variances, state_variance(hamiltonian[], mps))
+  callback = function (_mps; variance, kw...)
+    push!(variances, variance)
     return nothing
   end
-  return variances, setup, callback
+  return variances, callback
 end
 
 function benchmark_repeated(f; samples)
@@ -389,11 +323,16 @@ function runtime_metadata()
 end
 
 function solution_stats(solution)
+  stats = solution.stats
+  bonds = stats.max_bonds
   return (
-    sweeps = length(solution.energies),
-    solution_max_bond = isempty(solution.bond_dims) ? 0 : maximum(solution.bond_dims),
-    solver_elapsed_seconds = isempty(solution.elapsed_times) ? 0.0 :
-                             last(solution.elapsed_times),
+    sweeps = length(stats.energies),
+    solution_max_bond = isempty(stats.bond_dims) ? 0 : maximum(stats.bond_dims),
+    solver_elapsed_seconds = isempty(stats.elapsed_times) ? 0.0 : last(stats.elapsed_times),
+    initial_state_bond = bonds.initial_state,
+    objective_mpo_bond = bonds.objective,
+    projection_mpo_bond = isempty(bonds.projections) ? missing : maximum(bonds.projections),
+    effective_hamiltonian_bond = bonds.hamiltonian,
   )
 end
 
@@ -457,7 +396,10 @@ function solver_options(iterations, cutoff, time_limit, on_iteration)
     inidim = 8,
     maxdim = [10, 20, 40, 80, 120, 200],
     noise = [1e-6, 1e-8, 0.0],
-    check_variance_every_iteration = iterations + 1,
+    check_variance_every_iteration = 1,
+    # Collect variance on every sweep without letting convergence shorten the
+    # fixed-sweep benchmark workload.
+    vtol = -Inf,
     on_iteration,
     callback_every = 1,
     verbosity = 0,
@@ -472,8 +414,7 @@ function benchmark_result_row(
   reported_objective,
   formulation_timed,
   case_timed,
-  solution,
-  resources;
+  solution;
   variances,
   nvariables,
   iterations,
@@ -489,16 +430,10 @@ function benchmark_result_row(
   feasible = is_capacity_feasible(instance, items)
   value = item_value(instance, items)
   stats = solution_stats(solution)
-  observer_setup_seconds = component_median(case_timed.outputs, :observer_setup, :time)
-  observer_setup_gc_seconds = component_median(case_timed.outputs, :observer_setup, :gctime)
-  observer_setup_allocated_bytes =
-    component_median(case_timed.outputs, :observer_setup, :memory)
   sampling_seconds = component_median(case_timed.outputs, :sampling, :time)
   sampling_gc_seconds = component_median(case_timed.outputs, :sampling, :gctime)
   sampling_allocated_bytes = component_median(case_timed.outputs, :sampling, :memory)
   solver_call_seconds = max(0.0, case_timed.time - sampling_seconds)
-  solver_excluding_observer_setup_seconds =
-    max(0.0, solver_call_seconds - observer_setup_seconds)
   metadata = runtime_metadata()
 
   return (;
@@ -531,13 +466,10 @@ function benchmark_result_row(
     solve_gc_seconds = case_timed.gctime,
     solve_allocated_bytes = case_timed.memory,
     solve_allocations = case_timed.allocs,
-    observer_setup_seconds,
-    observer_setup_gc_seconds,
-    observer_setup_allocated_bytes,
     sampling_seconds,
     sampling_gc_seconds,
     sampling_allocated_bytes,
-    solver_excluding_observer_setup_seconds,
+    solver_call_seconds,
     end_to_end_wall_seconds = formulation_timed.time + case_timed.time,
     solver_elapsed_seconds = stats.solver_elapsed_seconds,
     sweeps = stats.sweeps,
@@ -546,9 +478,10 @@ function benchmark_result_row(
     solution_max_bond = stats.solution_max_bond,
     final_variance = isempty(variances) ? missing : last(variances),
     truncation_error = missing,
-    objective_mpo_bond = resources.objective_mpo_bond,
-    projection_mpo_bond = resources.projection_mpo_bond,
-    effective_hamiltonian_bond = resources.effective_hamiltonian_bond,
+    initial_state_bond = stats.initial_state_bond,
+    objective_mpo_bond = stats.objective_mpo_bond,
+    projection_mpo_bond = stats.projection_mpo_bond,
+    effective_hamiltonian_bond = stats.effective_hamiltonian_bond,
   )
 end
 
@@ -573,28 +506,22 @@ function projection_row(
   end
   constraint = formulation_timed.value
   case_timed = benchmark_repeated(; samples = timing_samples) do
-    variances, observer_setup, callback =
-      variance_observer(sites -> projection_hamiltonian(instance, sites; cutoff),)
+    variances, callback = variance_observer()
     Random.seed!(SOLVER_SEED)
     options = solver_options(iterations, cutoff, time_limit, callback)
     reported_objective, solution =
       TenSolver.maximize(instance.values; constraints = [constraint], options...)
     sampling = @timed best_projection_sample(instance, TenSolver.sample(solution, reads))
-    if !(isassigned(observer_setup))
-      error("projection variance observer did not run")
-    end
     return (;
       reported_objective,
       solution,
       items = sampling.value,
       variances,
-      observer_setup = observer_setup[],
       sampling = (time = sampling.time, gctime = sampling.gctime, memory = sampling.bytes),
     )
   end
   items = assert_stable_items(case_timed.outputs)
   output = case_timed.value
-  resources = projection_resource_metrics(instance; cutoff)
   return benchmark_result_row(
     instance,
     exact,
@@ -603,8 +530,7 @@ function projection_row(
     output.reported_objective,
     formulation_timed,
     case_timed,
-    output.solution,
-    resources;
+    output.solution;
     variances = output.variances,
     nvariables = nitems,
     iterations,
@@ -633,8 +559,7 @@ function penalty_row(
   end
   model = formulation_timed.value
   case_timed = benchmark_repeated(; samples = timing_samples) do
-    variances, observer_setup, callback =
-      variance_observer(sites -> qubo_hamiltonian(model.Q, model.l, sites; cutoff),)
+    variances, callback = variance_observer()
     Random.seed!(SOLVER_SEED)
     options = solver_options(iterations, cutoff, time_limit, callback)
     reported_objective, solution =
@@ -643,22 +568,17 @@ function penalty_row(
       assignment = best_penalty_sample(instance, model, TenSolver.sample(solution, reads))
       (assignment = assignment, items = item_bits(assignment, model.nitems))
     end
-    if !(isassigned(observer_setup))
-      error("penalty variance observer did not run")
-    end
     return (;
       reported_objective,
       solution,
       assignment = sampling.value.assignment,
       items = sampling.value.items,
       variances,
-      observer_setup = observer_setup[],
       sampling = (time = sampling.time, gctime = sampling.gctime, memory = sampling.bytes),
     )
   end
   items = assert_stable_items(case_timed.outputs)
   output = case_timed.value
-  resources = penalty_resource_metrics(model; cutoff)
   return benchmark_result_row(
     instance,
     exact,
@@ -667,8 +587,7 @@ function penalty_row(
     output.reported_objective,
     formulation_timed,
     case_timed,
-    output.solution,
-    resources;
+    output.solution;
     variances = output.variances,
     nvariables = length(output.assignment),
     iterations,
@@ -707,7 +626,8 @@ Run the hard-projection solve and a penalty-QUBO sensitivity sweep for every
 instance. Returned rows report the original knapsack objective and feasibility,
 not just each solver's encoded objective.
 
-Final-state variance is calculated from the MPS supplied to `on_iteration`.
+Final-state variance and operator bond dimensions come from solver-reported
+statistics.
 Truncation error remains unavailable because the callback runs after discarded
 singular values have been removed.
 
