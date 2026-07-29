@@ -115,11 +115,11 @@ imply equal convergence quality.
 
 The projection and effective-Hamiltonian bonds are separate because the latter
 drives constrained DMRG cost. The solver reports these bonds through
-`solution.stats.max_bonds` and supplies its calculated variance to
-`on_iteration`, so the benchmark does not reconstruct the Hamiltonian or repeat
-the variance calculation. Truncation error remains empty: the callback runs
-after the DMRG sweep has discarded singular values, so that error cannot be
-reconstructed from the retained MPS.
+`solution.stats.max_bonds` and its checked variances through
+`solution.stats.variances`, so the benchmark does not reconstruct the
+Hamiltonian or repeat the variance calculation. Truncation error remains empty
+because solver statistics do not expose the singular values discarded during a
+DMRG sweep.
 
 ## Recorded results
 
