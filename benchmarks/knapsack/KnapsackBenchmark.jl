@@ -251,15 +251,6 @@ function projection_scaling_rows(; cutoff = 1e-10)
   end
 end
 
-function variance_observer()
-  variances = Float64[]
-  callback = function (_mps; variance, kw...)
-    push!(variances, variance)
-    return nothing
-  end
-  return variances, callback
-end
-
 function benchmark_repeated(f; samples)
   outputs = Any[]
   capture() = begin
@@ -325,10 +316,13 @@ end
 function solution_stats(solution)
   stats = solution.stats
   bonds = stats.max_bonds
+  variance_index = findlast(variance -> !isnothing(variance), stats.variances)
   return (
     sweeps = length(stats.energies),
     solution_max_bond = isempty(stats.bond_dims) ? 0 : maximum(stats.bond_dims),
     solver_elapsed_seconds = isempty(stats.elapsed_times) ? 0.0 : last(stats.elapsed_times),
+    final_variance =
+      isnothing(variance_index) ? missing : stats.variances[variance_index],
     initial_state_bond = bonds.initial_state,
     objective_mpo_bond = bonds.objective,
     projection_mpo_bond = isempty(bonds.projections) ? missing : maximum(bonds.projections),
@@ -388,7 +382,7 @@ function best_penalty_sample(instance, model, samples)
   return best
 end
 
-function solver_options(iterations, cutoff, time_limit, on_iteration)
+function solver_options(iterations, cutoff, time_limit)
   return (
     iterations = iterations,
     time_limit = time_limit,
@@ -400,8 +394,6 @@ function solver_options(iterations, cutoff, time_limit, on_iteration)
     # Collect variance on every sweep without letting convergence shorten the
     # fixed-sweep benchmark workload.
     vtol = -Inf,
-    on_iteration,
-    callback_every = 1,
     verbosity = 0,
   )
 end
@@ -415,7 +407,6 @@ function benchmark_result_row(
   formulation_timed,
   case_timed,
   solution;
-  variances,
   nvariables,
   iterations,
   reads,
@@ -476,7 +467,7 @@ function benchmark_result_row(
     time_limit_reached = (stats.sweeps < iterations ||
                           stats.solver_elapsed_seconds > time_limit),
     solution_max_bond = stats.solution_max_bond,
-    final_variance = isempty(variances) ? missing : last(variances),
+    final_variance = stats.final_variance,
     truncation_error = missing,
     initial_state_bond = stats.initial_state_bond,
     objective_mpo_bond = stats.objective_mpo_bond,
@@ -506,9 +497,8 @@ function projection_row(
   end
   constraint = formulation_timed.value
   case_timed = benchmark_repeated(; samples = timing_samples) do
-    variances, callback = variance_observer()
     Random.seed!(SOLVER_SEED)
-    options = solver_options(iterations, cutoff, time_limit, callback)
+    options = solver_options(iterations, cutoff, time_limit)
     reported_objective, solution =
       TenSolver.maximize(instance.values; constraints = [constraint], options...)
     sampling = @timed best_projection_sample(instance, TenSolver.sample(solution, reads))
@@ -516,7 +506,6 @@ function projection_row(
       reported_objective,
       solution,
       items = sampling.value,
-      variances,
       sampling = (time = sampling.time, gctime = sampling.gctime, memory = sampling.bytes),
     )
   end
@@ -531,7 +520,6 @@ function projection_row(
     formulation_timed,
     case_timed,
     output.solution;
-    variances = output.variances,
     nvariables = nitems,
     iterations,
     reads,
@@ -559,9 +547,8 @@ function penalty_row(
   end
   model = formulation_timed.value
   case_timed = benchmark_repeated(; samples = timing_samples) do
-    variances, callback = variance_observer()
     Random.seed!(SOLVER_SEED)
-    options = solver_options(iterations, cutoff, time_limit, callback)
+    options = solver_options(iterations, cutoff, time_limit)
     reported_objective, solution =
       TenSolver.minimize(model.Q, model.l, model.constant; options...)
     sampling = @timed begin
@@ -573,7 +560,6 @@ function penalty_row(
       solution,
       assignment = sampling.value.assignment,
       items = sampling.value.items,
-      variances,
       sampling = (time = sampling.time, gctime = sampling.gctime, memory = sampling.bytes),
     )
   end
@@ -588,7 +574,6 @@ function penalty_row(
     formulation_timed,
     case_timed,
     output.solution;
-    variances = output.variances,
     nvariables = length(output.assignment),
     iterations,
     reads,
@@ -628,8 +613,8 @@ not just each solver's encoded objective.
 
 Final-state variance and operator bond dimensions come from solver-reported
 statistics.
-Truncation error remains unavailable because the callback runs after discarded
-singular values have been removed.
+Truncation error remains unavailable because solver statistics do not expose
+discarded singular values.
 
 When provided, `on_row` is called after each completed row so long runs can
 report progress without changing the returned table.
