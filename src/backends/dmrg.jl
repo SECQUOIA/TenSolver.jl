@@ -237,7 +237,7 @@ function minimize_mpo( H_obj :: MPO
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
                      , vtol       = cutoff
-                     , check_variance_every_iteration = 10
+                     , check_variance_every_iteration :: Int = 10
                      # DMRG keywords
                      , inidim     = 40
                      , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
@@ -252,6 +252,9 @@ function minimize_mpo( H_obj :: MPO
                      , permutation :: Vector{Int} = collect(1:length(H_obj))
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
+  check_variance_every_iteration >= 1 || throw(ArgumentError(
+    "`check_variance_every_iteration` must be >= 1, got $check_variance_every_iteration",
+  ))
   initial_time = time()
 
   # Quantization

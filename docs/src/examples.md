@@ -245,8 +245,7 @@ See [`TenSolver.SolverStatistics`](@ref) for more details.
 `psi.stats.energies`, `psi.stats.bond_dims`, and `psi.stats.elapsed_times` contain
 one value per completed iteration. `psi.stats.variances` has the same length and
 contains either the checked variance or `nothing` when that iteration did not
-perform the configured variance check. The former top-level properties
-`psi.energies`, `psi.bond_dims`, and `psi.elapsed_times` are deprecated aliases.
+perform the configured variance check.
 
 For per-iteration sampling, pass an `on_iteration` callback.
 The callback receives the MPS for that iteration alongside metadata as keyword arguments.

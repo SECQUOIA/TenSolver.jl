@@ -84,24 +84,6 @@ struct Solution{T <: Real}
   end
 end
 
-function Base.getproperty(solution::Solution, name::Symbol)
-  if name === :energies || name === :bond_dims || name === :elapsed_times
-    Base.depwarn(
-      "`solution.$name` is deprecated; use `solution.stats.$name` instead.",
-      name,
-    )
-    return getproperty(getfield(solution, :stats), name)
-  end
-
-  return getfield(solution, name)
-end
-
-function Base.propertynames(::Solution, _private::Bool=false)
-  fields = fieldnames(Solution)
-  aliases = (:energies, :bond_dims, :elapsed_times)
-  return (fields..., aliases...)
-end
-
 function infeasible_solution(::Type{T}, domain, stats) where {T <: Real}
   return Solution{T}(nothing, domain, Int[], stats)
 end
