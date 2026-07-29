@@ -123,7 +123,9 @@ Keyword arguments:
   Some keywords, such as `constraints` and `domain`,
   may have limited support depending on the backend.
 
-The returned `Solution` carries per-iteration stats in the fields `energies`, `bond_dims`, and `elapsed_times`.
+The returned `Solution` carries per-iteration convergence data in `solution.stats`.
+The former top-level fields `solution.energies`, `solution.bond_dims`, and
+`solution.elapsed_times` remain available as deprecated aliases.
 
 Provably infeasible constrained models are reported as a status:
 `minimize` logs a warning and returns `+Inf` (the minimum over an empty feasible set)
