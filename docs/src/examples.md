@@ -30,6 +30,69 @@ x = TenSolver.sample(psi)
 (true, "Wind, Battery")
 ```
 
+## Ising Model
+
+Use `domain = [-1, 1]` when the variables are Ising spins:
+
+```jldoctest ising-domain
+using TenSolver
+
+J = [0.0 -1.0;
+     -1.0 0.0]
+h = [0.25, -0.5]
+
+E, psi = TenSolver.minimize(J, h; domain = [-1, 1], verbosity = 0)
+s = TenSolver.sample(psi)
+
+(E ≈ -2.25, s, all(in((-1, 1)), s))
+
+# output
+
+(true, [1.0, 1.0], true)
+```
+
+## Non-consecutive Integer Domains
+
+Use any finite integer domain:
+
+```jldoctest sparse-domain
+using TenSolver
+
+l = [1.0, -4.0, 2.0]
+
+E, psi = TenSolver.minimize(l; domain = [-2, 0, 3], verbosity = 0)
+x = TenSolver.sample(psi)
+
+(E ≈ -18.0, x, psi.domain)
+
+# output
+
+(true, [-2.0, 3.0, -2.0], [-2.0, 0.0, 3.0])
+```
+
+## Fractional Domains
+
+Unconstrained DMRG optimization accepts any finite domain of real values,
+including fractional values:
+
+```jldoctest fractional-domain
+using TenSolver
+
+l = [-2.0, 3.0]
+
+E, psi = TenSolver.minimize(l; domain = [0.0, 0.5, 1.0], verbosity = 0)
+x = TenSolver.sample(psi)
+
+(E ≈ -2.0, x, psi.domain)
+
+# output
+
+(true, [1.0, 0.0], [0.0, 0.5, 1.0])
+```
+
+Hard constraints can impose narrower domain requirements. In particular,
+[`SumConstraint`](@ref) currently requires a nonnegative integer domain.
+
 ## QUBO with Linear and Constant Terms
 
 You can also specify linear and constant terms:
@@ -176,18 +239,15 @@ x = TenSolver.sample(psi)
 
 ## Tracking Optimization Progress
 
-The returned `Solution` always carries lightweight per-iteration stats:
+The default DMRG backend returns a [`TenSolver.DMRGSolution`](@ref) with
+lightweight per-iteration statistics in the `stats` field.
+See [`TenSolver.SolverStatistics`](@ref) for more details.
 
-```julia
-using TenSolver
-
-Q = randn(40, 40)
-E, psi = TenSolver.minimize(Q; iterations=50)
-
-psi.energies       # objective value at each iteration
-psi.bond_dims      # MPS bond dimension at each iteration
-psi.elapsed_times  # wall-clock time at each iteration
-```
+`psi.stats.energies`, `psi.stats.bond_dims`, and `psi.stats.elapsed_times` contain
+one value per completed iteration. `psi.stats.variances` has the same length and
+contains either the checked variance or `nothing` when that iteration did not
+perform the configured variance check. The former top-level properties
+`psi.energies`, `psi.bond_dims`, and `psi.elapsed_times` are deprecated aliases.
 
 For per-iteration sampling, pass an `on_iteration` callback.
 The callback receives the MPS for that iteration alongside metadata as keyword arguments.
@@ -390,3 +450,10 @@ println("Number of conflicts: ", conflicts)
 Graph coloring: [0, 1, 0, 1]
 Number of conflicts: 0.0
 ```
+
+## Constraints
+
+TenSolver can also enforce hard constraints on the binary variables, so every
+sampled solution is guaranteed feasible. This is a larger topic with its own
+page — see [Constrained Optimization](@ref) for the projection method behind it,
+the available constraint types, and worked examples.

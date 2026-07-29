@@ -168,37 +168,6 @@ end
     assert_constrained_solution(E_ppos, psi_ppos, poly_pos_obj, force_one_poly, 2.0, [1])
   end
 
-  @testset "Callbacks and stats remain available" begin
-    Q = zeros(2, 2)
-    l = [-1.0, -2.0]
-    constraints = AbstractConstraint[NotEqualsConstraint([1, 2], [1, 1])]
-    calls = Int[]
-    objectives = Float64[]
-
-    E, psi = minimize(
-      Q,
-      l;
-      constraints,
-      iterations=2,
-      verbosity=0,
-      cutoff=1e-12,
-      noise=[0.0],
-      on_iteration=(mps; iteration, objective, kw...) -> begin
-        push!(calls, iteration)
-        push!(objectives, objective)
-        @test is_feasible(TenSolver.sample(TenSolver.Solution(deepcopy(mps), Float64[], Int[], Float64[])), constraints)
-      end,
-    )
-
-    @test calls == [1, 2]
-    @test length(objectives) == 2
-    @test length(psi.energies) == 2
-    @test length(psi.bond_dims) == 2
-    @test length(psi.elapsed_times) == 2
-    @test is_feasible(TenSolver.sample(psi), constraints)
-    @test E ≈ -2.0
-  end
-
   @testset "Zero objective keeps feasible constrained samples" begin
     constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
     E, psi = minimize(
@@ -226,12 +195,31 @@ end
 
     @test E == Inf
     @test !is_feasible(psi)
-    @test isempty(psi.energies)
-    @test isempty(psi.bond_dims)
-    @test isempty(psi.elapsed_times)
-    # The solve reports; querying a nonexistent solution throws.
-    @test_throws DomainError TenSolver.sample(psi)
+    @test isempty(psi.stats.energies)
+    @test isempty(psi.stats.bond_dims)
+    @test isempty(psi.stats.elapsed_times)
+    @test isempty(psi.stats.variances)
+    @test length(psi.stats.max_bonds.projections) == 1
+    @test all(>(0), psi.stats.max_bonds.projections)
+    @test psi.stats.max_bonds.objective > 0
+    @test psi.stats.max_bonds.initial_state == 0
+    @test psi.stats.max_bonds.hamiltonian > 0
     @test [0, 0] ∉ psi
+    @test_throws DomainError TenSolver.sample(psi)
+
+    io = IOBuffer()
+    E_debug, psi_debug = with_logger(ConsoleLogger(io, Logging.Debug)) do
+      minimize(
+        zeros(2, 2);
+        constraints=impossible,
+        verbosity=0,
+      )
+    end
+    debug_log = String(take!(io))
+    @test E_debug == Inf
+    @test !is_feasible(psi_debug)
+    @test occursin("empty feasible subspace", debug_log)
+    @test !occursin("Exception while generating log record", debug_log)
 
     # The supremum over an empty feasible set is -Inf.
     Emax, psimax = @test_logs (:warn, r"empty feasible subspace") maximize(
@@ -270,5 +258,106 @@ end
 
     @test termination_status == TenSolver.MOI.INFEASIBLE
     @test status == "infeasible"
+  end
+
+  @testset "Knapsack: maximize value under a capacity SumConstraint" begin
+    # 0/1 knapsack as a constrained solve: minimize -value subject to a
+    # weight budget. Weights/values chosen so the optimum is unique
+    # (items 3 and 4: weight 5 + 2 = 7 == capacity, value 7 + 3 = 10).
+    weights  = [3, 4, 5, 2]
+    values   = [4.0, 5.0, 7.0, 3.0]
+    capacity = 7
+    constraints = AbstractConstraint[SumConstraint([1, 2, 3, 4], weights, capacity; relation=:(<=))]
+    obj(x) = -dot(values, x)
+    expected_energy, expected_sample = brute_force(obj, 4, constraints)
+
+    @test expected_sample == [0, 0, 1, 1]
+
+    E, psi = minimize(
+      zeros(4, 4),
+      -values;
+      constraints,
+      iterations=4,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+    )
+
+    assert_constrained_solution(E, psi, obj, constraints, expected_energy, expected_sample)
+    @test sum(weights .* TenSolver.sample(psi)) <= capacity
+  end
+
+  @testset "SumConstraint over non-adjacent sites (n = 5)" begin
+    # Exactly one of the odd-indexed sites {1, 3, 5} is selected. The linear
+    # objective makes site 3 uniquely optimal among them and leaves the
+    # unconstrained even sites at 0, so the optimum is the unique [0,0,1,0,0].
+    l = [-1.0, 0.5, -3.0, 0.5, -2.0]
+    constraints = AbstractConstraint[SumConstraint([1, 3, 5], [1, 1, 1], 1; relation=:(==))]
+    obj(x) = dot(l, x)
+    expected_energy, expected_sample = brute_force(obj, 5, constraints)
+
+    @test expected_sample == [0, 0, 1, 0, 0]
+
+    E, psi = minimize(
+      zeros(5, 5),
+      l;
+      constraints,
+      iterations=4,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+    )
+
+    assert_constrained_solution(E, psi, obj, constraints, expected_energy, expected_sample)
+  end
+
+  @testset "Degenerate feasible optima are both represented in psi" begin
+    # Exactly-one over two sites with a symmetric objective: [1, 0] and [0, 1]
+    # are both optimal with E = -1. `mindim = 2` keeps the MPS from truncating
+    # to a single bitstring — the same mechanism test/cases/vrp.jl uses to
+    # force positive probability for both optimal solutions. The optimum split
+    # inherits the random initial state, so seed for reproducibility; the
+    # membership cutoff (1e-8) sits orders of magnitude below the observed
+    # worst-case split (~1e-4 over 30 seeds).
+    Random.seed!(20260715)
+
+    l = [-1.0, -1.0]
+    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+
+    E, psi = minimize(
+      zeros(2, 2),
+      l;
+      constraints,
+      iterations=3,
+      verbosity=0,
+      cutoff=1e-12,
+      noise=[0.0],
+      mindim=2,
+    )
+
+    @test E ≈ -1.0
+    @test [1, 0] in psi
+    @test [0, 1] in psi
+    # Infeasible states carry no amplitude, so the two optima carry all of it.
+    @test [0, 0] ∉ psi
+    @test [1, 1] ∉ psi
+    @test TenSolver.prob(psi, [1, 0]) + TenSolver.prob(psi, [0, 1]) ≈ 1.0 atol=1e-8
+
+    # The constrained scalar fast path is exactly deterministic: with both
+    # assignments feasible and degenerate it returns the uniform superposition.
+    relaxed = AbstractConstraint[SumConstraint([1], [1], 1; relation=:(<=))]
+    E1, psi1 = minimize(
+      zeros(1, 1);
+      constraints=relaxed,
+      iterations=2,
+      verbosity=0,
+      cutoff=1e-12,
+    )
+
+    @test E1 ≈ 0.0
+    @test [0] in psi1
+    @test [1] in psi1
+    @test TenSolver.prob(psi1, [0]) ≈ 0.5
+    @test TenSolver.prob(psi1, [1]) ≈ 0.5
   end
 end

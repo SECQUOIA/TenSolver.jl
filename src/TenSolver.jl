@@ -104,7 +104,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   reads = is_feasible(psi) ? final_num_reads : 0
   samples = Vector{QUBOTools.Sample{T,Int}}(undef, reads)
   for i in 1:reads
-    x = sample(psi)
+    x = Int.(sample(psi))
     E = QUBOTools.value(x, l, Q, a, b)
 
     samples[i] = QUBOTools.Sample{T,Int}(x, E)
@@ -127,7 +127,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
 end
 
 function tensolver_metadata(
-  solution::Solution;
+  solution::DMRGSolution;
   effective_time::Real,
   num_reads::Integer,
   final_num_reads::Integer,
@@ -137,7 +137,7 @@ function tensolver_metadata(
   vtol::Real,
   maxdim,
 )
-  optimizer_iterations = length(solution.energies)
+  optimizer_iterations = length(solution.stats.energies)
   termination_status, status = tensolver_status(
     solution;
     iterations,
@@ -159,8 +159,8 @@ function tensolver_metadata(
   metadata["time"] = Dict{String,Any}("effective" => effective_time)
   metadata["tensolver"] = Dict{String,Any}(
     "dmrg" => Dict{String,Any}(
-      "sweep_elapsed" => copy(solution.elapsed_times),
-      "sweep_times"   => sweep_times(solution.elapsed_times),
+      "sweep_elapsed" => copy(solution.stats.elapsed_times),
+      "sweep_times"   => sweep_times(solution.stats.elapsed_times),
     ),
     "parameters" => Dict{String,Any}(
       "cutoff"     => cutoff,
@@ -174,11 +174,15 @@ function tensolver_metadata(
   return metadata
 end
 
-function tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
-  elapsed_time = isempty(solution.elapsed_times) ? 0.0 : last(solution.elapsed_times)
+function tensolver_status(
+  solution::DMRGSolution;
+  iterations::Integer,
+  time_limit::Real,
+)
+  elapsed_time = isempty(solution.stats.elapsed_times) ? 0.0 : last(solution.stats.elapsed_times)
   if !is_feasible(solution)
     return MOI.INFEASIBLE, "infeasible"
-  elseif length(solution.energies) >= iterations
+  elseif length(solution.stats.energies) >= iterations
     return MOI.ITERATION_LIMIT, "iteration_limit"
   elseif isfinite(time_limit) && elapsed_time > time_limit
     return MOI.TIME_LIMIT, "time_limit"

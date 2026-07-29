@@ -1,0 +1,25 @@
+indent = 2
+margin = 92
+normalize_line_endings = "unix"
+
+align_assignment   = true
+align_struct_field = true
+align_conditional  = true
+align_pair_arrow   = true
+
+always_for_in       = true
+always_use_return   = true
+short_circuit_to_if = true
+
+
+disallow_single_arg_nesting = true
+
+import_to_using                = false
+format_docstrings              = true
+remove_extra_newlines          = false
+short_to_long_function_def     = true
+trailing_comma                 = true
+whitespace_in_kwargs           = true
+separate_kwargs_with_semicolon = true
+
+whitespace_ops_in_indices = true

@@ -25,8 +25,8 @@ Boolean variables represented as two-dimensional qudit sites. It then applies
 DMRG through ITensorMPS.jl and returns:
 
 - the best sampled objective value; and
-- a [`Solution`](@ref), which wraps the MPS and per-iteration convergence
-  traces.
+- a [`DMRGSolution`](@ref), which wraps the MPS and per-iteration convergence
+  traces behind the common [`Solution`](@ref) interface.
 
 This backend is general with respect to the variable ordering and QUBO/PUBO
 interaction pattern. It does not require a graph layout such as a grid,
@@ -143,8 +143,9 @@ dense QUBO matrix unless a future API defines that inference clearly.
 
 ## Result Model Boundary
 
-The current TenSolver result is intentionally compact: `energy, Solution` from
-the direct API and a QUBOTools `SampleSet` from the optimizer API.
+The current TenSolver result is intentionally compact: `energy` plus a
+backend-specific [`Solution`](@ref) subtype from the direct API, and a
+QUBOTools `SampleSet` from the optimizer API.
 
 SpinGlassPEPS can produce richer output, including ranked energies, states,
 probabilities, largest discarded probability during branch-and-bound, lattice
@@ -185,12 +186,13 @@ learn the SpinGlassPEPS API. The current behavior is:
   behavior.
 
 This stack step keeps the direct PEPS path as non-public scaffolding. The core
-package contains internal backend, topology, and result boundaries, while the
-exported `solve_ising` function is the public Ising boundary that optional
-structured backends may implement. `TenSolverSpinGlassPEPSExt` owns the
-SpinGlass component imports and calls. This keeps ordinary TenSolver installs
-on the existing dependency footprint and avoids documenting an activation path
-that cannot be tested from registered packages.
+package contains internal backend, topology, and result boundaries, while
+`minimize(J, h, offset; domain = [-1, 1], backend = ...)` remains the only
+Ising solver entry point. `TenSolverSpinGlassPEPSExt` owns the PEPS-specific
+`minimize` methods, option validation, SpinGlass component imports, and calls.
+This keeps ordinary TenSolver installs on the existing dependency footprint
+and avoids documenting an activation path that cannot be tested from
+registered packages.
 
 The extension remains gated while the upstream dependency stack settles. In
 local checks against SpinGlassNetworks 1.4, SpinGlassEngine 1.6, and
@@ -206,11 +208,12 @@ include a passing small structured-grid CPU solve through the optional
 SpinGlass component stack.
 
 The initial internal structured topology scaffolding covers one-spin-per-site
-and multi-spin-per-site square/king grids. QUBO inputs are converted through
-[`qubo_to_ising`](@ref) before the PEPS extension builds a SpinGlassNetworks
-Ising graph, clusters it with `super_square_lattice`, constructs the Potts
-Hamiltonian, runs `MpsContractor` plus `low_energy_spectrum`, and decodes
-retained states back to TenSolver Boolean vectors.
+and multi-spin-per-site square/king grids. The PEPS extension requires the
+normalized `[-1, 1]` domain, builds a SpinGlassNetworks Ising graph directly
+from the quadratic and linear coefficients, clusters it with
+`super_square_lattice`, constructs the Potts Hamiltonian, runs `MpsContractor`
+plus `low_energy_spectrum`, and returns retained spin states through a
+`PEPSSolution`.
 
 Later PRs should add QUBODrivers/JuMP raw optimizer attributes for backend and
 PEPS parameters.

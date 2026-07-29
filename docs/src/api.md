@@ -21,8 +21,9 @@ TenSolver.normalize_backend
 ## Solution
 
 ```@docs
-TenSolver.AbstractSolution
 TenSolver.Solution
+TenSolver.DMRGSolution
+TenSolver.SolverStatistics
 ```
 
 ## Sampling Functions
@@ -41,6 +42,11 @@ TenSolver.ising_to_qubo
 ```
 
 ## Constraints
+
+Hard constraints are enforced by lowering each one to an exact projection MPO,
+following CoTenN (Sharma, Peng, Dangwal, and Achour, *"CoTenN: Constrained
+Optimization with Tensor Networks,"* PLDI 2026). See [Constrained Optimization](@ref)
+for a worked example.
 
 ```@docs
 TenSolver.AbstractConstraint
@@ -81,8 +87,6 @@ TenSolver.constraint_to_dfa
 TenSolver.dfa_to_mpo
 TenSolver.projection_mpo
 TenSolver.projection_mpos
-TenSolver.SparseTensorEntry
-TenSolver.projection_entries
 ```
 
 ### Projected Hamiltonian Construction
@@ -97,8 +101,6 @@ TenSolver.project_state
 ```@docs
 TenSolver.SquareGrid
 TenSolver.KingGrid
-TenSolver.solve_ising
-TenSolver.peps_options
 ```
 
 ## Index

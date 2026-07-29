@@ -1,4 +1,4 @@
-using Test, Random, LinearAlgebra
+using Test, Random, LinearAlgebra, Logging
 
 using  TenSolver
 
@@ -20,17 +20,22 @@ include(filepath("backend.jl"))
 
 # Ising <-> QUBO utilities
 include(filepath("ising_conversion.jl"))
-include(filepath("backend.jl"))
 include(filepath("peps_backend.jl"))
 
 # Binary constraint API
 include(filepath("constraints.jl"))
 include(filepath("projection_mpo.jl"))
-include(filepath("constrained_solve.jl"))
+
+# MPO construction
+include(filepath("tensorize.jl"))
 
 # Traditional interface
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
+include(filepath("domains.jl"))
+include(filepath("fractional_domains.jl"))
+include(filepath("spin_domains.jl"))
+include(filepath("constrained_solve.jl"))
 
 # JuMP interface
 include(filepath("jump.jl"))

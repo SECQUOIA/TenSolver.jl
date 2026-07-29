@@ -48,9 +48,6 @@
     @test_throws ArgumentError ExactlyOneConstraint([0], 1)
     @test_throws ArgumentError ExactlyOneConstraint([1, 1], 1)
     @test_throws ArgumentError ExactlyOneConstraint([1.0], 1)
-    @test_throws ArgumentError ExactlyOneConstraint([1], -1)
-    @test_throws ArgumentError ExactlyOneConstraint([1], 2)
-    @test_throws ArgumentError ExactlyOneConstraint([1], 1.5)
 
     @test_throws DimensionMismatch SumConstraint([1, 2], [1], Symbol("=="), 1)
     @test_throws ArgumentError SumConstraint([1], [-1], Symbol("=="), 0)
@@ -69,7 +66,6 @@
     end
 
     @test_throws DimensionMismatch NotEqualsConstraint([1, 2], [1])
-    @test_throws ArgumentError NotEqualsConstraint([1], [2])
 
     @test_throws ArgumentError RelationConstraint(0, Symbol("=="), 1)
     @test_throws ArgumentError RelationConstraint(1, Symbol("=="), 1)

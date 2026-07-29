@@ -1,24 +1,20 @@
 """
     AbstractConstraint
 
-Supertype for conditions over a binary vector `x` (entries in `{0, 1}`)
-addressed by 1-based site indices.
+Supertype for conditions over a vector `x` addressed by 1-based site indices.
 
 
 # API
 
-These are an interface for binary feasibility constraints.
+These are an interface for feasibility constraints.
 Any concrete subtype is expected to implement
-- [`is_feasible`](@ref).
-- [`constraint_sites`](@ref).
-
-For turning a constraint into an MPO,
-you must implement [`constraint_to_dfa`](@ref) or [`projection_mpo`](@ref).
+- [`is_feasible`](@ref)
+- [`constraint_sites`](@ref)
+- [`constraint_to_dfa`](@ref)
 
 Constraint types are experimental. They currently provide TenSolver's
 Julia lowering target for projection-MPO constrained solves; future JuMP/MOI
-integration may change which constraint abstraction is considered stable public
-API.
+integration may change which constraint abstraction is considered stable public API.
 
 See also [`SumConstraint`](@ref), [`NotEqualsConstraint`](@ref),
 [`ExactlyOneConstraint`](@ref), and [`RelationConstraint`](@ref).
@@ -30,7 +26,7 @@ abstract type AbstractConstraint end
     SumConstraint(sites, weights, relation, rhs)
     SumConstraint(sites, weights, rhs; relation)
 
-Weighted-sum constraint over a binary vector `x`:
+Weighted-sum constraint over a vector `x`:
 
     sum(weights[i] * x[sites[i]] for i in eachindex(sites)) relation rhs.
 
@@ -38,9 +34,7 @@ Weighted-sum constraint over a binary vector `x`:
 `weights` must be the same length as `sites` and only contain nonnegative integers,
 and `relation` must be one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`.
 
-The `==` and `!=` relations use exact arithmetic comparison. Projection MPO
-lowering for `SumConstraint` supports integer-valued weights and right-hand side
-values.
+Warning: The `==` and `!=` relations use exact arithmetic comparison.
 """
 struct SumConstraint{T<:Real} <: AbstractConstraint
   weights::Dict{Int,T}
@@ -54,10 +48,7 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
     relation   = validate_relation(relation)
     rhs        = validate_rhs(rhs)
 
-    weight_map = Dict(site => weight for (site, weight) in zip(site_vec, weight_vec))
-    if length(weight_map) != length(site_vec)
-      throw(ArgumentError("sites must be unique"))
-    end
+    weight_map = Dict{Int,T}(zip(site_vec, weight_vec))
 
     return new{T}(weight_map, relation, rhs)
   end
@@ -69,7 +60,6 @@ function SumConstraint(sites, weights, relation, rhs)
 
   weight_types = map(typeof, raw_weights)
   T = promote_type(weight_types..., typeof(rhs))
-  T <: Real || throw(ArgumentError("weights and rhs must be real-valued"))
 
   weight_vec = T.(raw_weights)
   rhs_value = convert(T, rhs)
@@ -86,38 +76,30 @@ end
     NotEqualsConstraint <: AbstractConstraint
     NotEqualsConstraint(sites, values)
 
-Excludes a single assignment over a binary vector `x`: at least one component of
-`x[sites]` must differ from `values`. Equivalently, the partial assignment
-`x[sites] == values` is forbidden.
+Excludes a single assignment over a vector `x`:
+at least one component of `x[sites]` must differ from `values`.
+Equivalently, the partial assignment `x[sites] == values` is forbidden.
 
-`sites` must be unique positive integers, and `values` must contain only binary
-values (`0` or `1`) with the same length as `sites`.
+`sites` must be unique positive integers, and `values` must have the same length as `sites`.
 """
 struct NotEqualsConstraint{T<:Real} <: AbstractConstraint
   values::Dict{Int, T}
 
   function NotEqualsConstraint{T}(sites, values::AbstractVector{T}) where {T<:Real}
-    site_vec  = validate_sites(sites)
-    value_vec = validate_binary_values(values, "values")
-    validate_same_length(site_vec, value_vec, "sites", "values")
+    site_vec = validate_sites(sites)
+    validate_same_length(site_vec, values, "sites", "values")
 
-    value_map = Dict{Int,T}(site => value for (site, value) in zip(site_vec, value_vec))
-    if length(value_map) != length(site_vec)
-      throw(ArgumentError("sites must be unique"))
-    end
+    value_map = Dict{Int,T}(zip(site_vec, values))
 
     return new{T}(value_map)
   end
 end
 
 function NotEqualsConstraint(sites, values)
-  raw_values = collect(values)
-  isempty(raw_values) && throw(ArgumentError("values must not be empty"))
+  isempty(values) && throw(ArgumentError("values must not be empty"))
+  T = promote_type(map(typeof, values)...)
 
-  T = promote_type(map(typeof, raw_values)...)
-  T <: Real || throw(ArgumentError("values must be real-valued"))
-
-  return NotEqualsConstraint{T}(sites, T.(raw_values))
+  return NotEqualsConstraint{T}(sites, T.(values))
 end
 
 """
@@ -136,7 +118,6 @@ struct ExactlyOneConstraint{T<:Real} <: AbstractConstraint
 
   function ExactlyOneConstraint{T}(sites, value::T) where {T<:Real}
     site_vec = validate_sites(sites)
-    value    = validate_binary_value(value, "value")
 
     return new{T}(site_vec, value)
   end
@@ -150,7 +131,7 @@ end
     RelationConstraint <: AbstractConstraint
     RelationConstraint(left_site, relation, right_site)
 
-Pairwise constraint over a binary vector `x`:
+Pairwise constraint over a vector `x`:
 `x[left_site] relation x[right_site]`.
 
 `left_site` and `right_site` must be distinct positive integers, and `relation`
@@ -173,11 +154,7 @@ end
 """
     is_feasible(x, constraint::AbstractConstraint)
 
-Test whether the binary vector `x` (entries in `{0, 1}`, 1-based indexing)
-satisfies a single `constraint <: AbstractConstraint`.
-
-Throws an `ArgumentError` if `x` contains a non-binary entry and a `BoundsError`
-if a constraint references a site outside `x`.
+Test whether the vector `x` satisfies a single `constraint`.
 """
 function is_feasible end
 
@@ -204,15 +181,12 @@ end
 """
     is_feasible(x, constraints::Vector{AbstractConstraint})
 
-Test whether the binary vector `x`
-satisfies every constraint in a vector `constraints`.
-Any vector is feasible for an empty constraint vector.
+Test whether the vector `x` satisfies every constraint in a vector `constraints`.
 
-Throws an `ArgumentError` if `x` contains a non-binary entry and a `BoundsError`
-if a constraint references a site outside `x`.
+Any vector is feasible for an empty constraint vector.
 """
 function is_feasible(x::AbstractVector, constraints::AbstractVector{<:AbstractConstraint})
-  return all(constraint -> is_feasible(x, constraint), constraints)
+  return all(c -> is_feasible(x, c), constraints)
 end
 
 """
@@ -222,7 +196,6 @@ Access the site indices stored in the `constraint`.
 """
 function constraint_sites end
 
-# TODO: Why do we always have to sort it?
 function constraint_sites(constraint::SumConstraint)
   return keys(constraint.weights)
 end
@@ -309,30 +282,10 @@ function validate_rhs(rhs)
 end
 
 function validate_relation(relation)
-  relation isa Symbol || throw(ArgumentError("relation must be a Symbol"))
   relation in VALID_RELATIONS ||
     throw(ArgumentError("relation must be one of: $(join(string.(VALID_RELATIONS), ", "))"))
 
   return relation
-end
-
-function validate_binary_values(values, name)
-  if isempty(values)
-    throw(ArgumentError("$name must not be empty"))
-  end
-  if any(!in((0, 1)), values)
-    throw(ArgumentError("$name must contain only binary values 0 or 1"))
-  end
-
-  return values
-end
-
-function validate_binary_value(value, name)
-  if !(isequal(value, 0) || isequal(value, 1))
-    throw(ArgumentError("$name must be a binary value 0 or 1"))
-  end
-
-  return Int(value)
 end
 
 function relation_holds(lhs, relation, rhs)

@@ -1,84 +1,137 @@
 module TenSolverSpinGlassPEPSExt
 
-import SparseArrays: findnz
+import MultivariatePolynomials:
+  AbstractPolynomial, coefficient, effective_variables, isconstant, maxdegree, powers, terms
+import SparseArrays: findnz, sparse
 
 import TenSolver
-import TenSolver:
-  IsingModel,
-  KingGrid,
-  PEPSBackend,
-  PEPSSolution,
-  SquareGrid,
-  ising_energy,
-  spin_to_bool
+import TenSolver: KingGrid, PEPSBackend, PEPSSolution, SquareGrid
 
 import SpinGlassEngine
 import SpinGlassNetworks
 import SpinGlassTensors
 
-function peps_float_type(::IsingModel{T}) where {T}
-  return typeof(float(one(T)))
-end
-
-function ising_instance(model::IsingModel{T}) where {T}
-  S = peps_float_type(model)
-  instance = Dict{Tuple{Int, Int}, S}()
-
-  for i in eachindex(model.h)
-    instance[(i, i)] = S(model.h[i])
+function peps_options(;
+  maxdim::Integer = 16,
+  iterations::Integer = 1,
+  device::Function = TenSolver.cpu,
+  beta::Real = 2.0,
+  max_states::Integer = 2^8,
+  cutoff_prob::Real = 1e-4,
+  contraction::Symbol = :auto,
+  graduate_truncation::Bool = true,
+  transformations = :all,
+  local_dimension::Union{Nothing,Integer} = nothing,
+  no_cache::Bool = false,
+)
+  if !(beta > 0 && isfinite(beta))
+    throw(ArgumentError("PEPS solves require finite beta > 0. Got $beta."),)
+  end
+  if !(maxdim >= 1)
+    throw(ArgumentError("PEPS solves require maxdim >= 1. Got $maxdim."),)
+  end
+  if !(max_states >= 1)
+    throw(ArgumentError("PEPS solves require max_states >= 1. Got $max_states."),)
+  end
+  if !(cutoff_prob >= 0)
+    throw(ArgumentError("PEPS solves require cutoff_prob >= 0. Got $cutoff_prob.",),)
+  end
+  if !(iterations >= 1)
+    throw(ArgumentError("PEPS solves require iterations >= 1. Got $iterations."),)
+  end
+  if !(contraction in (:auto, :svd, :svd_truncate, :zipper))
+    throw(ArgumentError("Unsupported PEPS contraction $(repr(contraction)). Use :auto, " *
+                        ":svd, :svd_truncate, or :zipper.",),)
+  end
+  if !isnothing(local_dimension)
+    local_dimension >= 1 ||
+      throw(ArgumentError("PEPS solves require local_dimension >= 1 when provided. " *
+                          "Got $local_dimension.",),)
   end
 
-  rows, cols, vals = findnz(model.J)
-  for k in eachindex(vals)
+  return (;
+    maxdim = Int(maxdim),
+    iterations = Int(iterations),
+    onGPU = !(device === TenSolver.cpu),
+    beta = Float64(beta),
+    max_states = Int(max_states),
+    cutoff_prob = Float64(cutoff_prob),
+    contraction,
+    graduate_truncation,
+    transformations,
+    local_dimension = isnothing(local_dimension) ? nothing : Int(local_dimension),
+    no_cache,
+  )
+end
+
+function check_spin_domain(domain)
+  return domain == [-1, 1] ||
+         throw(ArgumentError("PEPSBackend requires domain = [-1, 1]. Got $(repr(domain)).",),)
+end
+
+peps_float_type(::Type{T}) where {T} = float(T)
+
+function ising_instance(J::AbstractMatrix{T}, h::AbstractVector{T}) where {T}
+  S = peps_float_type(T)
+  instance = Dict{Tuple{Int,Int},S}()
+
+  for i in eachindex(h)
+    instance[(i, i)] = S(h[i])
+  end
+
+  rows, cols, values = findnz(sparse(J))
+  for k in eachindex(values)
     i = rows[k]
     j = cols[k]
-    if i < j && !iszero(vals[k])
-      instance[(i, j)] = get(instance, (i, j), zero(S)) + S(vals[k])
+    if i == j
+      continue
     end
+
+    edge = minmax(i, j)
+    instance[edge] = get(instance, edge, zero(S)) + S(values[k])
   end
 
   return instance
 end
 
-function check_topology_size(topology, model::IsingModel)
+function check_topology_size(topology, h::AbstractVector)
   expected = TenSolver.topology_size(topology)
-  actual = length(model.h)
-  actual == expected ||
-    throw(DimensionMismatch("PEPS topology $(repr(topology)) expects $expected spins, but the Ising model has $actual spins."))
+  actual = length(h)
+  return actual == expected ||
+         throw(DimensionMismatch("PEPS topology $(repr(topology)) expects $expected spins, but the " *
+                                 "Ising model has $actual spins.",),)
 end
 
 edge_supported(::SquareGrid, a::Tuple, b::Tuple) = abs(a[1] - b[1]) + abs(a[2] - b[2]) == 1
 edge_supported(::KingGrid, a::Tuple, b::Tuple) = maximum(abs.(a .- b)) == 1
 
-function check_layout_edges(topology, model::IsingModel, lattice)
-  rows, cols, vals = findnz(model.J)
-  for k in eachindex(vals)
+function check_layout_edges(topology, J::AbstractMatrix, lattice)
+  rows, cols, values = findnz(sparse(J))
+  for k in eachindex(values)
     i = rows[k]
     j = cols[k]
-    if i < j && !iszero(vals[k])
-      ci = lattice[i]
-      cj = lattice[j]
-      if ci != cj && !edge_supported(topology, ci, cj)
-        throw(ArgumentError(
-          "Ising coupling ($i, $j) is not compatible with $(repr(topology)). " *
-          "Use a compatible structured topology or backend = :dmrg."
-        ))
+    if i != j && !iszero(values[k])
+      source = lattice[i]
+      target = lattice[j]
+      if source != target && !edge_supported(topology, source, target)
+        throw(ArgumentError("Ising coupling ($i, $j) is not compatible with " *
+                            "$(repr(topology)). Use a compatible structured topology.",),)
       end
     end
   end
 end
 
-function build_potts_hamiltonian(local_dimension, ig, lattice)
+function build_potts_hamiltonian(local_dimension, instance, lattice)
   if isnothing(local_dimension)
     return SpinGlassNetworks.potts_hamiltonian(
-      ig;
+      instance;
       spectrum = SpinGlassNetworks.full_spectrum,
       cluster_assignment_rule = lattice,
     )
   end
 
   return SpinGlassNetworks.potts_hamiltonian(
-    ig,
+    instance,
     local_dimension;
     spectrum = SpinGlassNetworks.full_spectrum,
     cluster_assignment_rule = lattice,
@@ -86,20 +139,33 @@ function build_potts_hamiltonian(local_dimension, ig, lattice)
 end
 
 function resolve_transformations(transformations)
-  transformations === :all && return SpinGlassEngine.all_lattice_transformations
-  transformations === :identity && return (SpinGlassEngine.rotation(0),)
-  if transformations isa Symbol
-    throw(ArgumentError("Unsupported PEPS transformations $(repr(transformations)). Use :all, :identity, a transformation, or a collection of transformations."))
+  if transformations === :all
+    return SpinGlassEngine.all_lattice_transformations
   end
-  transformations isa Tuple && return transformations
-  transformations isa AbstractVector && return Tuple(transformations)
+  if transformations === :identity
+    return (SpinGlassEngine.rotation(0),)
+  end
+  if transformations isa Symbol
+    throw(ArgumentError("Unsupported PEPS transformations $(repr(transformations)). Use " *
+                        ":all, :identity, a transformation, or a collection of transformations.",),)
+  end
+  if transformations isa Tuple
+    return transformations
+  end
+  if transformations isa AbstractVector
+    return Tuple(transformations)
+  end
   return (transformations,)
 end
 
 function contraction_strategy(contraction::Symbol)
-  contraction in (:auto, :svd, :svd_truncate) && return SpinGlassEngine.SVDTruncate
-  contraction === :zipper && return SpinGlassEngine.Zipper
-  throw(ArgumentError("Unsupported PEPS contraction $(repr(contraction))."))
+  if contraction in (:auto, :svd, :svd_truncate)
+    return SpinGlassEngine.SVDTruncate
+  end
+  if contraction === :zipper
+    return SpinGlassEngine.Zipper
+  end
+  return throw(ArgumentError("Unsupported PEPS contraction $(repr(contraction)).",),)
 end
 
 function peps_network(topology::SquareGrid, potts_h, transform, ::Type{T}) where {T}
@@ -107,7 +173,12 @@ function peps_network(topology::SquareGrid, potts_h, transform, ::Type{T}) where
     SpinGlassEngine.SquareSingleNode{SpinGlassEngine.GaugesEnergy},
     SpinGlassEngine.Dense,
     T,
-  }(topology.m, topology.n, potts_h, transform)
+  }(
+    topology.m,
+    topology.n,
+    potts_h,
+    transform,
+  )
 end
 
 function peps_network(topology::KingGrid, potts_h, transform, ::Type{T}) where {T}
@@ -115,146 +186,235 @@ function peps_network(topology::KingGrid, potts_h, transform, ::Type{T}) where {
     SpinGlassEngine.KingSingleNode{SpinGlassEngine.GaugesEnergy},
     SpinGlassEngine.Dense,
     T,
-  }(topology.m, topology.n, potts_h, transform)
+  }(
+    topology.m,
+    topology.n,
+    potts_h,
+    transform,
+  )
 end
 
-function decoded_records(model::IsingModel, potts_h, sol, transform)
+function solve_transformation(
+  topology,
+  potts_h,
+  transform,
+  ::Type{T},
+  parameters,
+  search_parameters,
+  strategy,
+  options,
+) where {T}
+  try
+    network = peps_network(topology, potts_h, transform, T)
+    contractor = SpinGlassEngine.MpsContractor(
+      strategy,
+      network,
+      parameters;
+      onGPU = options.onGPU,
+      beta = T(options.beta),
+      graduate_truncation = options.graduate_truncation,
+    )
+    merge_strategy = SpinGlassEngine.merge_branches(contractor; merge_prob = :none)
+    solution, info = SpinGlassEngine.low_energy_spectrum(
+      contractor,
+      search_parameters,
+      merge_strategy;
+      no_cache = options.no_cache,
+    )
+
+    return (; solution, info)
+  finally
+    SpinGlassEngine.clear_memoize_cache()
+  end
+end
+
+function decoded_records(J, h, offset, potts_h, solution, transform)
   records = NamedTuple[]
-  for i in eachindex(sol.states)
-    decoded = SpinGlassNetworks.decode_potts_hamiltonian_state(potts_h, sol.states[i])
-    spins = [decoded[j] for j in eachindex(model.h)]
-    state = spin_to_bool(spins)
-    push!(records, (;
-      state,
-      spins,
-      energy = ising_energy(model, spins),
-      probability = sol.probabilities[i],
-      transformation = transform,
-      raw_energy = sol.energies[i],
-    ))
+  for i in eachindex(solution.states)
+    decoded = SpinGlassNetworks.decode_potts_hamiltonian_state(potts_h, solution.states[i])
+    spins = [Int(decoded[j]) for j in eachindex(h)]
+    push!(
+      records,
+      (;
+        state = spins,
+        energy = TenSolver.ising_energy(J, h, offset, spins),
+        probability = solution.probabilities[i],
+        transformation = transform,
+        raw_energy = solution.energies[i],
+      ),
+    )
   end
   return records
 end
 
 function deduplicated_records(records)
-  sort!(records; by = r -> (r.energy, -r.probability))
+  sort!(records; by = record -> (record.energy, -record.probability))
 
-  deduped = NamedTuple[]
-  positions = Dict{Any, Int}()
+  deduplicated = NamedTuple[]
+  positions = Dict{Tuple{Vararg{Int}},Int}()
   for record in records
-    key = Tuple(record.state)
-    index = get(positions, key, nothing)
+    state = Tuple(record.state)
+    index = get(positions, state, nothing)
     if isnothing(index)
-      push!(deduped, record)
-      positions[key] = lastindex(deduped)
+      push!(deduplicated, record)
+      positions[state] = lastindex(deduplicated)
     else
-      existing = deduped[index]
-      deduped[index] = (; existing..., probability = existing.probability + record.probability)
+      existing = deduplicated[index]
+      deduplicated[index] =
+        (; existing..., probability = existing.probability + record.probability)
     end
   end
 
-  return deduped
+  return deduplicated
 end
 
-function peps_metadata(backend::PEPSBackend, opts, records, raw_results, failures)
+function peps_metadata(backend::PEPSBackend, records, raw_results)
   best = first(records)
-  raw = raw_results[best.transformation]
-  return Dict{String, Any}(
+  selected = raw_results[best.transformation]
+  return Dict{String,Any}(
     "backend" => "SpinGlassPEPS",
     "topology" => TenSolver.topology_name(backend.topology),
     "topology_size" => TenSolver.topology_tuple(backend.topology),
-    "beta" => opts.beta,
-    "maxdim" => opts.maxdim,
-    "max_states" => opts.max_states,
-    "cutoff_prob" => opts.cutoff_prob,
-    "onGPU" => opts.onGPU,
-    "contraction" => String(opts.contraction),
-    "iterations" => opts.iterations,
-    "graduate_truncation" => opts.graduate_truncation,
-    "local_dimension" => opts.local_dimension,
     "transformations_tried" => collect(string.(keys(raw_results))),
-    "transformations_failed" => [string(failure.transformation) for failure in failures],
     "selected_transformation" => string(best.transformation),
-    "spin_glass_energies" => collect(raw.solution.energies),
-    "spin_glass_probabilities" => collect(raw.solution.probabilities),
-    "largest_discarded_probability" => raw.solution.largest_discarded_probability,
+    "spin_glass_energies" => collect(selected.solution.energies),
+    "spin_glass_probabilities" => collect(selected.solution.probabilities),
+    "largest_discarded_probability" => selected.solution.largest_discarded_probability,
+    "raw" => raw_results,
   )
 end
 
-function TenSolver.solve_ising(backend::PEPSBackend, model::IsingModel; cutoff = nothing, verbosity = 1, kwargs...)
-  opts = TenSolver.peps_options(; kwargs...)
+function quadratic_form(p::AbstractPolynomial{T}) where {T}
+  if !(maxdegree(p) <= 2)
+    throw(ArgumentError("PEPSBackend supports polynomial inputs only when they are quadratic.",),)
+  end
 
-  check_topology_size(backend.topology, model)
+  variables = effective_variables(p)
+  indices = Dict(variable => i for (i, variable) in enumerate(variables))
+  Q = zeros(T, length(variables), length(variables))
+  h = zeros(T, length(variables))
+  offset = zero(T)
 
-  S = peps_float_type(model)
-  instance = ising_instance(model)
-  ig = SpinGlassNetworks.ising_graph(S, instance)
-  lattice = SpinGlassNetworks.super_square_lattice(TenSolver.topology_tuple(backend.topology))
-  check_layout_edges(backend.topology, model, lattice)
-  potts_h = build_potts_hamiltonian(opts.local_dimension, ig, lattice)
-  params = SpinGlassEngine.MpsParameters{S}(;
-    bond_dim = opts.maxdim,
-    num_sweeps = opts.iterations,
+  for term in terms(p)
+    value = coefficient(term)
+    if isconstant(term)
+      offset += value
+      continue
+    end
+
+    term_powers = collect(powers(term))
+    degree = sum(last, term_powers)
+    if degree == 1
+      variable, _ = only(term_powers)
+      h[indices[variable]] += value
+    elseif degree == 2 && length(term_powers) == 1
+      variable, _ = only(term_powers)
+      Q[indices[variable], indices[variable]] += value
+    elseif degree == 2 && length(term_powers) == 2
+      first_power, second_power = term_powers
+      first_variable, _ = first_power
+      second_variable, _ = second_power
+      Q[indices[first_variable], indices[second_variable]] += value
+    else
+      throw(ArgumentError("PEPSBackend supports polynomial inputs only when they are quadratic.",),)
+    end
+  end
+
+  return Q, h, offset
+end
+
+function TenSolver.minimize(
+  backend::PEPSBackend,
+  p::AbstractPolynomial;
+  domain::AbstractVector,
+  kwargs...,
+)
+  check_spin_domain(domain)
+  Q, h, offset = quadratic_form(p)
+  return TenSolver.minimize(backend, Q, h, offset; domain, kwargs...)
+end
+
+function TenSolver.minimize(
+  backend::PEPSBackend,
+  J::AbstractMatrix{T},
+  h::AbstractVector{T},
+  offset::T;
+  domain::AbstractVector,
+  cutoff = nothing,
+  preprocess::Bool = false,
+  verbosity::Integer = 1,
+  kwargs...,
+) where {T<:Real}
+  check_spin_domain(domain)
+  if preprocess
+    throw(ArgumentError("PEPSBackend does not support preprocess=true because the topology " *
+                        "fixes the variable order.",),)
+  end
+  if !(size(J, 1) == size(J, 2))
+    throw(DimensionMismatch("The Ising coupling matrix must be square. Encountered dimensions " *
+                            "$(size(J)).",),)
+  end
+  if !(size(J, 1) == length(h))
+    throw(DimensionMismatch("The Ising field vector length must match the coupling matrix size. " *
+                            "Encountered dimensions $(size(J)) and length $(length(h)).",),)
+  end
+
+  options = peps_options(; kwargs...)
+  check_topology_size(backend.topology, h)
+
+  S = peps_float_type(T)
+  instance = ising_instance(J, h)
+  ising_graph = SpinGlassNetworks.ising_graph(S, instance)
+  lattice =
+    SpinGlassNetworks.super_square_lattice(TenSolver.topology_tuple(backend.topology),)
+  check_layout_edges(backend.topology, J, lattice)
+  potts_h = build_potts_hamiltonian(options.local_dimension, ising_graph, lattice)
+  parameters = SpinGlassEngine.MpsParameters{S}(;
+    bond_dim = options.maxdim,
+    num_sweeps = options.iterations,
   )
-  search_params = SpinGlassEngine.SearchParameters(;
-    max_states = opts.max_states,
-    cutoff_prob = opts.cutoff_prob,
+  search_parameters = SpinGlassEngine.SearchParameters(;
+    max_states = options.max_states,
+    cutoff_prob = options.cutoff_prob,
   )
-  strategy = contraction_strategy(opts.contraction)
+  strategy = contraction_strategy(options.contraction)
 
   records = NamedTuple[]
-  raw_results = Dict{Any, Any}()
-  failures = NamedTuple[]
-  for transform in resolve_transformations(opts.transformations)
-    try
-      net = peps_network(backend.topology, potts_h, transform, S)
-      ctr = SpinGlassEngine.MpsContractor(
-        strategy,
-        net,
-        params;
-        onGPU = opts.onGPU,
-        beta = S(opts.beta),
-        graduate_truncation = opts.graduate_truncation,
-      )
-      merge_strategy = SpinGlassEngine.merge_branches(ctr; merge_prob = :none)
-      sol, info = SpinGlassEngine.low_energy_spectrum(
-        ctr,
-        search_params,
-        merge_strategy;
-        no_cache = opts.no_cache,
-      )
-
-      raw_results[transform] = (; solution = sol, info)
-      append!(records, decoded_records(model, potts_h, sol, transform))
-    catch err
-      push!(failures, (;
-        transformation = transform,
-        error = sprint(showerror, err),
-      ))
-      verbosity > 0 && @warn "SpinGlassPEPS transformation failed" transformation = transform exception = (err, catch_backtrace())
-    finally
-      SpinGlassEngine.clear_memoize_cache()
-    end
+  raw_results = Dict{Any,Any}()
+  for transform in resolve_transformations(options.transformations)
+    result = solve_transformation(
+      backend.topology,
+      potts_h,
+      transform,
+      S,
+      parameters,
+      search_parameters,
+      strategy,
+      options,
+    )
+    raw_results[transform] = result
+    append!(records, decoded_records(J, h, offset, potts_h, result.solution, transform))
   end
 
   if isempty(records)
-    if isempty(failures)
-      throw(ArgumentError("SpinGlassPEPS did not return any states."))
-    end
-
-    failure_summary = join(("$(failure.transformation): $(failure.error)" for failure in failures), "; ")
-    throw(ArgumentError("SpinGlassPEPS did not return any states. Failed transformations: $failure_summary"))
+    throw(ArgumentError("SpinGlassPEPS did not return any states."),)
   end
+
   records = deduplicated_records(records)
   states = [record.state for record in records]
   energies = S[record.energy for record in records]
   probabilities = S[record.probability for record in records]
-  metadata = peps_metadata(backend, opts, records, raw_results, failures)
-  raw = (; results = raw_results, failures)
+  metadata = peps_metadata(backend, records, raw_results)
 
-  verbosity > 0 && @info "SpinGlassPEPS backend finished" energy = first(energies) states = length(states)
+  if verbosity > 0
+    @info(
+      "SpinGlassPEPS backend finished",
+      energy = first(energies),
+      states = length(states),
+    )
+  end
 
-  return first(energies), PEPSSolution{S}(states, energies, probabilities, metadata, raw)
+  return first(energies), PEPSSolution{S}(states, energies, probabilities, metadata)
 end
 
 end # module

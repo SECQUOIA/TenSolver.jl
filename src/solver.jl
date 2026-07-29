@@ -57,20 +57,29 @@ normalize_backend(backend) = throw(backend_error(backend))
 # Backends
 #
 include("backends/dmrg.jl")
+include("backends/peps.jl")
 const default_backend = DMRGBackend()
 
-include("backends/peps.jl")
+#=======================================================================#
+# Minimization and Maximization                                         #
+#=======================================================================#
 
 """
-    minimize(Q::Matrix[, l::Vector[, c::Number ; device, cutoff, kwargs...)
+    minimize([Q::Matrix], [l::Vector], [c::Number] ; domain, kwargs...)
+    minimize(p::AbstractPolynomial ; domain, kwargs...)
 
-Solve the Quadratic Unconstrained Binary Optimization (QUBO) problem
+Solve a polynomial discrete optimization problem
 
-    min  b'Qb + l'b + c
-    s.t. b_i in {0, 1}
+    min  p(x)
+    s.t. x_i in domain
+         constraints
+
+In the matrix version, the objective is limited to quadratic forms x -> x'Qx + l'x + c.
+Missing arguments (quadratic, linear or constant term)
+are allowed and taken to be zero.
 
 Return the optimal value `E` and a probability distribution `ψ` over optimal solutions.
-You can use [`sample`](@ref) to get an actual bitstring from `ψ`.
+You can use [`sample`](@ref) to get an actual solution vector from `ψ`.
 
 There are multiple backends available, selected through the keyword `backend`.
 By default, it uses DMRG to calculate the optimal solution.
@@ -78,6 +87,16 @@ By default, it uses DMRG to calculate the optimal solution.
 
 Keyword arguments:
 
+- `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
+  Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
+  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled assignment.
+  For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
+  If the constraints admit no solution at all, the solve does not error: it logs a warning and
+  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
+- `domain` - Possible variable values. Defaults to `[0, 1]`.
+  Unconstrained DMRG optimization accepts any finite collection of real values;
+  individual constraint types can impose narrower requirements. Use `[-1, 1]`
+  for Ising spins. Domains are sorted and deduplicated before solving.
 - `iterations :: Int` - Maximum iterations the solver should run. Defaults to `10`.
 - `cutoff :: Float64` - Any absolute value below this threshold is considered zero. Defaults to `1e-8`.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -102,7 +121,13 @@ Keyword arguments:
   Other keywords might be available depending on the chosen backend.
   See the documentation for each backend for comprehensive lists.
 
-The returned `Solution` carries per-iteration stats in the fields `energies`, `bond_dims`, and `elapsed_times`.
+  Some keywords, such as `constraints` and `domain`,
+  may have limited support depending on the backend.
+
+The [`DMRGSolution`](@ref) returned by the default backend carries
+per-iteration convergence data in `solution.stats`. Its former top-level
+fields `solution.energies`, `solution.bond_dims`, and
+`solution.elapsed_times` remain available as deprecated aliases.
 
 Provably infeasible constrained models are reported as a status:
 `minimize` logs a warning and returns `+Inf` (the minimum over an empty feasible set)
@@ -123,78 +148,51 @@ import Metal
 minimize(Q; device = Metal.mtl)
 ```
 
-
 See also [`maximize`](@ref).
 """
 function minimize end
 
-function minimize(
-  Q :: AbstractMatrix{T},
-  l :: Union{AbstractVector{T}, Nothing} = nothing,
-  c :: T = zero(T)
-  ;
-  backend=default_backend,
-  kwargs...,
-) where T
-  return minimize(normalize_backend(backend), Q, l, c; kwargs...)
+function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
+  throw(backend_error(backend))
 end
 
 function minimize(
   p::AbstractPolynomial{T}
   ;
   backend=default_backend,
+  domain::AbstractVector = 0:1,
   kwargs...,
 ) where T
-  return minimize(normalize_backend(backend), p; kwargs...)
+  domain = validate_solve_domain(domain)
+  p      = simplify_polynomial(p, domain)
+  return minimize(normalize_backend(backend), p; domain, kwargs...)
 end
 
-function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
-  throw(backend_error(backend))
+function minimize(
+  Q :: AbstractMatrix{T},
+  l :: AbstractVector{T} = zeros(T, size(Q, 1)),
+  c :: T = zero(T)
+  ;
+  backend = default_backend,
+  domain::AbstractVector = 0:1,
+  kwargs...,
+) where {T<:Real}
+  domain  = validate_solve_domain(domain)
+  Q, l, c = simplify_polynomial(Q, l, c, domain)
+  return minimize(normalize_backend(backend), Q, l, c; domain, kwargs...)
 end
 
-"""
-    solve_ising(model; backend = DMRGBackend(), kwargs...)
-    solve_ising(J, h[, offset]; backend = DMRGBackend(), kwargs...)
-
-Solve an Ising model with spins `s_i in {-1, +1}`.
-
-The returned solution still samples TenSolver Boolean vectors using
-`x_i = (s_i + 1) / 2`. The default DMRG path converts the Ising model back to a
-QUBO and calls [`minimize`](@ref). Optional structured backends can implement
-this boundary directly.
-"""
-function solve_ising end
-
-function solve_ising(model::IsingModel; backend=default_backend, kwargs...)
-  return solve_ising(normalize_backend(backend), model; kwargs...)
+function minimize(l :: AbstractVector{T}, c :: T = zero(T); kwargs...) where {T<:Real}
+  return minimize(zeros(T, size(l, 1), size(l, 1)), l, c; kwargs...)
 end
 
-function solve_ising(J::AbstractMatrix, h::AbstractVector, offset::Real=0; backend=default_backend, kwargs...)
-  return solve_ising(IsingModel(J, h, offset); backend, kwargs...)
+function minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where {T<:Real}
+  return minimize(Q, zeros(T, size(Q, 1)), c; kwargs...)
 end
-
-function solve_ising(backend::AbstractTenSolverBackend, model::IsingModel; kwargs...)
-  throw(backend_error(backend))
-end
-
-function solve_ising(::DMRGBackend, model::IsingModel; kwargs...)
-  Q, l, c = scaled_form_parts(ising_to_qubo(model))
-  return minimize(default_backend, Q, l, c; kwargs...)
-end
-
-
-"""
-    minimize(Q::Matrix, c::Number; kwargs...)
-
-Solve the Quadratic Unconstrained Binary Optimization problem with no linear term.
-
-    min  b'Qb + c
-    s.t. b_i in {0, 1}
-"""
-minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where T = minimize(Q, nothing, c; kwargs...)
 
 """
     maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
+    maximize(p::AbstractPolynomial; kwargs...)
 
 Solve the Quadratic Unconstrained Binary Optimization problem
 for maximization.
@@ -215,4 +213,56 @@ function maximize(qs... ; kwargs...)
   E, psi = minimize(mqs...; kwargs...)
 
   return -E, psi
+end
+
+#=====================================================================#
+# Domain validation                                                   #
+#=====================================================================#
+
+function validate_solve_domain(domain)
+  # Preprocessing to dedeplicate domain values
+  domain = (ismutable(domain) ? unique! : unique)(sort(domain))
+
+  if !applicable(iterate, domain)
+    throw(ArgumentError("`domain` must be an iterable collection of values."))
+  elseif !applicable(length, domain)
+    throw(ArgumentError("`domain` must have a finite length."))
+  elseif isempty(domain)
+    throw(ArgumentError("`domain` must contain at least one value."))
+  elseif !all(u -> u isa Real, domain)
+    throw(ArgumentError("`domain` values must be values of a real type."))
+  elseif !allunique(domain)
+    throw(ArgumentError("`domain` values must be unique."))
+  end
+
+  return domain
+end
+
+function simplify_polynomial(p::AbstractPolynomial, domain)
+  # A finite domain xi in U = {u1, ..., ud} is equivalent
+  # to the root set of a single variable polynomial
+  # q(x) = (xi - u1)...(xi - ud)
+  rooted(x) = prod(x - a for a in domain)
+  # By dividing p // q, we get
+  # p(x) = m(x)q(x) + r(x).
+  # Notice that for any a in U, q(a) = 0, and
+  # p(a) = m(a)*0 + r(a) = r(a).
+  # Thus, we transform p -> r as a degree reduction procedure.
+  return mapfoldl(rooted, rem, effective_variables(p); init = p)
+end
+
+function simplify_polynomial(Q::AbstractMatrix, l, c, domain)
+  # A variable x in {a, b} satifies
+  #   (x - a)(x - b) = 0
+  #   x^2 = (a + b)x - ab
+  #   Thus, we exchange the diagonal terms x^2 by linear and constant terms.
+  if length(domain) == 2
+    s, p = sum(domain), prod(domain)
+
+    l = l .+ s .* diag(Q)
+    c = c  - p  * sum(diag(Q))
+    Q = Q .- Diagonal(view(Q, diagind(Q)))
+  end
+
+  return Q, l, c
 end

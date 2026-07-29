@@ -1,20 +1,10 @@
-import DynamicPolynomials, TypedPolynomials
-import MultivariatePolynomials: maxdegree
-const DP = DynamicPolynomials
-const TP = TypedPolynomials
-
-form(a, x) = sum(a[t] * prod(x[i] for i in Tuple(t)) for t in CartesianIndices(a))
-
-function randpoly(x, maxdegree)
-  dim = length(x)
-  mkarray(i) = randn(Iterators.repeated(dim, i)...)
-
-  return sum(form(mkarray(i), x) for i in 1:maxdegree) + randn()
-end
+import DynamicPolynomials as DP
+import TypedPolynomials   as TP
+import MultivariatePolynomials: maxdegree, effective_variables
 
 function test_correctness(dim, obj, args...)
     # TenSolver solution
-    e, psi = TenSolver.minimize(args...)
+    e, psi = TenSolver.minimize(args...; verbosity = 0)
     x = TenSolver.sample(psi)
 
     # Does the ground energy match solution?

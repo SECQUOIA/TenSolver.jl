@@ -1,15 +1,23 @@
 import ITensors: inner
-import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str, dim
+import ITensorMPS: MPS, MPO, OpSum, siteinds, @OpName_str, @SiteType_str, @StateName_str
 
 import ITensors, ITensorMPS
 
-# Diagonal matrix whose eigenvalues are the ordered feasible values for an integer variable.
-# For qubits, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
+import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
+
+# Diagonal matrix whose eigenvalues are the ordered feasible values for a variable.
+# For Spin variables, this is the Pauli σ_z matrix.
+# For Boolean variables, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
 # This looks like type piracy,
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
-ITensors.op(::OpName"D",::SiteType"Qudit", d::Int) = diagm(0:(d-1))
+function ITensors.op(::OpName"D", ::SiteType"Qudit", ::Int; domain)
+  return diagm(domain)
+end
 
-ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index) = (d = dim(s); fill(1/sqrt(d), d))
+function ITensors.state(::StateName"full", ::SiteType"Qudit", s::ITensorMPS.Index)
+  d = ITensorMPS.dim(s)
+  return fill(1/sqrt(d), d)
+end
 
 #----------------------------------------------------------#
 # Interface                                                #
@@ -23,27 +31,127 @@ Select TenSolver's default ITensorMPS DMRG backend.
 """
 struct DMRGBackend <: AbstractTenSolverBackend end
 
-normalize_backend(::Val{:dmrg}) = default_backend
+normalize_backend(::Val{:dmrg}) = DMRGBackend()
 
 """
-    minimize(::DRMGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
+    DMRGSolution{T}
+
+The result of running [`minimize`](@ref) or [`maximize`](@ref) with the DMRG
+backend: an MPS wave function over the optimal solution space, together with
+per-iteration convergence statistics.
+
+Use [`sample`](@ref) to draw vectors from it.
+
+## Fields
+
+- `tensor`: the underlying MPS, or `nothing` when the model is infeasible.
+- `domain`: possible variable values.
+- `permutation`: original variable index represented by each tensor site.
+- `stats`: per-iteration convergence stats. See [`SolverStatistics`](@ref).
+
+Provably infeasible models produce a `DMRGSolution` with no MPS and empty
+statistics vectors; check with [`is_feasible`](@ref) before sampling.
+"""
+struct DMRGSolution{T <: Real} <: Solution
+  tensor      :: Union{MPS,Nothing}
+  domain      :: Vector{T}
+  permutation :: Vector{Int}
+  stats       :: SolverStatistics{T}
+
+  function DMRGSolution{T}(
+    tensor::Union{MPS,Nothing},
+    domain,
+    permutation::Vector{Int},
+    stats::SolverStatistics,
+  ) where {T <: Real}
+    return new{T}(tensor, domain, permutation, stats)
+  end
+end
+
+function Base.getproperty(solution::DMRGSolution, name::Symbol)
+  if name === :energies || name === :bond_dims || name === :elapsed_times
+    Base.depwarn(
+      "`solution.$name` is deprecated; use `solution.stats.$name` instead.",
+      name,
+    )
+    return getproperty(getfield(solution, :stats), name)
+  end
+
+  return getfield(solution, name)
+end
+
+function Base.propertynames(::DMRGSolution, _private::Bool=false)
+  fields = fieldnames(DMRGSolution)
+  aliases = (:energies, :bond_dims, :elapsed_times)
+  return (fields..., aliases...)
+end
+
+function infeasible_solution(::Type{T}, domain, stats) where {T <: Real}
+  return DMRGSolution{T}(nothing, domain, Int[], stats)
+end
+
+"""
+    is_feasible(psi::DMRGSolution)
+
+Whether `psi` came from solving a satisfiable model. Feasible solutions carry
+an MPS and can be sampled.
+"""
+is_feasible(psi::DMRGSolution) = !isnothing(psi.tensor)
+
+original_order(bs, permutation) = bs[invperm(permutation)]
+
+"""
+    sample(psi::DMRGSolution)
+
+Sample a vector from the DMRG probability distribution.
+
+Throw a `DomainError` when `psi` is infeasible, since there is no solution to
+query.
+"""
+function sample(psi::DMRGSolution)
+  if is_feasible(psi)
+    bs = psi.domain[ITensorMPS.sample!(psi.tensor)]
+    return original_order(bs, psi.permutation)
+  else
+    throw(DomainError("the model is infeasible; there is no solution to sample"))
+  end
+end
+
+function prob(psi::DMRGSolution{T}, bs) where {T}
+  return is_feasible(psi) ? abs2(coeff(psi, bs)) : zero(T)
+end
+
+function coeff(psi::DMRGSolution, bs)
+  tn    = psi.tensor
+  sites = siteinds(tn)
+  bs    = bs[psi.permutation]
+  positions = map(bs) do value
+    position = findfirst(==(value), psi.domain)
+    if isnothing(position)
+      throw(DomainError(value, "value is outside the solution domain $(psi.domain)"))
+    end
+    return position - 1
+  end
+  # Qudit state names are zero-based basis positions, not physical domain values.
+  psi0  = MPS(sites, string.(positions))
+
+  return inner(psi0,  tn)
+end
+
+"""
+    minimize(::DMRGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
 
 This function uses DMRG with tensor networks to calculate the optimal solution,
 by finding the ground state (least eigenspace) of the Hamiltonian
 
     H = Σ Q_ij D_iD_j + Σ l_i D_i
 
-where D_i acts locally on the i-th qubit as [0 0; 0 1], i.e, the projection on |1>.
+where D_i is diagonal with the variable's domain values. By default,
+`domain = [0, 1]`; pass `domain = [-1, 1]` to optimize an Ising model directly.
 
 
 Backend-specific keyword arguments:
 
-- `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
-  Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
-  a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled bitstring.
-  For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
-  If the constraints admit no solution at all, the solve does not error: it logs a warning and
-  returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
 - `maxdim` - The maximum allowed bond dimension.
   Integer or array of integer specifying the bond dimension per iteration.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -58,21 +166,17 @@ Backend-specific keyword arguments:
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
 """
-function minimize(
-  ::DMRGBackend,
-  Q::AbstractMatrix{T},
-  l::Union{AbstractVector{T}, Nothing}=nothing,
-  c::T=zero(T)
-  ;
-  cutoff=1e-8,
-  preprocess::Bool=false,
-  kwargs...,
+function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::T
+  ; cutoff=1e-8
+  , preprocess::Bool=false
+  , domain::AbstractVector = 0:1
+  , kwargs...
 ) where T
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, isnothing(lp) ? diag(Qp) : diag(Qp) + lp; cutoff)
-  obj(x) = dot(x, Q, x) + c + maybe(l -> dot(l,x), l; default=zero(T))
+  H      = tensorize(Qp, lp; cutoff, domain)
+  obj(x) = dot(x, Q, x) + dot(l, x) + c
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, kwargs...)
 end
 
 """
@@ -85,13 +189,20 @@ Solve the Polynomial Unconstrained Binary Optimization problem
 
 See also [`maximize`](@ref).
 """
-function minimize(::DMRGBackend, p::AbstractPolynomial{T}; cutoff=1e-8, kwargs...) where T
-  H      = tensorize(p)
+function minimize(
+  ::DMRGBackend,
+  p::AbstractPolynomial{T}
+  ;
+  cutoff=1e-8,
+  domain::AbstractVector = 0:1,
+  kwargs...,
+) where {T}
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
+  H      = tensorize(p; cutoff, domain)
 
-  return minimize_mpo(H, cte, obj ; cutoff, kwargs...)
+  return minimize_mpo(H, cte, obj ; cutoff, domain, kwargs...)
 end
 
 
@@ -112,7 +223,7 @@ variance(H::MPO, x::MPS) = real(inner(H, x, H, x)) - expectation(H, x)^2
 function upper_indices(a)
   return (Tuple(ci)
             for ci in CartesianIndices(size(a))
-            if issorted(Tuple(ci); lt = (<=)))
+            if issorted(Tuple(ci); lt = <))
 end
 
 function constant_term(p::AbstractPolynomial{T}) where T
@@ -137,10 +248,10 @@ end
 # Infeasibility is a solver outcome, not an argument error: report it as a
 # status like other optimization packages (objective +Inf, empty Solution),
 # so it maps onto MOI.INFEASIBLE at the JuMP layer. See the discussion in #94.
-function infeasible_result(::Type{T}) where {T}
-  @warn "constraints define an empty feasible subspace; no binary vector satisfies all constraints"
+function infeasible_result(::Type{T}, domain, stats) where {T}
+  @warn "constraints define an empty feasible subspace"
   F = float(T)
-  return real(T)(+Inf), infeasible_solution(F)
+  return real(T)(+Inf), infeasible_solution(F, domain, stats)
 end
 
 
@@ -156,14 +267,19 @@ for a matrix `P_i` whose eigenvalues represent its feasible set `K_i`.
 """
 function tensorize end
 
-function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff = zero(T)) where T
+function tensorize(
+  Q::AbstractArray{T},
+  rest::Vararg{AbstractArray{T}};
+  cutoff = zero(T),
+  domain,
+) where T
   Qs = [Q, rest...]
   if !allequal(Iterators.flatmap(size, Qs))
     throw(DimensionMismatch("All arrays should act on the same number of variables.\nEncountered dimensions $(collect(map(size, Qs)))."))
   end
 
   N = size(Q, 1)
-  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
   os = OpSum{T}()
 
   for t in Qs
@@ -174,7 +290,7 @@ function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff =
       coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
 
       if abs(coeff) > cutoff
-        op   = Iterators.flatmap(v -> ("D", v), idx)
+        op   = Iterators.flatmap(v -> ("D", (domain = domain,), v), idx)
         os .+= (coeff, op...)
       end
     end
@@ -183,9 +299,13 @@ function tensorize(Q::AbstractArray{T}, rest::Vararg{AbstractArray{T}}; cutoff =
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
+function tensorize(
+  p::AbstractPolynomial{T};
+  cutoff = zero(T),
+  domain,
+) where T
   N = length(effective_variables(p))
-  sites = ITensors.siteinds("Qudit", N; dim = 2)
+  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
   os = OpSum{T}()
 
   # Map: var name => index
@@ -195,8 +315,14 @@ function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
     coeff = coefficient(t)
 
     if abs(coeff) > cutoff && ! isconstant(t)
-      vars = effective_variables(t)
-      op   = Iterators.flatmap(v -> ("D", indices[v]), vars)
+      op = Iterators.flatten(
+        map(powers(t)) do p
+          v, e = p
+          Iterators.flatten(
+            Iterators.repeated(("D", (domain = domain,), indices[v]), e),
+          )
+        end
+      )
       os .+= (coeff, op...)
     end
   end
@@ -204,13 +330,14 @@ function tensorize(p::AbstractPolynomial{T}; cutoff = zero(T)) where T
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-function minimize_mpo( H :: MPO
-                     , c :: T
+function minimize_mpo( H_obj :: MPO
+                     , c     :: T
                      , obj
                      ; device      = cpu
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
                      , verbosity   = 1
                      , constraints = AbstractConstraint[]
+                     , domain
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
@@ -227,39 +354,40 @@ function minimize_mpo( H :: MPO
                      # Iteration callback
                      , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
-                     , permutation :: Vector{Int} = collect(1:length(H))
+                     , permutation :: Vector{Int} = collect(1:length(H_obj))
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  initial_time      = time()
-  energies_log      = T[]
-  bond_dims_log     = Int[]
-  elapsed_times_log = Float64[]
+  initial_time = time()
 
   # Quantization
-  sites = ITensorMPS.siteinds(first, H; plev=0)
+  sites = ITensorMPS.siteinds(first, H_obj; plev=0)
 
   # Constraints
   projections = map(
     device,
-    projection_mpos(T, constraints, sites; permutation),
+    projection_mpos(T, constraints, sites; permutation, domain),
   )
 
   # Hamiltonian construction
-  H = device(H)
-  H = is_zero_tensor(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
+  H_obj = device(H_obj)
+  H = is_zero_tensor(H_obj; cutoff) ? H_obj : device(project_hamiltonian(H_obj, projections; cutoff))
 
   # Initial state
   psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
-  if isnothing(psi)
-    return infeasible_result(T)
-  end
   psi = device(psi)
+
+  stats = SolverStatistics{T}(;
+    projections   = ITensorMPS.maxlinkdim.(projections),
+    objective     = ITensorMPS.maxlinkdim(H_obj),
+    initial_state = isnothing(psi) ? 0 : ITensorMPS.maxlinkdim(psi),
+    hamiltonian   = ITensorMPS.maxlinkdim(H),
+  )
 
   @debug(
     "Constraint projection MPO construction finished",
-    projection_max_bond = map(ITensorMPS.maxlinkdim, projections),
-    projected_hamiltonian_max_bond = ITensorMPS.maxlinkdim(H),
-    projected_initial_max_bond = ITensorMPS.maxlinkdim(psi),
+    projection_max_bond = stats.max_bonds.projections,
+    projected_hamiltonian_max_bond = stats.max_bonds.hamiltonian,
+    projected_initial_max_bond = stats.max_bonds.initial_state,
     time=(time() - initial_time),
   )
 
@@ -267,7 +395,9 @@ function minimize_mpo( H :: MPO
   var    = T(Inf)
   energy = T(Inf)
 
-  for i in Iterators.countfrom(1)
+  iter = isnothing(psi) ? [] : Iterators.countfrom(1)
+
+  for i in iter
     energy, psi = groundstate(H, device(psi)
                       ; projections
                       , nsweeps     = 1
@@ -283,27 +413,12 @@ function minimize_mpo( H :: MPO
                       , eigsolve_verbosity = 0
                  )
 
-    # Re-project each iteration so the sampled bitstring is guaranteed feasible.
-    # In exact arithmetic the sweep keeps a feasible start feasible (the local
-    # eigensolver only ever applies P'HP to a feasible state), but the injected
-    # `noise` term and SVD truncation can leak amplitude into the infeasible
-    # subspace. That subspace is the kernel of the projections, where P'HP has
-    # zero energy, so the leaked amplitude is never penalized back out on its own.
-    if !isempty(projections)
-      projected = project_feasible_state(psi, projections; cutoff)
-      # Unlike the initial state, a mid-run collapse does not prove
-      # infeasibility (the start was feasible), so it stays an error.
-      isnothing(projected) && error(
-        "constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
-      )
-      psi = projected
-      energy = expectation(H, psi)
-    end
-
     # Get metadata #
+    checked_variance = nothing
     if i % check_variance_every_iteration == 0
       vtime = time()
       var = variance(H, psi)
+      checked_variance = var
       @debug "Calculate variance" variance=var time=(time() - vtime())
     end
 
@@ -311,19 +426,23 @@ function minimize_mpo( H :: MPO
 
     bond_dim = ITensorMPS.maxlinkdim(psi)
 
+    # Per-iteration stats (always collected)
+    record_stats!(
+      stats;
+      energy = energy+c,
+      bond_dim,
+      elapsed_time,
+      variance = checked_variance,
+    )
+
     iterlog_iteration(
       verbosity,
       i,
       energy + c,
       bond_dim,
-      i % check_variance_every_iteration == 0 ? var : nothing,
+      checked_variance,
       elapsed_time,
     )
-
-    # Per-iteration stats (always collected)
-    push!(energies_log,      energy + c)
-    push!(bond_dims_log,     bond_dim)
-    push!(elapsed_times_log, elapsed_time)
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
@@ -346,13 +465,12 @@ function minimize_mpo( H :: MPO
     end
   end
 
-
   if isinf(energy)
-    optimal, dist = infeasible_result(T)
+    optimal, dist = infeasible_result(T, domain, stats)
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
-    dist = Solution{T}(psi, energies_log, bond_dims_log, elapsed_times_log, permutation)
+    dist = DMRGSolution{T}(psi, domain, permutation, stats)
     optimal = obj(sample(dist))
   end
 
@@ -361,9 +479,17 @@ function minimize_mpo( H :: MPO
   return optimal, dist
 end
 
-function groundstate(H::MPO, psi0::MPS; projections=(), cutoff=1e-8, kwargs...)
+function groundstate(H::MPO, psi0::MPS; projections, cutoff=1e-8, kwargs...)
   if length(psi0) != 1
-    return ITensorMPS.dmrg(H, psi0; cutoff, kwargs...)
+    energy, psi = ITensorMPS.dmrg(H, psi0; cutoff, kwargs...)
+
+    # Re-project each iteration so the sampled bitstring is guaranteed feasible.
+    # In exact arithmetic the sweep keeps a feasible start feasible (the local
+    # eigensolver only ever applies P'HP to a feasible state), but the injected
+    # `noise` term and SVD truncation can leak amplitude into the infeasible
+    # subspace. That subspace is the kernel of the projections, where P'HP has
+    # zero energy, so the leaked amplitude is never penalized back out on its own.
+    psi = project_feasible_state(psi, projections; cutoff)
   else
     # ITensorMPS.dmrg does not support single-site systems, so solve the n=1
     # problem by directly comparing basis states. When constrained, we must
@@ -371,28 +497,34 @@ function groundstate(H::MPO, psi0::MPS; projections=(), cutoff=1e-8, kwargs...)
     # P'HP assigns zero energy to the infeasible subspace (the kernel of the
     # projections), so picking the global lowest-energy basis state would select
     # an infeasible one whenever the feasible objective is positive.
-    sites = ITensorMPS.siteinds(psi0)
-    candidates = [ITensorMPS.MPS(sites, [s]) for s in ("0", "1")]
+    s = only(ITensorMPS.siteinds(psi0))
+    Ht = only(H)
+    pt = only(psi0)
 
-    if !isempty(projections)
-      candidates = filter(
-        b -> !is_zero_tensor(project_state(b, projections; cutoff); cutoff),
-        candidates,
-      )
-    end
+    feasible = filter(a -> !iszero(pt[s => a]), 1:ITensorMPS.dim(s))
 
-    if isempty(candidates)
-      return infeasible_result(T)
+    if isempty(feasible)
+      energy = Inf
+      psi = nothing
     else
-      energies = map(b -> expectation(H, b), candidates)
-      emin, i = findmin(energies)
-      # Degenerate feasible states: return their uniform superposition so sampling
-      # is unbiased (preserves the previous unconstrained n=1 behavior).
-      if length(candidates) == 2 && all(≈(emin), energies)
-        return emin, ITensorMPS.MPS(sites, ["full"])
-      else
-        return energies[i], candidates[i]
-      end
+      energies = [real(Ht[s => a, ITensors.prime(s) => a]) for a in feasible]
+      energy = minimum(energies)
+      optimal = [a for (a, e) in zip(feasible, energies) if e == energy]
+
+      basis = ITensors.ITensor(eltype(pt), s)
+      foreach(a -> (basis[s => a] = 1), optimal)
+      psi = ITensorMPS.MPS([basis])
+      ITensorMPS.normalize!(psi)
     end
   end
+
+  # Unlike the initial state, a mid-run collapse does not prove
+  # infeasibility (the start was feasible)
+  if isnothing(psi)
+    error(
+      "constrained DMRG produced a state with zero feasible amplitude; constraints may be infeasible or the projection cutoff may be too large",
+    )
+  end
+
+  return energy, psi
 end
