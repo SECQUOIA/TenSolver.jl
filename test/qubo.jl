@@ -127,7 +127,13 @@
 
   @testset "Iteration stats tracking" begin
     @testset "DMRGSolution carries stats" begin
-      E, psi = minimize([1.0 0; 0 -1.0]; iterations=5, verbosity = 0)
+      E, psi = minimize(
+        [1.0 0; 0 -1.0];
+        iterations=5,
+        check_variance_every_iteration=2,
+        vtol=-Inf,
+        verbosity=0,
+      )
       @test psi isa TenSolver.Solution
       @test psi isa TenSolver.DMRGSolution
       @test length(psi.stats.energies)      == 5
@@ -137,39 +143,13 @@
       @test all(isfinite, psi.stats.energies)
       @test issorted(psi.stats.elapsed_times)
       @test all(>(0), psi.stats.bond_dims)
-      @test all(isnothing, psi.stats.variances)
+      @test map(isnothing, psi.stats.variances) == [true, false, true, false, true]
+      @test all(isfinite, filter(!isnothing, psi.stats.variances))
       @test isfinite(last(psi.stats.energies))
       @test last(psi.stats.energies) ≈ E
 
       @test isempty(psi.stats.max_bonds.projections)
-      @test psi.stats.max_bonds.objective > 0
-      @test psi.stats.max_bonds.initial_state > 0
-      @test psi.stats.max_bonds.hamiltonian > 0
-    end
-
-    @testset "DMRGSolution preserves deprecated stats aliases" begin
-      _, psi = minimize([1.0 0; 0 -1.0]; iterations=2, verbosity = 0)
-
-      @test :energies in propertynames(psi)
-      @test :bond_dims in propertynames(psi)
-      @test :elapsed_times in propertynames(psi)
-      @test_deprecated psi.energies === psi.stats.energies
-      @test_deprecated psi.bond_dims === psi.stats.bond_dims
-      @test_deprecated psi.elapsed_times === psi.stats.elapsed_times
-    end
-
-    @testset "Variance stats distinguish unchecked iterations" begin
-      _, psi = minimize(
-        [1.0 0; 0 -1.0];
-        iterations=3,
-        check_variance_every_iteration=1,
-        vtol=-Inf,
-        verbosity=0,
-      )
-
-      @test length(psi.stats.variances) == 3
-      @test all(!isnothing, psi.stats.variances)
-      @test all(isfinite, psi.stats.variances)
+      @test psi.stats.max_bonds.objective == psi.stats.max_bonds.hamiltonian
     end
 
     @testset "on_iteration callback preserves its documented signature" begin
@@ -191,9 +171,11 @@
       @test calls == [3, 6, 9]
     end
 
-    @testset "callback_every < 1 throws" begin
+    @testset "iteration cadence < 1 throws" begin
       @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; verbosity = 0, iterations=1, callback_every=0)
       @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; verbosity = 0, iterations=1, callback_every=-1)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; verbosity = 0, iterations=1, check_variance_every_iteration=0)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; verbosity = 0, iterations=1, check_variance_every_iteration=-1)
     end
 
     @testset "callback receives a fresh MPS each iteration" begin

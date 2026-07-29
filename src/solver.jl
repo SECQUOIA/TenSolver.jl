@@ -107,6 +107,8 @@ Keyword arguments:
 - `preprocess :: Bool` - Defaults to `false`. If `true`, permute QUBO variables before constructing the MPS Hamiltonian
   so coupled variables are closer in the one-dimensional tensor order. Samples are returned in the
   caller's original variable order. This is an experimental feature and may be subject to changes.
+- `check_variance_every_iteration :: Int` - Calculate and record the Hamiltonian
+  variance every N iterations. Must be >= 1. Defaults to `10`.
 - `on_iteration :: Function` - Called after each recorded iteration as
   `f(psi::MPS; iteration, objective, bond_dim, elapsed_time)`.
   `objective` is the expected objective function ⟨ψ|H|ψ⟩ at this iteration.
@@ -125,9 +127,7 @@ Keyword arguments:
   may have limited support depending on the backend.
 
 The [`DMRGSolution`](@ref) returned by the default backend carries
-per-iteration convergence data in `solution.stats`. Its former top-level
-fields `solution.energies`, `solution.bond_dims`, and
-`solution.elapsed_times` remain available as deprecated aliases.
+per-iteration convergence data in `solution.stats`.
 
 Provably infeasible constrained models are reported as a status:
 `minimize` logs a warning and returns `+Inf` (the minimum over an empty feasible set)

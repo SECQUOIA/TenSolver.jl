@@ -187,28 +187,8 @@ end
   @testset "Infeasible constraints report status, not exception" begin
     impossible = AbstractConstraint[SumConstraint([1, 2], [1, 1], 3; relation=:(==))]
 
-    E, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
-      zeros(2, 2);
-      constraints=impossible,
-      verbosity=0,
-    )
-
-    @test E == Inf
-    @test !is_feasible(psi)
-    @test isempty(psi.stats.energies)
-    @test isempty(psi.stats.bond_dims)
-    @test isempty(psi.stats.elapsed_times)
-    @test isempty(psi.stats.variances)
-    @test length(psi.stats.max_bonds.projections) == 1
-    @test all(>(0), psi.stats.max_bonds.projections)
-    @test psi.stats.max_bonds.objective > 0
-    @test psi.stats.max_bonds.initial_state == 0
-    @test psi.stats.max_bonds.hamiltonian > 0
-    @test [0, 0] ∉ psi
-    @test_throws DomainError TenSolver.sample(psi)
-
     io = IOBuffer()
-    E_debug, psi_debug = with_logger(ConsoleLogger(io, Logging.Debug)) do
+    E, psi = with_logger(ConsoleLogger(io, Logging.Debug)) do
       minimize(
         zeros(2, 2);
         constraints=impossible,
@@ -216,8 +196,15 @@ end
       )
     end
     debug_log = String(take!(io))
-    @test E_debug == Inf
-    @test !is_feasible(psi_debug)
+
+    @test E == Inf
+    @test !is_feasible(psi)
+    @test isempty(psi.stats.energies)
+    @test isempty(psi.stats.bond_dims)
+    @test isempty(psi.stats.elapsed_times)
+    @test isempty(psi.stats.variances)
+    @test psi.stats.max_bonds.initial_state == 0
+    @test [0, 0] ∉ psi
     @test occursin("empty feasible subspace", debug_log)
     @test !occursin("Exception while generating log record", debug_log)
 

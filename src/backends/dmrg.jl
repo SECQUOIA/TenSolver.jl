@@ -68,24 +68,6 @@ struct DMRGSolution{T <: Real} <: Solution
   end
 end
 
-function Base.getproperty(solution::DMRGSolution, name::Symbol)
-  if name === :energies || name === :bond_dims || name === :elapsed_times
-    Base.depwarn(
-      "`solution.$name` is deprecated; use `solution.stats.$name` instead.",
-      name,
-    )
-    return getproperty(getfield(solution, :stats), name)
-  end
-
-  return getfield(solution, name)
-end
-
-function Base.propertynames(::DMRGSolution, _private::Bool=false)
-  fields = fieldnames(DMRGSolution)
-  aliases = (:energies, :bond_dims, :elapsed_times)
-  return (fields..., aliases...)
-end
-
 function infeasible_solution(::Type{T}, domain, stats) where {T <: Real}
   return DMRGSolution{T}(nothing, domain, Int[], stats)
 end
@@ -342,7 +324,7 @@ function minimize_mpo( H_obj :: MPO
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
                      , vtol       = cutoff
-                     , check_variance_every_iteration = 10
+                     , check_variance_every_iteration :: Int = 10
                      # DMRG keywords
                      , inidim     = 40
                      , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
@@ -357,6 +339,9 @@ function minimize_mpo( H_obj :: MPO
                      , permutation :: Vector{Int} = collect(1:length(H_obj))
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
+  check_variance_every_iteration >= 1 || throw(ArgumentError(
+    "`check_variance_every_iteration` must be >= 1, got $check_variance_every_iteration",
+  ))
   initial_time = time()
 
   # Quantization
