@@ -1,20 +1,22 @@
 module KnapsackBenchmark
 
+using DelimitedFiles: writedlm
 using LinearAlgebra: dot
-using Random: Random, rand
+using Random: AbstractRNG, MersenneTwister, Random, rand
 
 import BenchmarkTools
-import ITensorMPS
-import ITensors
 import TenSolver
 
-export benchmark_rows, projection_scaling_rows, write_csv
+export projection_scaling_rows, run_benchmarks, write_csv
 
-const SOLVER_SEED = 66
+const RNG_SEED = 66
+const INSTANCE_RNG = MersenneTwister(RNG_SEED)
+Random.seed!(RNG_SEED)
 
-"""
-A deterministic binary knapsack instance used by the benchmark.
-"""
+# -----------------------------------------------------------------------------
+# Types and infrastructure
+# -----------------------------------------------------------------------------
+
 struct KnapsackInstance
   name::String
   weights::Vector{Int}
@@ -22,52 +24,117 @@ struct KnapsackInstance
   capacity::Int
 
   function KnapsackInstance(name, weights, values, capacity)
-    if !(length(weights) == length(values))
+    length(weights) == length(values) ||
       throw(DimensionMismatch("weights and values must have the same length"))
-    end
-    if isempty(weights)
+    isempty(weights) &&
       throw(ArgumentError("a knapsack instance must contain at least one item"))
-    end
-    if !(all(>(0), weights))
-      throw(ArgumentError("item weights must be positive integers"))
-    end
-    if !(all(>(0), values))
-      throw(ArgumentError("item values must be positive"))
-    end
-    if !(capacity >= 0)
-      throw(ArgumentError("capacity must be nonnegative"))
-    end
-
+    all(>(0), weights) || throw(ArgumentError("item weights must be positive integers"))
+    all(>(0), values) || throw(ArgumentError("item values must be positive"))
+    capacity >= 0 || throw(ArgumentError("capacity must be nonnegative"))
     return new(String(name), Int.(weights), Float64.(values), Int(capacity))
   end
 end
 
-"""
-The small hand-checkable instance used to validate the benchmark output.
-"""
-reference_instance() = KnapsackInstance("reference_4", [4, 3, 2, 3], [8, 4, 5, 3], 6)
+struct BenchmarkSettings
+  iterations::Int
+  reads::Int
+  cutoff::Float64
+  time_limit::Float64
+  timing_samples::Int
+end
 
-"""
-Build one of the standard 0-1 knapsack instance classes from Martello,
-Pisinger, and Toth's generator: uncorrelated, weakly correlated, strongly
-correlated, or subset-sum. The half-total-weight capacity is one slice of the
-generator's varying-capacity series.
-"""
-function pisinger_instance(kind, n; coefficient_range = 10, seed)
-  if !(n > 0)
-    throw(ArgumentError("instance size must be positive"))
+struct KnapsackMethod
+  name::String
+  penalty_factor::Union{Missing, Float64}
+  formulate::Function
+  solve::Function
+end
+
+struct SuiteEntry
+  instance_key::String
+  method_key::String
+  outputs::Vector{Any}
+end
+
+struct BenchmarkReport
+  metadata::Vector{Pair{String, String}}
+  rows::Vector{NamedTuple}
+end
+
+function validate(settings::BenchmarkSettings, penalty_factors)
+  settings.iterations > 0 || throw(ArgumentError("iterations must be positive"))
+  settings.reads > 0 || throw(ArgumentError("reads must be positive"))
+  settings.cutoff > 0 || throw(ArgumentError("cutoff must be positive"))
+  settings.time_limit > 0 || throw(ArgumentError("time_limit must be positive"))
+  settings.timing_samples > 0 || throw(ArgumentError("timing_samples must be positive"))
+  isodd(settings.timing_samples) ||
+    throw(ArgumentError("timing_samples must be odd"))
+  all(>(0), penalty_factors) ||
+    throw(ArgumentError("penalty factors must be positive"))
+  return nothing
+end
+
+function runtime_metadata(settings::BenchmarkSettings, benchmark_id)
+  return [
+    "benchmark_id" => string(benchmark_id),
+    "julia_version" => string(VERSION),
+    "julia_threads" => string(Threads.nthreads()),
+    "system" => string(Sys.KERNEL),
+    "architecture" => string(Sys.ARCH),
+    "tensolver_version" => string(Base.pkgversion(TenSolver)),
+    "benchmarktools_version" => string(Base.pkgversion(BenchmarkTools)),
+    "rng_seed" => string(RNG_SEED),
+    "iterations" => string(settings.iterations),
+    "reads" => string(settings.reads),
+    "cutoff" => string(settings.cutoff),
+    "time_limit_seconds" => string(settings.time_limit),
+    "timing_samples" => string(settings.timing_samples),
+  ]
+end
+
+function write_csv(io::IO, rows)
+  isempty(rows) && return nothing
+  columns = propertynames(first(rows))
+  table = Matrix{Any}(undef, length(rows) + 1, length(columns))
+  table[1, :] .= string.(columns)
+  for (i, row) in enumerate(rows), (j, column) in enumerate(columns)
+    value = getproperty(row, column)
+    table[i + 1, j] = ismissing(value) ? "" : value
   end
-  if !(coefficient_range >= 10)
+  writedlm(io, table, ',')
+  return nothing
+end
+
+function write_csv(io::IO, report::BenchmarkReport)
+  for (key, value) in report.metadata
+    println(io, "# $(key)=$(value)")
+  end
+  return write_csv(io, report.rows)
+end
+
+# -----------------------------------------------------------------------------
+# Instance definitions and building helpers
+# -----------------------------------------------------------------------------
+
+reference_instance() =
+  KnapsackInstance("reference_4", [4, 3, 2, 3], [8, 4, 5, 3], 6)
+
+function pisinger_instance(
+  rng::AbstractRNG,
+  kind,
+  n;
+  coefficient_range = 10,
+)
+  n > 0 || throw(ArgumentError("instance size must be positive"))
+  coefficient_range >= 10 ||
     throw(ArgumentError("coefficient range must be at least 10"))
-  end
 
-  Random.seed!(seed)
-  weights = rand(1:coefficient_range, n)
+  weights = rand(rng, 1:coefficient_range, n)
   correlation_range = div(coefficient_range, 10)
   values = if kind == :uncorrelated
-    rand(1:coefficient_range, n)
+    rand(rng, 1:coefficient_range, n)
   elseif kind == :weakly_correlated
-    max.(1, weights .+ rand((-correlation_range):correlation_range, n))
+    max.(1, weights .+ rand(rng, (-correlation_range):correlation_range, n))
   elseif kind == :strongly_correlated
     weights .+ correlation_range
   elseif kind == :subset_sum
@@ -80,546 +147,290 @@ function pisinger_instance(kind, n; coefficient_range = 10, seed)
   return KnapsackInstance("pisinger_$(kind)_n$(n)", weights, values, capacity)
 end
 
-function default_instances()
+function default_instances(rng::AbstractRNG = copy(INSTANCE_RNG))
   specifications = (
-    (kind = :uncorrelated, n = 8, seed = 6601),
-    (kind = :weakly_correlated, n = 12, seed = 6602),
-    (kind = :strongly_correlated, n = 16, seed = 6603),
-    (kind = :subset_sum, n = 16, seed = 6604),
+    (:uncorrelated, 8),
+    (:weakly_correlated, 12),
+    (:strongly_correlated, 16),
+    (:subset_sum, 16),
   )
-  instances = map(specifications) do spec
-    return pisinger_instance(spec.kind, spec.n; seed = spec.seed)
+  generated = map(specifications) do (kind, n)
+    return pisinger_instance(rng, kind, n)
   end
-  return [reference_instance(), instances...]
+  return [reference_instance(), generated...]
 end
 
 item_weight(instance::KnapsackInstance, items) = dot(instance.weights, items)
 item_value(instance::KnapsackInstance, items) = dot(instance.values, items)
-function is_capacity_feasible(instance::KnapsackInstance, items)
-  return item_weight(instance, items) <= instance.capacity
-end
+is_capacity_feasible(instance::KnapsackInstance, items) =
+  item_weight(instance, items) <= instance.capacity
 
-"""
-Find the exact constrained optimum by enumerating all item selections.
-"""
 function brute_force_optimum(instance::KnapsackInstance)
-  best_value = -Inf
-  best_weight = typemax(Int)
-  best_items = Int[]
-
+  best = (value = -Inf, weight = typemax(Int), items = Int[])
   for assignment in Iterators.product(fill(0:1, length(instance.weights))...)
     items = collect(assignment)
     weight = item_weight(instance, items)
     value = item_value(instance, items)
-
     if weight <= instance.capacity &&
-       (value > best_value || (value == best_value && weight < best_weight))
-      best_value = value
-      best_weight = weight
-      best_items = items
+       (value > best.value || (value == best.value && weight < best.weight))
+      best = (; value, weight, items)
     end
   end
-
-  return (value = best_value, weight = best_weight, items = best_items)
+  return best
 end
 
-"""
-    slack_weights(capacity)
-
-Return a bounded-binary encoding whose subset sums cover every integer from
-zero through `capacity`, without representing larger slack values.
-"""
 function slack_weights(capacity::Integer)
-  if !(capacity >= 0)
-    throw(ArgumentError("capacity must be nonnegative"))
-  end
+  capacity >= 0 || throw(ArgumentError("capacity must be nonnegative"))
   encoded = Int[]
   remaining = Int(capacity)
   power = 1
-
   while remaining > 0
     weight = min(power, remaining)
     push!(encoded, weight)
     remaining -= weight
     power *= 2
   end
-
   return encoded
 end
 
-"""
-    penalty_qubo(instance, penalty)
-
-Encode `weight(items) <= capacity` with bounded-binary slack variables and the
-objective
-
-`-value(items) + penalty * (weight(items) + slack - capacity)^2`.
-
-The returned `Q`, `l`, and `constant` follow TenSolver's `x'Qx + l'x + c`
-convention. The first `nitems` variables are item decisions and the rest encode
-slack.
-"""
 function penalty_qubo(instance::KnapsackInstance, penalty::Real)
-  if !(penalty > 0)
-    throw(ArgumentError("penalty must be positive"))
-  end
+  penalty > 0 || throw(ArgumentError("penalty must be positive"))
   slack = slack_weights(instance.capacity)
   coefficients = Float64.([instance.weights; slack])
   values = [instance.values; zeros(length(slack))]
   lambda = Float64(penalty)
-
   Q = lambda .* (coefficients * coefficients')
   l = -values .- (2lambda * instance.capacity) .* coefficients
   constant = lambda * instance.capacity^2
-
-  return (Q, l, constant, nitems = length(instance.weights), slack_weights = slack)
+  return (; Q, l, constant, nitems = length(instance.weights))
 end
 
-function penalty_value(model, assignment)
-  return dot(assignment, model.Q, assignment) + dot(model.l, assignment) + model.constant
+penalty_value(model, assignment) =
+  dot(assignment, model.Q, assignment) +
+  dot(model.l, assignment) +
+  model.constant
+
+item_bits(sample, nitems) = round.(Int, sample[1:nitems])
+
+function best_sample(samples, decode, rank)
+  best = decode(first(samples))
+  best_rank = rank(best)
+  for sample in Iterators.drop(samples, 1)
+    candidate = decode(sample)
+    candidate_rank = rank(candidate)
+    if candidate_rank < best_rank
+      best = candidate
+      best_rank = candidate_rank
+    end
+  end
+  return best
 end
 
-function projection_resource_metrics(instance::KnapsackInstance; cutoff = 1e-10)
-  nitems = length(instance.weights)
-  Q = zeros(nitems, nitems)
-  l = -instance.values
-  constraint = TenSolver.SumConstraint(
-    collect(1:nitems),
-    instance.weights,
-    instance.capacity;
-    relation = :(<=),
-  )
-  H = TenSolver.tensorize(Q, l; cutoff, domain = 0:1)
-  sites = ITensorMPS.siteinds(first, H; plev = 0)
-  P = TenSolver.projection_mpo(constraint, sites; domain = 0:1)
-  H_effective = TenSolver.project_hamiltonian(H, P; cutoff)
+function projection_method()
+  formulate = function (instance)
+    return TenSolver.SumConstraint(
+      collect(eachindex(instance.weights)),
+      instance.weights,
+      instance.capacity;
+      relation = :(<=),
+    )
+  end
+  solve = function (instance, constraint, settings)
+    reported_objective, solution = TenSolver.maximize(
+      instance.values;
+      constraints = [constraint],
+      solver_options(settings)...,
+    )
+    decode = sample -> item_bits(sample, length(instance.weights))
+    rank = items -> (
+      !is_capacity_feasible(instance, items),
+      -item_value(instance, items),
+      item_weight(instance, items),
+    )
+    items = best_sample(TenSolver.sample(solution, settings.reads), decode, rank)
+    return (;
+      reported_objective,
+      solution,
+      items,
+      nvariables = length(instance.weights),
+      penalty = missing,
+      penalized_objective = missing,
+    )
+  end
+  return KnapsackMethod("projection", missing, formulate, solve)
+end
 
-  return (
-    objective_mpo_bond = ITensorMPS.maxlinkdim(H),
-    projection_mpo_bond = ITensorMPS.maxlinkdim(P),
-    effective_hamiltonian_bond = ITensorMPS.maxlinkdim(H_effective),
-  )
+function penalty_method(penalty_factor)
+  factor = Float64(penalty_factor)
+  formulate = function (instance)
+    return penalty_qubo(instance, factor * sum(instance.values))
+  end
+  solve = function (instance, model, settings)
+    reported_objective, solution = TenSolver.minimize(
+      model.Q,
+      model.l,
+      model.constant;
+      solver_options(settings)...,
+    )
+    decode = function (sample)
+      assignment = round.(Int, sample)
+      return (; assignment, items = item_bits(assignment, model.nitems))
+    end
+    rank = candidate -> (
+      penalty_value(model, candidate.assignment),
+      -item_value(instance, candidate.items),
+      item_weight(instance, candidate.items),
+    )
+    best = best_sample(TenSolver.sample(solution, settings.reads), decode, rank)
+    return (;
+      reported_objective,
+      solution,
+      items = best.items,
+      nvariables = length(best.assignment),
+      penalty = factor * sum(instance.values),
+      penalized_objective = penalty_value(model, best.assignment),
+    )
+  end
+  return KnapsackMethod("penalty_$(factor)", factor, formulate, solve)
+end
+
+function benchmark_methods(penalty_factors)
+  return (projection_method(), (penalty_method(factor) for factor in penalty_factors)...)
 end
 
 function projection_scaling_instances()
   probes = NamedTuple[]
-
   for capacity in (1, 2, 4, 8)
     nitems = 16
-    instance = KnapsackInstance(
-      "capacity_$(capacity)",
-      ones(Int, nitems),
-      ones(Int, nitems),
-      capacity,
-    )
+    instance =
+      KnapsackInstance("capacity_$(capacity)", ones(Int, nitems), ones(Int, nitems), capacity)
     push!(probes, (sweep = "capacity", instance))
   end
-
   for nitems in (8, 16, 32)
-    instance = KnapsackInstance("items_$(nitems)", ones(Int, nitems), ones(Int, nitems), 3)
+    instance =
+      KnapsackInstance("items_$(nitems)", ones(Int, nitems), ones(Int, nitems), 3)
     push!(probes, (sweep = "item_count", instance))
   end
-
   for scale in (4, 8, 32, 128)
     weights = vcat([1, 2, 3], fill(scale, 5))
     instance =
       KnapsackInstance("weight_scale_$(scale)", weights, ones(Int, length(weights)), 3)
     push!(probes, (sweep = "weight_magnitude", instance))
   end
-
   return probes
 end
 
-"""
-Build the controlled projection-MPO bond-dimension scaling table.
-"""
-function projection_scaling_rows(; cutoff = 1e-10)
-  return map(projection_scaling_instances()) do probe
-    instance = probe.instance
-    resources = projection_resource_metrics(instance; cutoff)
-    return (
-      sweep = probe.sweep,
-      instance = instance.name,
-      nitems = length(instance.weights),
-      capacity = instance.capacity,
-      max_weight = maximum(instance.weights),
-      capacity_state_bound = instance.capacity + 2,
-      objective_mpo_bond = resources.objective_mpo_bond,
-      projection_mpo_bond = resources.projection_mpo_bond,
-      effective_hamiltonian_bond = resources.effective_hamiltonian_bond,
-    )
-  end
-end
+# -----------------------------------------------------------------------------
+# Runners
+# -----------------------------------------------------------------------------
 
-function benchmark_repeated(f; samples)
-  outputs = Any[]
-  capture() = begin
-    output = f()
-    push!(outputs, output)
-    return output
-  end
-  # Leave the shorter per-solve limit to TenSolver while ensuring BenchmarkTools
-  # collects every requested fixed-count sample.
-  benchmark = BenchmarkTools.@benchmarkable $capture() samples=samples evals=1 seconds=3600
-  trial = BenchmarkTools.run(benchmark; warmup = false)
-  estimate = BenchmarkTools.median(trial)
-  measured_outputs = last(outputs, min(samples, length(outputs)))
-  length(measured_outputs) == length(trial.times) || error(
-    "could not associate every benchmark timing with its measured output",
-  )
-  median_index = sortperm(trial.times)[cld(length(trial.times), 2)]
+function solver_options(settings::BenchmarkSettings)
   return (
-    value = measured_outputs[median_index],
-    outputs = measured_outputs,
-    time = estimate.time / 1e9,
-    gctime = estimate.gctime / 1e9,
-    memory = estimate.memory,
-    allocs = estimate.allocs,
-    samples = length(measured_outputs),
-  )
-end
-
-function sample_median(values)
-  if isempty(values)
-    return 0.0
-  end
-  ordered = sort!(collect(values))
-  return ordered[cld(length(ordered), 2)]
-end
-
-function component_median(outputs, component, field)
-  return sample_median(getproperty(getproperty(output, component), field) for
-                       output in outputs)
-end
-
-function assert_stable_items(outputs)
-  items = getproperty.(outputs, :items)
-  if !(all(isequal(first(items)), items))
-    error("fixed-seed timing samples returned different selected assignments",)
-  end
-  return first(items)
-end
-
-function runtime_metadata()
-  return (
-    julia_version = string(VERSION),
-    julia_threads = Threads.nthreads(),
-    system = string(Sys.KERNEL),
-    architecture = string(Sys.ARCH),
-    tensolver_version = string(Base.pkgversion(TenSolver)),
-    itensors_version = string(Base.pkgversion(ITensors)),
-    itensormps_version = string(Base.pkgversion(ITensorMPS)),
-    benchmarktools_version = string(Base.pkgversion(BenchmarkTools)),
-  )
-end
-
-function solution_stats(solution)
-  stats = solution.stats
-  bonds = stats.max_bonds
-  variance_index = findlast(variance -> !isnothing(variance), stats.variances)
-  return (
-    sweeps = length(stats.energies),
-    solution_max_bond = isempty(stats.bond_dims) ? 0 : maximum(stats.bond_dims),
-    solver_elapsed_seconds = isempty(stats.elapsed_times) ? 0.0 : last(stats.elapsed_times),
-    final_variance =
-      isnothing(variance_index) ? missing : stats.variances[variance_index],
-    initial_state_bond = bonds.initial_state,
-    objective_mpo_bond = bonds.objective,
-    projection_mpo_bond = isempty(bonds.projections) ? missing : maximum(bonds.projections),
-    effective_hamiltonian_bond = bonds.hamiltonian,
-  )
-end
-
-item_bits(sample, nitems) = round.(Int, sample[1:nitems])
-
-function best_projection_sample(instance, samples)
-  best = item_bits(first(samples), length(instance.weights))
-  best_key = (
-    !is_capacity_feasible(instance, best),
-    -item_value(instance, best),
-    item_weight(instance, best),
-  )
-
-  for sample in Iterators.drop(samples, 1)
-    items = item_bits(sample, length(instance.weights))
-    key = (
-      !is_capacity_feasible(instance, items),
-      -item_value(instance, items),
-      item_weight(instance, items),
-    )
-    if key < best_key
-      best = items
-      best_key = key
-    end
-  end
-
-  return best
-end
-
-function best_penalty_sample(instance, model, samples)
-  best = round.(Int, first(samples))
-  best_items = item_bits(best, model.nitems)
-  best_key = (
-    penalty_value(model, best),
-    -item_value(instance, best_items),
-    item_weight(instance, best_items),
-  )
-
-  for sample in Iterators.drop(samples, 1)
-    assignment = round.(Int, sample)
-    items = item_bits(assignment, model.nitems)
-    key = (
-      penalty_value(model, assignment),
-      -item_value(instance, items),
-      item_weight(instance, items),
-    )
-    if key < best_key
-      best = assignment
-      best_key = key
-    end
-  end
-
-  return best
-end
-
-function solver_options(iterations, cutoff, time_limit)
-  return (
-    iterations = iterations,
-    time_limit = time_limit,
-    cutoff = cutoff,
+    iterations = settings.iterations,
+    time_limit = settings.time_limit,
+    cutoff = settings.cutoff,
     inidim = 8,
     maxdim = [10, 20, 40, 80, 120, 200],
     noise = [1e-6, 1e-8, 0.0],
-    check_variance_every_iteration = 1,
-    # Collect variance on every sweep without letting convergence shorten the
-    # fixed-sweep benchmark workload.
+    check_variance_every_iteration = typemax(Int),
     vtol = -Inf,
     verbosity = 0,
   )
 end
 
-function benchmark_result_row(
-  instance,
+function result_row(
+  instance::KnapsackInstance,
   exact,
-  method,
-  items,
-  reported_objective,
-  formulation_timed,
-  case_timed,
-  solution;
-  nvariables,
-  iterations,
-  reads,
-  cutoff,
-  time_limit,
-  timing_samples,
-  benchmark_id,
-  penalty_factor = missing,
-  penalty = missing,
-  penalized_objective = missing,
+  method::KnapsackMethod,
+  output,
+  settings::BenchmarkSettings,
 )
-  feasible = is_capacity_feasible(instance, items)
-  value = item_value(instance, items)
-  stats = solution_stats(solution)
-  sampling_seconds = component_median(case_timed.outputs, :sampling, :time)
-  sampling_gc_seconds = component_median(case_timed.outputs, :sampling, :gctime)
-  sampling_allocated_bytes = component_median(case_timed.outputs, :sampling, :memory)
-  solver_call_seconds = max(0.0, case_timed.time - sampling_seconds)
-  metadata = runtime_metadata()
-
-  return (;
-    benchmark_id,
-    metadata...,
+  stats = output.solution.stats
+  bonds = stats.max_bonds
+  elapsed = isempty(stats.elapsed_times) ? 0.0 : last(stats.elapsed_times)
+  feasible = is_capacity_feasible(instance, output.items)
+  value = item_value(instance, output.items)
+  return (
     instance = instance.name,
-    method,
+    method = method.name,
     nitems = length(instance.weights),
-    nvariables,
+    nvariables = output.nvariables,
     capacity = instance.capacity,
-    penalty_factor,
-    penalty,
+    penalty_factor = method.penalty_factor,
+    penalty = output.penalty,
     exact_value = exact.value,
     original_value = value,
     feasible,
     optimality_gap = feasible ? exact.value - value : missing,
-    penalized_objective,
-    solver_reported_objective = reported_objective,
-    solver_seed = SOLVER_SEED,
-    requested_iterations = iterations,
-    reads,
-    cutoff,
-    time_limit_seconds = time_limit,
-    timing_samples,
-    formulation_wall_seconds = formulation_timed.time,
-    formulation_gc_seconds = formulation_timed.gctime,
-    formulation_allocated_bytes = formulation_timed.memory,
-    formulation_allocations = formulation_timed.allocs,
-    solve_wall_seconds = case_timed.time,
-    solve_gc_seconds = case_timed.gctime,
-    solve_allocated_bytes = case_timed.memory,
-    solve_allocations = case_timed.allocs,
-    sampling_seconds,
-    sampling_gc_seconds,
-    sampling_allocated_bytes,
-    solver_call_seconds,
-    end_to_end_wall_seconds = formulation_timed.time + case_timed.time,
-    solver_elapsed_seconds = stats.solver_elapsed_seconds,
-    sweeps = stats.sweeps,
-    time_limit_reached = (stats.sweeps < iterations ||
-                          stats.solver_elapsed_seconds > time_limit),
-    solution_max_bond = stats.solution_max_bond,
-    final_variance = stats.final_variance,
-    truncation_error = missing,
-    initial_state_bond = stats.initial_state_bond,
-    objective_mpo_bond = stats.objective_mpo_bond,
-    projection_mpo_bond = stats.projection_mpo_bond,
-    effective_hamiltonian_bond = stats.effective_hamiltonian_bond,
+    penalized_objective = output.penalized_objective,
+    solver_reported_objective = output.reported_objective,
+    sweeps = length(stats.energies),
+    time_limit_reached =
+      length(stats.energies) < settings.iterations && elapsed >= settings.time_limit,
+    solver_elapsed_seconds = elapsed,
+    solution_max_bond = isempty(stats.bond_dims) ? 0 : maximum(stats.bond_dims),
+    objective_mpo_bond = bonds.objective,
+    projection_mpo_bond =
+      isempty(bonds.projections) ? missing : maximum(bonds.projections),
+    effective_hamiltonian_bond = bonds.hamiltonian,
   )
 end
 
-function projection_row(
-  instance::KnapsackInstance,
-  exact;
-  iterations,
-  reads,
-  cutoff,
-  time_limit,
-  timing_samples,
-  benchmark_id,
-)
-  nitems = length(instance.weights)
-  formulation_timed = benchmark_repeated(; samples = timing_samples) do
-    return TenSolver.SumConstraint(
-      collect(1:nitems),
-      instance.weights,
-      instance.capacity;
-      relation = :(<=),
-    )
-  end
-  constraint = formulation_timed.value
-  case_timed = benchmark_repeated(; samples = timing_samples) do
-    Random.seed!(SOLVER_SEED)
-    options = solver_options(iterations, cutoff, time_limit)
-    reported_objective, solution =
-      TenSolver.maximize(instance.values; constraints = [constraint], options...)
-    sampling = @timed best_projection_sample(instance, TenSolver.sample(solution, reads))
-    return (;
-      reported_objective,
-      solution,
-      items = sampling.value,
-      sampling = (time = sampling.time, gctime = sampling.gctime, memory = sampling.bytes),
-    )
-  end
-  items = assert_stable_items(case_timed.outputs)
-  output = case_timed.value
-  return benchmark_result_row(
-    instance,
-    exact,
-    "projection",
-    items,
-    output.reported_objective,
-    formulation_timed,
-    case_timed,
-    output.solution;
-    nvariables = nitems,
-    iterations,
-    reads,
-    cutoff,
-    time_limit,
-    timing_samples = case_timed.samples,
-    benchmark_id,
-  )
-end
-
-function penalty_row(
+function execute_case(
   instance::KnapsackInstance,
   exact,
-  penalty_factor;
-  iterations,
-  reads,
-  cutoff,
-  time_limit,
-  timing_samples,
-  benchmark_id,
+  method::KnapsackMethod,
+  settings::BenchmarkSettings,
 )
-  penalty = Float64(penalty_factor) * sum(instance.values)
-  formulation_timed = benchmark_repeated(; samples = timing_samples) do
-    return penalty_qubo(instance, penalty)
-  end
-  model = formulation_timed.value
-  case_timed = benchmark_repeated(; samples = timing_samples) do
-    Random.seed!(SOLVER_SEED)
-    options = solver_options(iterations, cutoff, time_limit)
-    reported_objective, solution =
-      TenSolver.minimize(model.Q, model.l, model.constant; options...)
-    sampling = @timed begin
-      assignment = best_penalty_sample(instance, model, TenSolver.sample(solution, reads))
-      (assignment = assignment, items = item_bits(assignment, model.nitems))
+  model = method.formulate(instance)
+  output = method.solve(instance, model, settings)
+  return result_row(instance, exact, method, output, settings)
+end
+
+function benchmark_suite(instances, methods, settings::BenchmarkSettings)
+  suite = BenchmarkTools.BenchmarkGroup()
+  entries = SuiteEntry[]
+  samples = settings.timing_samples
+  for instance in instances
+    suite[instance.name] = BenchmarkTools.BenchmarkGroup()
+    exact = brute_force_optimum(instance)
+    for method in methods
+      outputs = Any[]
+      runner = function ()
+        push!(outputs, execute_case(instance, exact, method, settings))
+        return nothing
+      end
+      suite[instance.name][method.name] =
+        BenchmarkTools.@benchmarkable $runner() samples=samples evals=1 seconds=3600
+      push!(entries, SuiteEntry(instance.name, method.name, outputs))
     end
-    return (;
-      reported_objective,
-      solution,
-      assignment = sampling.value.assignment,
-      items = sampling.value.items,
-      sampling = (time = sampling.time, gctime = sampling.gctime, memory = sampling.bytes),
-    )
   end
-  items = assert_stable_items(case_timed.outputs)
-  output = case_timed.value
-  return benchmark_result_row(
-    instance,
-    exact,
-    "penalty_qubo",
-    items,
-    output.reported_objective,
-    formulation_timed,
-    case_timed,
-    output.solution;
-    nvariables = length(output.assignment),
-    iterations,
-    reads,
-    cutoff,
-    time_limit,
-    timing_samples = case_timed.samples,
-    benchmark_id,
-    penalty_factor = Float64(penalty_factor),
-    penalty,
-    penalized_objective = penalty_value(model, output.assignment),
-  )
+  return suite, entries
 end
 
-function warmup_solvers(; cutoff)
-  instance = KnapsackInstance("warmup", [1, 1], [2, 1], 1)
-  exact = brute_force_optimum(instance)
-  settings = (
-    iterations = 1,
-    reads = 1,
-    cutoff,
-    time_limit = Inf,
-    timing_samples = 1,
-    benchmark_id = "warmup",
-  )
-  projection_row(instance, exact; settings...)
-  penalty_row(instance, exact, 1.1; settings...)
-  return nothing
+function measured_rows(trials, entries)
+  rows = NamedTuple[]
+  for entry in entries
+    trial = trials[entry.instance_key][entry.method_key]
+    sample_count = length(trial.times)
+    length(entry.outputs) >= sample_count ||
+      error("BenchmarkTools did not capture every measured output")
+    outputs = last(entry.outputs, sample_count)
+    median_index = sortperm(trial.times)[cld(sample_count, 2)]
+    row = merge(
+      outputs[median_index],
+      (end_to_end_wall_seconds = trial.times[median_index] / 1e9,),
+    )
+    push!(rows, row)
+  end
+  return rows
 end
 
 """
-    benchmark_rows([instances]; penalty_factors, iterations, reads, cutoff,
-                   time_limit, timing_samples, benchmark_id, warmup, on_row)
-
-Run the hard-projection solve and a penalty-QUBO sensitivity sweep for every
-instance. Returned rows report the original knapsack objective and feasibility,
-not just each solver's encoded objective.
-
-Final-state variance and operator bond dimensions come from solver-reported
-statistics.
-Truncation error remains unavailable because solver statistics do not expose
-discarded singular values.
-
-When provided, `on_row` is called after each completed row so long runs can
-report progress without changing the returned table.
+Run the penalty-versus-projection benchmark as a declarative BenchmarkTools
+suite. Pass keywords directly when calling this function from the REPL.
 """
-function benchmark_rows(
+function run_benchmarks(
   instances = default_instances();
   penalty_factors = (0.001, 0.01, 0.1, 1.1),
   iterations = 6,
@@ -628,79 +439,59 @@ function benchmark_rows(
   time_limit = 120.0,
   timing_samples = 3,
   benchmark_id = "unversioned",
-  warmup = true,
-  on_row = nothing,
+  verbose = true,
 )
-  if !(iterations > 0)
-    throw(ArgumentError("iterations must be positive"))
-  end
-  if !(reads > 0)
-    throw(ArgumentError("reads must be positive"))
-  end
-  if !(time_limit > 0)
-    throw(ArgumentError("time_limit must be positive"))
-  end
-  if !(timing_samples > 0)
-    throw(ArgumentError("timing_samples must be positive"))
-  end
-  if !(isodd(timing_samples))
-    throw(ArgumentError("timing_samples must be odd"))
-  end
-  if !(all(>(0), penalty_factors))
-    throw(ArgumentError("penalty factors must be positive"))
-  end
-
-  if warmup
-    warmup_solvers(; cutoff)
-  end
-
-  rows = NamedTuple[]
-  for instance in instances
-    exact = brute_force_optimum(instance)
-    settings = (; iterations, reads, cutoff, time_limit, timing_samples, benchmark_id)
-    projection = projection_row(instance, exact; settings...)
-    push!(rows, projection)
-    if !(isnothing(on_row))
-      on_row(projection)
-    end
-
-    for factor in penalty_factors
-      penalty = penalty_row(
-        instance,
-        exact,
-        factor;
-        iterations,
-        reads,
-        cutoff,
-        time_limit,
-        timing_samples,
-        benchmark_id,
-      )
-      push!(rows, penalty)
-      isnothing(on_row) || on_row(penalty)
-    end
-  end
-
-  return rows
+  settings = BenchmarkSettings(
+    Int(iterations),
+    Int(reads),
+    Float64(cutoff),
+    Float64(time_limit),
+    Int(timing_samples),
+  )
+  validate(settings, penalty_factors)
+  suite, entries = benchmark_suite(
+    instances,
+    benchmark_methods(penalty_factors),
+    settings,
+  )
+  trials = BenchmarkTools.run(suite; verbose)
+  return BenchmarkReport(
+    runtime_metadata(settings, benchmark_id),
+    measured_rows(trials, entries),
+  )
 end
 
-csv_value(::Missing) = ""
-csv_value(value::AbstractString) = "\"" * replace(value, "\"" => "\"\"") * "\""
-csv_value(value) = string(value)
-
 """
-Write benchmark rows as CSV to `io`.
+Build the projection resource table through TenSolver's public solver API.
 """
-function write_csv(io::IO, rows)
-  if isempty(rows)
-    return nothing
+function projection_scaling_rows(; cutoff = 1e-10, time_limit = 60.0)
+  settings = BenchmarkSettings(1, 1, Float64(cutoff), Float64(time_limit), 1)
+  return map(projection_scaling_instances()) do probe
+    instance = probe.instance
+    constraint = TenSolver.SumConstraint(
+      collect(eachindex(instance.weights)),
+      instance.weights,
+      instance.capacity;
+      relation = :(<=),
+    )
+    _, solution = TenSolver.maximize(
+      instance.values;
+      constraints = [constraint],
+      solver_options(settings)...,
+    )
+    bonds = solution.stats.max_bonds
+    return (
+      sweep = probe.sweep,
+      instance = instance.name,
+      nitems = length(instance.weights),
+      capacity = instance.capacity,
+      max_weight = maximum(instance.weights),
+      capacity_state_bound = instance.capacity + 2,
+      objective_mpo_bond = bonds.objective,
+      projection_mpo_bond = maximum(bonds.projections),
+      effective_hamiltonian_bond = bonds.hamiltonian,
+    )
   end
-  columns = keys(first(rows))
-  println(io, join(string.(columns), ','))
-  for row in rows
-    println(io, join((csv_value(getproperty(row, column)) for column in columns), ','))
-  end
-  return nothing
 end
 
 end
