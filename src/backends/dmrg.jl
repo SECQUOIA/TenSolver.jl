@@ -252,10 +252,7 @@ function minimize_mpo( H_obj :: MPO
                      , permutation :: Vector{Int} = collect(1:length(H_obj))
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  initial_time      = time()
-  energies_log      = T[]
-  bond_dims_log     = Int[]
-  elapsed_times_log = Float64[]
+  initial_time = time()
 
   # Quantization
   sites = ITensorMPS.siteinds(first, H_obj; plev=0)
@@ -283,9 +280,9 @@ function minimize_mpo( H_obj :: MPO
 
   @debug(
     "Constraint projection MPO construction finished",
-    projection_max_bond = map(ITensorMPS.maxlinkdim, projections),
-    projected_hamiltonian_max_bond = ITensorMPS.maxlinkdim(H),
-    projected_initial_max_bond = ITensorMPS.maxlinkdim(psi),
+    projection_max_bond = stats.max_bonds.projections,
+    projected_hamiltonian_max_bond = stats.max_bonds.hamiltonian,
+    projected_initial_max_bond = stats.max_bonds.initial_state,
     time=(time() - initial_time),
   )
 
@@ -312,9 +309,11 @@ function minimize_mpo( H_obj :: MPO
                  )
 
     # Get metadata #
+    checked_variance = nothing
     if i % check_variance_every_iteration == 0
       vtime = time()
       var = variance(H, psi)
+      checked_variance = var
       @debug "Calculate variance" variance=var time=(time() - vtime())
     end
 
@@ -323,20 +322,26 @@ function minimize_mpo( H_obj :: MPO
     bond_dim = ITensorMPS.maxlinkdim(psi)
 
     # Per-iteration stats (always collected)
-    record_stats!(stats, i; energy = energy+c, bond_dim, elapsed_time)
+    record_stats!(
+      stats;
+      energy = energy+c,
+      bond_dim,
+      elapsed_time,
+      variance = checked_variance,
+    )
 
     iterlog_iteration(
       verbosity,
       i,
       energy + c,
       bond_dim,
-      i % check_variance_every_iteration == 0 ? var : nothing,
+      checked_variance,
       elapsed_time,
     )
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
-      on_iteration(psi; iteration=i, objective=energy+c, bond_dim, elapsed_time, variance = var)
+      on_iteration(psi; iteration=i, objective=energy+c, bond_dim, elapsed_time)
     end
 
     # Stopping criteria #

@@ -9,6 +9,8 @@ import ITensorMPS: MPS, siteinds
 - `energies`: per-iteration calculated energy/objective value;
 - `bond_dims`: per-iteration solution maximum bond dimension;
 - `elapsed_times`: per-iteration total until the iteration completed;
+- `variances`: per-iteration Hamiltonian variance, or `nothing` on iterations
+  where the variance was not checked;
 - `max_bonds`: structure containing bond dimensions for multiple tensors used throughout the iteration
   - `initial_state`: bond for the initial MPS guess;
   - `objective`: bond for the MPO representing the objective function `H`;
@@ -19,6 +21,7 @@ struct SolverStatistics{T <: Real}
   energies      :: Vector{T}
   bond_dims     :: Vector{Int64}
   elapsed_times :: Vector{Float64}
+  variances     :: Vector{Union{Nothing,T}}
   max_bonds     :: @NamedTuple begin
     projections   :: Vector{Int64}
     objective     :: Int64
@@ -27,16 +30,23 @@ struct SolverStatistics{T <: Real}
   end
 
   function SolverStatistics{T}(; projections, objective, initial_state, hamiltonian) where {T}
-    new{T}(T[], Int64[], Float64[], (; projections, objective, initial_state, hamiltonian))
+    new{T}(
+      T[],
+      Int64[],
+      Float64[],
+      Union{Nothing,T}[],
+      (; projections, objective, initial_state, hamiltonian),
+    )
   end
 end
 
-function record_stats!(stats::SolverStatistics, _i::Integer; energy, bond_dim, elapsed_time)
-    push!(stats.energies,      energy)
-    push!(stats.bond_dims,     bond_dim)
-    push!(stats.elapsed_times, elapsed_time)
+function record_stats!(stats::SolverStatistics; energy, bond_dim, elapsed_time, variance)
+  push!(stats.energies,      energy)
+  push!(stats.bond_dims,     bond_dim)
+  push!(stats.elapsed_times, elapsed_time)
+  push!(stats.variances,     variance)
 
-    return stats
+  return stats
 end
 
 
@@ -72,6 +82,24 @@ struct Solution{T <: Real}
   ) where {T <: Real}
     return new{T}(tensor, domain, permutation, stats)
   end
+end
+
+function Base.getproperty(solution::Solution, name::Symbol)
+  if name === :energies || name === :bond_dims || name === :elapsed_times
+    Base.depwarn(
+      "`solution.$name` is deprecated; use `solution.stats.$name` instead.",
+      name,
+    )
+    return getproperty(getfield(solution, :stats), name)
+  end
+
+  return getfield(solution, name)
+end
+
+function Base.propertynames(::Solution, _private::Bool=false)
+  fields = fieldnames(Solution)
+  aliases = (:energies, :bond_dims, :elapsed_times)
+  return (fields..., aliases...)
 end
 
 function infeasible_solution(::Type{T}, domain, stats) where {T <: Real}

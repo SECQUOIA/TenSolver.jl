@@ -132,18 +132,55 @@
       @test length(psi.stats.energies)      == 5
       @test length(psi.stats.bond_dims)     == 5
       @test length(psi.stats.elapsed_times) == 5
+      @test length(psi.stats.variances)     == 5
       @test all(isfinite, psi.stats.energies)
       @test issorted(psi.stats.elapsed_times)
       @test all(>(0), psi.stats.bond_dims)
+      @test all(isnothing, psi.stats.variances)
       @test isfinite(last(psi.stats.energies))
       @test last(psi.stats.energies) ≈ E
+
+      @test isempty(psi.stats.max_bonds.projections)
+      @test psi.stats.max_bonds.objective > 0
+      @test psi.stats.max_bonds.initial_state > 0
+      @test psi.stats.max_bonds.hamiltonian > 0
     end
 
-    @testset "on_iteration callback is called" begin
-      calls = Int[]
-      cb = (psi; iteration, kw...) -> push!(calls, iteration)
+    @testset "Solution preserves deprecated stats aliases" begin
+      _, psi = minimize([1.0 0; 0 -1.0]; iterations=2, verbosity = 0)
+
+      @test :energies in propertynames(psi)
+      @test :bond_dims in propertynames(psi)
+      @test :elapsed_times in propertynames(psi)
+      @test_deprecated psi.energies === psi.stats.energies
+      @test_deprecated psi.bond_dims === psi.stats.bond_dims
+      @test_deprecated psi.elapsed_times === psi.stats.elapsed_times
+    end
+
+    @testset "Variance stats distinguish unchecked iterations" begin
+      _, psi = minimize(
+        [1.0 0; 0 -1.0];
+        iterations=3,
+        check_variance_every_iteration=1,
+        vtol=-Inf,
+        verbosity=0,
+      )
+
+      @test length(psi.stats.variances) == 3
+      @test all(!isnothing, psi.stats.variances)
+      @test all(isfinite, psi.stats.variances)
+    end
+
+    @testset "on_iteration callback preserves its documented signature" begin
+      calls = NamedTuple[]
+      function cb(psi; iteration, objective, bond_dim, elapsed_time)
+        push!(calls, (; iteration, objective, bond_dim, elapsed_time))
+      end
       minimize([1.0 0; 0 -1.0]; iterations=5, on_iteration=cb, verbosity = 0)
-      @test calls == collect(1:5)
+      @test getproperty.(calls, :iteration) == collect(1:5)
+      @test all(call -> isfinite(call.objective), calls)
+      @test all(call -> call.bond_dim > 0, calls)
+      @test issorted(getproperty.(calls, :elapsed_time))
     end
 
     @testset "callback_every" begin

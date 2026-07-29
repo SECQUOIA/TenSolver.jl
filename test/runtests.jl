@@ -1,4 +1,4 @@
-using Test, Random, LinearAlgebra
+using Test, Random, LinearAlgebra, Logging
 
 using  TenSolver
 
