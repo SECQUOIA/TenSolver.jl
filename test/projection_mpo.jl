@@ -66,6 +66,7 @@ end
     SumConstraint([1, 2, 4], [1, 2, 3], :(==), 3),
     SumConstraint([2, 4], [2, 3], :(>=), 3),
     SumConstraint([1, 2, 4], [1, 2, 3], :(!=), 3),
+    SumModConstraint([1, 2, 4], [1, 2, 3], 3; mod = 3),
     NotEqualsConstraint([1, 3], [1, 0]),
     NotEqualsConstraint([1, 2], [1.0, 0.0]),
     NotEqualsConstraint([1, 3, 2, 4], Bool[1, 0, 0, 1]),
@@ -347,6 +348,17 @@ end
       H = assert_projection_matches_feasibility(constraint, sites)
       @test ITensorMPS.maxlinkdim(H) <= 2
     end
+  end
+
+  @testset "SumModConstraint projection" begin
+    sites = ITensors.siteinds("Qudit", 4; dim=2)
+
+    constraint = SumModConstraint([1, 3], [1, 2], 0 ; mod = 3)
+    dfa = TenSolver.constraint_to_dfa(constraint, length(sites),  0:1)
+    H = assert_projection_matches_feasibility(constraint, sites)
+
+    @test length(dfa.states) == 3
+    @test ITensorMPS.maxlinkdim(H) <= 3
   end
 
   @testset "SumConstraint floating-point lowering" begin

@@ -94,6 +94,10 @@
     @test is_feasible([1, 0], sum_eq)
     @test !is_feasible([1, 1], sum_eq)
 
+    sum_mod = SumModConstraint([1, 2], [1, 1], 1; mod=2)
+    @test  is_feasible([1, 0], sum_mod)
+    @test !is_feasible([1, 1], sum_mod)
+
     not_equals = NotEqualsConstraint([1, 3], [1, 0])
     @test !is_feasible([1, 1, 0], not_equals)
     @test is_feasible([1, 1, 1], not_equals)

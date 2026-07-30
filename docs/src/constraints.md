@@ -39,6 +39,7 @@ the effective Hamiltonian has bond dimension bounded by
 | Constraint | Enforces | Bond dimension of ``P`` |
 |:-----------|:---------|:------------------------|
 | [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
+| [`SumModConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} = b mod m`` | ``m`` |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
 | [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i \in G) \lessgtr b`` | ``b + 2`` |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
@@ -99,6 +100,20 @@ when the variable domains are nonnegative integers.
 
 Its automaton tracks a capped partial sum,
 so the projection bond dimension is `rhs + 2` regardless of how many variables the sum touches.
+
+### Modular Sum Constraint
+
+`SumModConstraint(sites, weights, rhs; mod = m)` enforces the weighted sum
+
+```math
+\sum_{i \in \texttt{sites}} \texttt{weights}[i] \cdot x[i]
+\;\; == \;\; \texttt{rhs} \;\;\mathrm{mod}\;\; m,
+```
+
+The `sites` are unique positive integers representing variable indices,
+while `weights` and `rhs` must be **integers**.
+
+Its MPO tracks a partial sum with bond dimension `m`.
 
 ### NotEqualsConstraint
 
