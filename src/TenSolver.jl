@@ -14,7 +14,7 @@ export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
 
 include("constraints.jl")
 export AbstractConstraint
-export SumConstraint, NotEqualsConstraint, ExactlyOneConstraint, RelationConstraint
+export SumConstraint, NotEqualsConstraint, AssignmentConstraint, RelationConstraint
 export is_feasible
 
 include("projection_mpo.jl")

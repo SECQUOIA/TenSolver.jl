@@ -50,7 +50,7 @@ for a worked example.
 TenSolver.AbstractConstraint
 TenSolver.SumConstraint
 TenSolver.NotEqualsConstraint
-TenSolver.ExactlyOneConstraint
+TenSolver.AssignmentConstraint
 TenSolver.RelationConstraint
 TenSolver.is_feasible
 TenSolver.constraint_sites

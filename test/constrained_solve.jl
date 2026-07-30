@@ -17,7 +17,7 @@ end
   all_constraint_types = AbstractConstraint[
     SumConstraint([1, 2, 3], [1, 1, 1], 2; relation=:(<=)),
     NotEqualsConstraint([1, 2], [1, 1]),
-    ExactlyOneConstraint([2, 3], 1),
+    AssignmentConstraint([2, 3], [1], :(==), 1),
     RelationConstraint(1, :(>=), 3),
   ]
 
@@ -59,7 +59,7 @@ end
   @testset "Maximize forwards constraints" begin
     Q = zeros(2, 2)
     l = [1.0, 2.0]
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
     obj(x) = dot(x, Q, x) + dot(l, x)
 
     E, psi = maximize(
@@ -117,7 +117,7 @@ end
 
     DynamicPolynomials.@polyvar z
     p = -2.0z + 0.0
-    force_one = AbstractConstraint[ExactlyOneConstraint([1], 1)]
+    force_one = AbstractConstraint[AssignmentConstraint([1], 1, :(==), 1)]
     poly_obj(x) = p([z] => x)
 
     E_poly, psi_poly = minimize(
@@ -153,7 +153,7 @@ end
 
     DynamicPolynomials.@polyvar w
     p_pos = 2.0w + 0.0
-    force_one_poly = AbstractConstraint[ExactlyOneConstraint([1], 1)]
+    force_one_poly = AbstractConstraint[AssignmentConstraint([1], 1, :(==), 1)]
     poly_pos_obj(x) = p_pos([w] => x)
 
     E_ppos, psi_ppos = minimize(
@@ -169,7 +169,7 @@ end
   end
 
   @testset "Zero objective keeps feasible constrained samples" begin
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
     E, psi = minimize(
       zeros(2, 2);
       constraints,
@@ -309,7 +309,7 @@ end
     Random.seed!(20260715)
 
     l = [-1.0, -1.0]
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
 
     E, psi = minimize(
       zeros(2, 2),

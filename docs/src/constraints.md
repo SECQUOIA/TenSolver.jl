@@ -40,7 +40,7 @@ the effective Hamiltonian has bond dimension bounded by
 |:-----------|:---------|:------------------------|
 | [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
-| [`ExactlyOneConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i = k) = 1`` | 2 |
+| [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i in G) \lessgtr b`` | 2 |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
 
 ## Using constraints
@@ -123,22 +123,22 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; constraints = [exclude], 
 (true, [1.0, 0.0])
 ```
 
-### ExactlyOneConstraint
+### AssignmentConstraint
 
-`ExactlyOneConstraint(sites, value)` requires exactly one of the selected sites
-to equal `value`:
+`AssignmentConstraint(sites, values, rel, rhs)`
+forces an assignment of a fixed amount of the selected sites to be in `values`:
 
 ```math
-\#\{\, s \in \texttt{sites} : x_s = \texttt{value} \,\} = 1.
+\#\{\, s \in \texttt{sites} : x_s in \texttt{values} \,\} \;\; \texttt{relation} \;\; \texttt{rhs},
 ```
 
-Its specialized automaton has bond dimension 2.
+Similarly to the weighted sum, its automaton has maximum bond dimension `k+2`.
 
 ```jldoctest onehot
 using TenSolver
 
 # Pick exactly one of the three options; the second is the most valuable.
-one_hot = ExactlyOneConstraint([1, 2, 3], 1)
+one_hot = AssignmentConstraint([1, 2, 3], 1, :(==), 1)
 
 E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; constraints = [one_hot], verbosity = 0)
 
@@ -173,8 +173,8 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, 1.0]; constraints = [implies], v
 
 ## Combining constraints
 
-Passing several constraints applies their conjunction — the feasible set is the
-intersection. All four types compose freely:
+Passing several constraints applies their conjunction.
+All four types compose freely:
 
 ```jldoctest combined
 using TenSolver
@@ -182,7 +182,7 @@ using TenSolver
 constraints = [
     SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=)),
     NotEqualsConstraint([1, 2], [1, 1]),
-    ExactlyOneConstraint([2, 3], 1),
+    AssignmentConstraint([2, 3], 1, :(==), 1),
     RelationConstraint(1, :(>=), 3),
 ]
 

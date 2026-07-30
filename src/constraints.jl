@@ -17,7 +17,7 @@ Julia lowering target for projection-MPO constrained solves; future JuMP/MOI
 integration may change which constraint abstraction is considered stable public API.
 
 See also [`SumConstraint`](@ref), [`NotEqualsConstraint`](@ref),
-[`ExactlyOneConstraint`](@ref), and [`RelationConstraint`](@ref).
+[`AssignmentConstraint`](@ref), and [`RelationConstraint`](@ref).
 """
 abstract type AbstractConstraint end
 
@@ -103,28 +103,36 @@ function NotEqualsConstraint(sites, values)
 end
 
 """
-    ExactlyOneConstraint{T} <: AbstractConstraint
-    ExactlyOneConstraint(sites, value)
+    AssignmentConstraint{T} <: AbstractConstraint
+    AssignmentConstraint(sites, values, relation, rhs)
 
-Requires exactly one site in `sites` to satisfy `x[site] == value`, i.e.,
+Require a fixed amount of `sites` to satisfy `x[site] in value`, i.e.,
 
-    count(x[site] == value for site in sites) == 1.
+    count(x[site] in value for site in sites) relation rhs.
 
-`sites` must be unique positive integers, and `value` must be `0` or `1`.
+A common application is to restrict _exactly one_ variable to be a certain value,
+
+```julia
+ExactlyOne(sites, value) = AssignmentConstraint(sites, [value], :(==), 1)
+```
 """
-struct ExactlyOneConstraint{T<:Real} <: AbstractConstraint
-  sites::Vector{Int}
-  value::T
+struct AssignmentConstraint{T<:Real} <: AbstractConstraint
+  sites    :: Vector{Int}
+  values   :: Set{T}
+  relation :: Symbol
+  rhs      :: T
 
-  function ExactlyOneConstraint{T}(sites, value::T) where {T<:Real}
+  function AssignmentConstraint{T}(sites, values, relation, rhs) where {T<:Real}
     site_vec = validate_sites(sites)
+    relation = validate_relation(relation)
+    rhs      = validate_rhs(rhs)
 
-    return new{T}(site_vec, value)
+    return new{T}(site_vec, Set(values), relation, rhs)
   end
 end
 
-function ExactlyOneConstraint(sites, value::T) where T
-  return ExactlyOneConstraint{T}(sites, value)
+function AssignmentConstraint(sites, values, relation, rhs)
+  return AssignmentConstraint{eltype(values)}(sites, values, relation, rhs)
 end
 
 """
@@ -167,8 +175,9 @@ function is_feasible(x::AbstractVector, constraint::NotEqualsConstraint)
   return any(x[site] != value for (site, value) in constraint.values)
 end
 
-function is_feasible(x::AbstractVector, constraint::ExactlyOneConstraint)
-  return count(site -> x[site] == constraint.value, constraint.sites) == 1
+function is_feasible(x::AbstractVector, constraint::AssignmentConstraint)
+  lhs = count(site -> x[site] in constraint.values, constraint.sites)
+  return relation_holds(lhs, constraint.relation, constraint.rhs)
 end
 
 function is_feasible(x::AbstractVector, constraint::RelationConstraint)
@@ -204,7 +213,7 @@ function constraint_sites(constraint::NotEqualsConstraint)
   return keys(constraint.values)
 end
 
-function constraint_sites(constraint::ExactlyOneConstraint)
+function constraint_sites(constraint::AssignmentConstraint)
   return constraint.sites
 end
 
