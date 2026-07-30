@@ -26,18 +26,23 @@ A solve with `constraints` proceeds in three steps:
    accepts exactly the feasible vectors, and the automaton is threaded into
    an MPO ``P`` that is **diagonal with entries 1 on feasible basis states and
    0 on infeasible ones** — an exact projector, not a penalty.
-3. DMRG minimizes the projected Hamiltonian ``P' H P``. Because numerical noise
-   and truncation can leak amplitude back into the (zero-energy) infeasible
-   kernel, the state is re-projected at every iteration, which is what makes
-   every sampled solution feasible.
+3. DMRG minimizes the projected Hamiltonian ``P' H P``. The objective and
+   built-in projectors are diagonal, and each projector is Hermitian and
+   idempotent, so TenSolver constructs this as the equivalent one-sided product
+   ``H P``. Because numerical noise and truncation can leak amplitude back into
+   the (zero-energy) infeasible kernel, the state is re-projected at every
+   iteration, which is what makes every sampled solution feasible.
 
 Each of the four built-in constraint types has a specialized automaton with a
 compact bond dimension (see the table below).
 
 
-The cost driver is the MPO bond dimension: the projected Hamiltonian satisfies
-``\chi(P' H P) \le \chi(H) \cdot \prod_i \chi(P_i)^2``, so compact projections
-keep constrained solves close to the unconstrained cost.
+The cost driver is the MPO bond dimension. For TenSolver's commuting objective
+and projectors, the one-sided construction satisfies
+``\chi(H P) \le \chi(H) \cdot \prod_i \chi(P_i)``. The general
+``P' H P`` construction remains available through
+[`TenSolver.project_hamiltonian`](@ref) with `formulation=:sandwich`; its bound is
+``\chi(H) \cdot \prod_i \chi(P_i)^2``.
 
 | Constraint | Enforces | Bond dimension of ``P`` |
 |:-----------|:---------|:------------------------|
