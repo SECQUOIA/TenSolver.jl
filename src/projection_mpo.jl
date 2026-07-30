@@ -230,13 +230,13 @@ Constraint site numbers use the same 1-based register indexing as `sites`.
 
 # Known constraints
 
-- [`SumConstraint`](@ref) uses a specialized exact integer partial-sum automaton.
-For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
-- [`NotEqualsConstraint`](@ref) uses a specialized MPO with bond dimension `2`,
+- [`SumConstraint`](@ref) uses a exact integer partial-sum automaton.
+  For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
+- [`NotEqualsConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the rhs.
-- [`ExactlyOneConstraint`](@ref) uses a specialized MPO with bond dimension `2`
-  that tracks whether the target value has been seen exactly once.
-- [`RelationConstraint`](@ref) uses a specialized MPO with bond dimension `2`,
+- [`AssignmentConstraint`](@ref) uses a membership counting automaton.
+  For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
+- [`RelationConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the compared site positions.
 """
 function projection_mpo end
@@ -395,21 +395,22 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer, alphabet) where {S}
-  target = constraint.value
+function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, alphabet) where {S}
+  (; values, rhs, relation) = constraint
+  beyond    = rhs + one(S)
 
-  states    = [:not_seen, :seen_once]
-  initial   = :not_seen
-  accepting = Set([:seen_once])
+  states    = zero(S):beyond
+  initial   = zero(S)
+  accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
   transitions = fill(id_dict, nsites)
 
+  f(_, a) = S(a in values)
   for site in constraint_sites(constraint)
     transitions[site] = Dict(
-      (q, a) => (a == target ? :seen_once : q)
+      (q, a) => min(q + f(site, a), beyond)
       for q in states, a in alphabet
-      if !(q == :seen_once && a == target)
     )
   end
 
