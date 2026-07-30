@@ -7,5 +7,4 @@ TenSolver = "cfd60579-01bf-4b47-9b3b-7c8dc91a23e2"
 
 [compat]
 BenchmarkTools = "1"
-TenSolver = "0.2"
 julia = "1.10"
