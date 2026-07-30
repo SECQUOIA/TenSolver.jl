@@ -284,13 +284,14 @@ function project_hamiltonian(H::ITensorMPS.MPO, projections; cutoff=1e-8, kwargs
   target_sites = projection_target_sites(H)
   validate_projection_sequence(target_sites, projection_tuple)
 
-  H_eff = H
-  for P in projection_tuple
-    H_eff = ITensors.apply(ITensors.dag(P), H_eff; cutoff, kwargs...)
-    H_eff = ITensors.apply(H_eff, P; cutoff, kwargs...)
-  end
-
-  return H_eff
+  # WARNING: The code below assumes that all MPOs are **diagonal**
+  # and all projections are actual projections, i.e. P^2 = P.
+  # It simplifies P'HP = PHP = HPP = HP.
+  # We should test that this simplification actually improves the code
+  # or if the MPO multiplication machinery already catchs it.
+  # We keep the documentation as P'HP _on purpose_ because that is the correct semantics.
+  op = (x, y) -> ITensors.apply(x, y; cutoff, kwargs...)
+  return reduce(op, projection_tuple; init = H)
 end
 
 """
