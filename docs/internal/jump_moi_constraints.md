@@ -28,7 +28,7 @@ projection MPO, and solves in the projected space. The four v1 native types are:
 
 - `SumConstraint`;
 - `NotEqualsConstraint`;
-- `ExactlyOneConstraint`; and
+- `AssignmentConstraint`; and
 - `RelationConstraint`.
 
 The JuMP path stops earlier. `TenSolver.Optimizer` is generated with
@@ -221,7 +221,7 @@ size of the uniform finite domain.
 | Nonnegative integer affine function in `Interval` | `SumConstraint` with a two-sided relation | `upper + 2` | Same domain contract; use one capped DFA and simplify a redundant side to a one-sided relation. |
 | `x[i] - x[j]` in `EqualTo(0)`, `LessThan(0)`, or `GreaterThan(0)` | `RelationConstraint(i, relation, j)` | `|U|` | Domain-independent for a common ordered finite real domain. |
 | `VectorOfVariables(x)` in `MOI.AllDifferent(length(x))` | One `RelationConstraint(i, :(!=), j)` per pair | `|U|` each | Domain-independent; statically infeasible when `length(x) > |U|`. |
-| `VectorOfVariables(x)` in a TenSolver `ExactlyOneValue(value)` set | `ExactlyOneConstraint(sites, value)` | 2 | Any uniform finite domain; a target outside the domain is statically infeasible. |
+| `VectorOfVariables(x)` in a TenSolver `ExactlyOneValue(value)` set | `AssignmentConstraint(sites, [value], :(==), 1)` | 2 | Any uniform finite domain; a target outside the domain is statically infeasible. |
 | `VectorOfVariables(x)` in `MOI.SOS1(weights)` | Domain-aware lowering | 3 for `U = {0,1}` | Boolean domains lower to `SumConstraint(..., <=, 1)`; other domains are unsupported until a compact at-most-one-nonzero target exists. |
 | `ScalarAffineFunction` in a TenSolver `NotEqualTo(value)` set | `SumConstraint(...; relation = :(!=))`, or `RelationConstraint` for a pairwise pattern | Native target's bound | General sums retain the sum target's domain restrictions. |
 | `VectorOfVariables(x)` in a TenSolver `ForbiddenAssignment(values)` set | `NotEqualsConstraint(sites, values)` | 2 | Any uniform finite domain; values outside the domain make the constraint a tautology. |
@@ -229,10 +229,10 @@ size of the uniform finite domain.
 
 Once the domain is known, the native simplifier may recover compact Boolean
 identities: `sum(x) == 1` and `sum(x) == length(x)-1` become
-`ExactlyOneConstraint` targets, and `x[i] + x[j] <= 1` becomes a forbidden
-assignment. They are not valid domain-independent MOI rewrites. A bare `SOS1`
-cannot lower to `ExactlyOneConstraint` because the all-zero assignment is
-feasible for `SOS1`.
+`AssignmentConstraint` targets that count ones and zeros, respectively, and
+`x[i] + x[j] <= 1` becomes a forbidden assignment. They are not valid
+domain-independent MOI rewrites. A bare `SOS1` cannot lower to an exact-one
+`AssignmentConstraint` because the all-zero assignment is feasible for `SOS1`.
 
 The custom `ExactlyOneValue`, `NotEqualTo`, and `ForbiddenAssignment` sets
 belong to the MOI front end. They do not replace native constraint types; they

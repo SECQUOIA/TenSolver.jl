@@ -8,12 +8,13 @@ function mpo_diagonal(H, sites, bits)
   return real(ITensors.inner(psi', H, psi))
 end
 
-function assert_projection_matches_feasibility(constraint, sites)
-  H = TenSolver.projection_mpo(constraint, sites; domain = 0:1)
+function assert_projection_matches_feasibility(constraint, sites; domain = 0:1)
+  H = TenSolver.projection_mpo(constraint, sites; domain)
 
-  for bits in all_bitstrings(sites)
-    expected = Float64(is_feasible(collect(bits), constraint))
-    @test mpo_diagonal(H, sites, bits) == expected
+  assignments = Iterators.product(fill(domain, length(sites))...)
+  for assignment in assignments
+    expected = Float64(is_feasible(collect(assignment), constraint))
+    @test mpo_diagonal(H, sites, assignment) == expected
   end
 
   return H
@@ -279,19 +280,60 @@ end
   end
 
   @testset "AssignmentConstraint projection" begin
-    cases = [
-      (AssignmentConstraint(1:2, [1], :(==), 1), ITensors.siteinds("Qudit", 2; dim=2)),
-      (AssignmentConstraint(1:3, [0], :(==), 1), ITensors.siteinds("Qudit", 3; dim=2)),
-      (AssignmentConstraint(1:5, [1], :(==), 1), ITensors.siteinds("Qudit", 5; dim=2)),
+    domain = 0:2
+    generalized_cases = [
+      AssignmentConstraint([1, 3], [1, 2], relation, rhs)
+      for relation in (:(==), :(!=), :(<=), :(>=))
+      for rhs in (0, 1, 2, 3)
     ]
 
-    for (constraint, sites) in cases
-      dfa = @inferred TenSolver.constraint_to_dfa(constraint, length(sites), 0:1)
-      @test_broken length(dfa.states) == 2
+    for constraint in generalized_cases
+      dfa = TenSolver.constraint_to_dfa(constraint, 3, domain)
+      if constraint.rhs > length(constraint.sites)
+        @test length(dfa.states) == 1
+      end
 
-      H = assert_projection_matches_feasibility(constraint, sites)
-      @test_broken ITensorMPS.maxlinkdim(H) <= 2
+      for assignment in Iterators.product(fill(domain, 3)...)
+        @test dfa_accepts(dfa, assignment) == is_feasible(collect(assignment), constraint)
+      end
     end
+
+    projection_sites = ITensors.siteinds("Qudit", 3; dim=3)
+    for relation in (:(==), :(!=), :(<=), :(>=))
+      constraint = AssignmentConstraint([1, 3], [1, 2], relation, 1)
+      assert_projection_matches_feasibility(constraint, projection_sites; domain)
+    end
+
+    bool_assignment = AssignmentConstraint([1, 3, 4], Bool[true], :(==), 2)
+    bool_dfa = @inferred TenSolver.constraint_to_dfa(bool_assignment, 4, 0:1)
+    for bits in all_bitstrings(4)
+      @test dfa_accepts(bool_dfa, bits) == is_feasible(collect(bits), bool_assignment)
+    end
+
+    narrow_assignment = AssignmentConstraint([1], Int8[1], :(==), 128)
+    narrow_dfa = @inferred TenSolver.constraint_to_dfa(narrow_assignment, 1, 0:1)
+    @test length(narrow_dfa.states) == 1
+    @test !dfa_accepts(narrow_dfa, (1,))
+
+    @test_throws BoundsError TenSolver.constraint_to_dfa(
+      AssignmentConstraint([4], [1], :(==), 2),
+      3,
+      domain,
+    )
+
+    exact_one_sites = ITensors.siteinds("Qudit", 5; dim=2)
+    for relation in (:(==), :(<=), :(>=))
+      exact_one = AssignmentConstraint(1:5, [1], relation, 1)
+      dfa = @inferred TenSolver.constraint_to_dfa(exact_one, 5, 0:1)
+      H = assert_projection_matches_feasibility(exact_one, exact_one_sites)
+
+      @test length(dfa.states) == 2
+      @test ITensorMPS.maxlinkdim(H) <= 2
+    end
+
+    not_exactly_one = AssignmentConstraint(1:5, [1], :(!=), 1)
+    not_equal_dfa = @inferred TenSolver.constraint_to_dfa(not_exactly_one, 5, 0:1)
+    @test length(not_equal_dfa.states) == 3
   end
 
   @testset "RelationConstraint projection" begin
@@ -314,17 +356,6 @@ end
       H = assert_projection_matches_feasibility(constraint, sites)
       @test ITensorMPS.maxlinkdim(H) <= 2
     end
-  end
-
-  @testset "AssignmentConstraint projection" begin
-    sites = ITensors.siteinds("Qudit", 4; dim=2)
-
-    exact_one = AssignmentConstraint([1, 3], [1], :(>=), 1)
-    dfa = TenSolver.constraint_to_dfa(exact_one, length(sites),  0:1)
-    H = assert_projection_matches_feasibility(exact_one, sites)
-
-    @test_broken length(dfa.states) == 2
-    @test_broken ITensorMPS.maxlinkdim(H) <= 2
   end
 
   @testset "SumConstraint floating-point lowering" begin

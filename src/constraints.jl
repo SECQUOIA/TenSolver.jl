@@ -106,9 +106,12 @@ end
     AssignmentConstraint{T} <: AbstractConstraint
     AssignmentConstraint(sites, values, relation, rhs)
 
-Require a fixed amount of `sites` to satisfy `x[site] in value`, i.e.,
+Restrict how many `sites` satisfy `x[site] in values`, i.e.,
 
-    count(x[site] in value for site in sites) relation rhs.
+    count(x[site] in values for site in sites) relation rhs.
+
+`rhs` must be a nonnegative integer. The count and `rhs` are stored
+independently of the numeric element type of `values`.
 
 A common application is to restrict _exactly one_ variable to be a certain value,
 
@@ -120,12 +123,12 @@ struct AssignmentConstraint{T<:Real} <: AbstractConstraint
   sites    :: Vector{Int}
   values   :: Set{T}
   relation :: Symbol
-  rhs      :: T
+  rhs      :: Int
 
   function AssignmentConstraint{T}(sites, values, relation, rhs) where {T<:Real}
     site_vec = validate_sites(sites)
     relation = validate_relation(relation)
-    rhs      = validate_rhs(rhs)
+    rhs      = Int(validate_rhs(rhs))
 
     return new{T}(site_vec, Set(values), relation, rhs)
   end
