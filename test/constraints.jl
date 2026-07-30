@@ -31,6 +31,17 @@
     @test assign_two isa AssignmentConstraint{Int}
     @test assign_two.sites == [2, 3, 4]
     @test assign_two.values == Set([1, 2, 3])
+    @test assign_two.rhs == 2
+
+    bool_assignment = AssignmentConstraint(1:3, Bool[true], :(==), 2)
+    @test bool_assignment isa AssignmentConstraint{Bool}
+    @test bool_assignment.values == Set(Bool[true])
+    @test bool_assignment.rhs == 2
+
+    narrow_assignment = AssignmentConstraint([1], Int8[1], :(==), 128)
+    @test narrow_assignment isa AssignmentConstraint{Int8}
+    @test narrow_assignment.values == Set(Int8[1])
+    @test narrow_assignment.rhs == 128
 
     relation = RelationConstraint(1, Symbol(">="), 2)
     @test relation isa RelationConstraint
@@ -45,6 +56,9 @@
     @test_throws ArgumentError AssignmentConstraint([0], 1, :(==), 1)
     @test_throws ArgumentError AssignmentConstraint([1, 1], 1, :(==), 1)
     @test_throws ArgumentError AssignmentConstraint([1.0], 1, :(==), 1)
+    @test_throws ArgumentError AssignmentConstraint([1], [1], :(==), -1)
+    @test_throws ArgumentError AssignmentConstraint([1], [1], :(==), 1.5)
+    @test_throws ArgumentError AssignmentConstraint([1], [1], :(<), 1)
 
     @test_throws DimensionMismatch SumConstraint([1, 2], [1], Symbol("=="), 1)
     @test_throws ArgumentError SumConstraint([1], [-1], Symbol("=="), 0)

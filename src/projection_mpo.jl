@@ -235,7 +235,9 @@ Constraint site numbers use the same 1-based register indexing as `sites`.
 - [`NotEqualsConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the rhs.
 - [`AssignmentConstraint`](@ref) uses a membership counting automaton.
-  For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
+  For rhs `k`, the maximum bond dimension is `k+1` for `==`, `<=`, and `>=`,
+  and `k+2` for `!=`. A rhs larger than the number of selected sites reduces
+  to a one-state constant automaton.
 - [`RelationConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the compared site positions.
 """
@@ -413,22 +415,34 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, alphabet) where {S}
+function constraint_to_dfa(constraint::AssignmentConstraint, nsites::Integer, alphabet)
   (; values, rhs, relation) = constraint
-  beyond    = rhs + one(S)
 
-  states    = zero(S):beyond
-  initial   = zero(S)
+  if rhs > length(constraint.sites)
+    states = [0]
+    accepting = relation_holds(0, relation, rhs) ? Set([0]) : Set{Int}()
+    id_dict = Dict((0, a) => 0 for a in alphabet)
+    transitions = fill(id_dict, nsites)
+    for site in constraint_sites(constraint)
+      transitions[site] = id_dict
+    end
+    return DFA(states, alphabet, 0, accepting, transitions)
+  end
+
+  beyond = relation === :(!=) ? rhs + 1 : rhs
+  states = 0:beyond
+  initial = 0
   accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
   transitions = fill(id_dict, nsites)
 
-  f(_, a) = S(a in values)
+  rejects_overflow(q, a) = relation in (:(==), :(<=)) && q == rhs && a in values
   for site in constraint_sites(constraint)
     transitions[site] = Dict(
-      (q, a) => min(q + f(site, a), beyond)
+      (q, a) => min(q + Int(a in values), beyond)
       for q in states, a in alphabet
+      if !rejects_overflow(q, a)
     )
   end
 

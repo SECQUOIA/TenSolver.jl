@@ -40,7 +40,7 @@ the effective Hamiltonian has bond dimension bounded by
 |:-----------|:---------|:------------------------|
 | [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
-| [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i in G) \lessgtr b`` | 2 |
+| [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i \in G) \lessgtr b`` | ``b + 1`` for `==`, `<=`, `>=`; ``b + 2`` for `!=` |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
 
 ## Using constraints
@@ -126,19 +126,21 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; constraints = [exclude], 
 ### AssignmentConstraint
 
 `AssignmentConstraint(sites, values, rel, rhs)`
-forces an assignment of a fixed amount of the selected sites to be in `values`:
+restricts how many selected sites take a value in `values`:
 
 ```math
-\#\{\, s \in \texttt{sites} : x_s in \texttt{values} \,\} \;\; \texttt{relation} \;\; \texttt{rhs},
+\#\{\, s \in \texttt{sites} : x_s \in \texttt{values} \,\} \;\; \texttt{relation} \;\; \texttt{rhs}.
 ```
 
-Similarly to the weighted sum, its automaton has maximum bond dimension `k+2`.
+For rhs `k`, its automaton has maximum bond dimension `k+1` for `==`, `<=`,
+and `>=`, and `k+2` for `!=`. If `k` is larger than the number of selected
+sites, the predicate is constant and the automaton has one state.
 
 ```jldoctest onehot
 using TenSolver
 
 # Pick exactly one of the three options; the second is the most valuable.
-one_hot = AssignmentConstraint([1, 2, 3], 1, :(==), 1)
+one_hot = AssignmentConstraint([1, 2, 3], [1], :(==), 1)
 
 E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; constraints = [one_hot], verbosity = 0)
 
@@ -182,7 +184,7 @@ using TenSolver
 constraints = [
     SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=)),
     NotEqualsConstraint([1, 2], [1, 1]),
-    AssignmentConstraint([2, 3], 1, :(==), 1),
+    AssignmentConstraint([2, 3], [1], :(==), 1),
     RelationConstraint(1, :(>=), 3),
 ]
 
