@@ -16,7 +16,7 @@ Constraint types are experimental. They currently provide TenSolver's
 Julia lowering target for projection-MPO constrained solves; future JuMP/MOI
 integration may change which constraint abstraction is considered stable public API.
 
-See also [`SumConstraint`](@ref), [`NotEqualsConstraint`](@ref),
+See also [`SumConstraint`](@ref), [`SumModConstraint`](@ref), [`NotEqualsConstraint`](@ref),
 [`AssignmentConstraint`](@ref), and [`RelationConstraint`](@ref).
 """
 abstract type AbstractConstraint end
@@ -70,6 +70,38 @@ end
 
 function SumConstraint(sites, weights, rhs; relation)
   return SumConstraint(sites, weights, relation, rhs)
+end
+
+"""
+    SumModConstraint{T} <: AbstractConstraint
+    SumModConstraint(sites, weights, rhs; mod)
+
+Modular weighted-sum constraint over a vector `x`:
+
+    ( sum(weights' * x[sites]) == rhs ) mod m.
+
+`sites` must be unique positive integers,
+`weights` must be the same length as `sites`.
+"""
+struct SumModConstraint{T<:Real} <: AbstractConstraint
+  weights::Dict{Int,T}
+  rhs::T
+  mod::T
+
+  function SumModConstraint{T}(sites, weights, rhs; mod) where {T<:Real}
+    site_vec   = validate_sites(sites)
+    weight_vec = validate_weights(map(w -> w % mod, weights))
+    rhs        = validate_rhs(rhs % mod)
+    validate_same_length(site_vec, weight_vec, "sites", "weights")
+
+    weight_map = Dict{Int,T}(zip(site_vec, weight_vec))
+
+    return new{T}(weight_map, rhs, mod)
+  end
+end
+
+function SumModConstraint(sites, weights, rhs; mod)
+  return SumModConstraint{typeof(mod)}(sites, weights, rhs; mod)
 end
 
 """
@@ -174,6 +206,11 @@ function is_feasible(x::AbstractVector, constraint::SumConstraint)
   return relation_holds(lhs, constraint.relation, constraint.rhs)
 end
 
+function is_feasible(x::AbstractVector, constraint::SumModConstraint)
+  lhs = sum(weight * x[site] for (site, weight) in constraint.weights) % constraint.mod
+  return lhs == constraint.rhs
+end
+
 function is_feasible(x::AbstractVector, constraint::NotEqualsConstraint)
   return any(x[site] != value for (site, value) in constraint.values)
 end
@@ -209,6 +246,10 @@ Access the site indices stored in the `constraint`.
 function constraint_sites end
 
 function constraint_sites(constraint::SumConstraint)
+  return keys(constraint.weights)
+end
+
+function constraint_sites(constraint::SumModConstraint)
   return keys(constraint.weights)
 end
 

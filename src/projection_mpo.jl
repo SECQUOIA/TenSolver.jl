@@ -232,6 +232,8 @@ Constraint site numbers use the same 1-based register indexing as `sites`.
 
 - [`SumConstraint`](@ref) uses a exact integer partial-sum automaton.
   For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
+- [`SumModConstraint`](@ref) uses a modular partial-sum automaton.
+  Its maximum bond dimension is the remainder modulo `m`.
 - [`NotEqualsConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the rhs.
 - [`AssignmentConstraint`](@ref) uses a membership counting automaton.
@@ -386,6 +388,27 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphab
   for site in constraint_sites(constraint)
     transitions[site] = Dict(
       (q, a) => min(q + weights[site] * a, beyond)
+      for q in states, a in alphabet
+    )
+  end
+
+  return DFA(states, alphabet, initial, accepting, transitions)
+end
+
+function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, alphabet) where {S}
+  (; weights, rhs, mod) = constraint
+
+  states    = zero(S):(mod-1)
+  initial   = zero(S)
+  accepting = Set(rhs)
+
+  id_dict = Dict((q, a) => q for q in states for a in alphabet)
+  transitions = fill(id_dict, nsites)
+
+  f(site, a) = weights[site] * a
+  for site in constraint_sites(constraint)
+    transitions[site] = Dict(
+      (q, a) => rem(q + f(site, a), mod)
       for q in states, a in alphabet
     )
   end

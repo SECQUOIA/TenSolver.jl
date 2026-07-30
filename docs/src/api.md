@@ -49,6 +49,7 @@ for a worked example.
 ```@docs
 TenSolver.AbstractConstraint
 TenSolver.SumConstraint
+TenSolver.SumModConstraint
 TenSolver.NotEqualsConstraint
 TenSolver.AssignmentConstraint
 TenSolver.RelationConstraint
