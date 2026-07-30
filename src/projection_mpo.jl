@@ -213,7 +213,7 @@ function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where {T}
     )
   end
 
-  return ITensorMPS.MPO(tensors)
+  return ITensorMPS.truncate!(ITensorMPS.MPO(tensors); cutoff = eps(T))
 end
 
 dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
@@ -413,34 +413,22 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::AssignmentConstraint, nsites::Integer, alphabet)
+function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, alphabet) where {S}
   (; values, rhs, relation) = constraint
+  beyond    = rhs + one(S)
 
-  if rhs > length(constraint.sites)
-    states = [0]
-    accepting = relation_holds(0, relation, rhs) ? Set([0]) : Set{Int}()
-    id_dict = Dict((0, a) => 0 for a in alphabet)
-    transitions = fill(id_dict, nsites)
-    for site in constraint_sites(constraint)
-      transitions[site] = id_dict
-    end
-    return DFA(states, alphabet, 0, accepting, transitions)
-  end
-
-  beyond = relation === :(!=) ? rhs + 1 : rhs
-  states = 0:beyond
-  initial = 0
+  states    = zero(S):beyond
+  initial   = zero(S)
   accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
   transitions = fill(id_dict, nsites)
 
-  rejects_overflow(q, a) = relation in (:(==), :(<=)) && q == rhs && a in values
+  f(_, a) = S(a in values)
   for site in constraint_sites(constraint)
     transitions[site] = Dict(
-      (q, a) => min(q + Int(a in values), beyond)
+      (q, a) => min(q + f(site, a), beyond)
       for q in states, a in alphabet
-      if !rejects_overflow(q, a)
     )
   end
 
