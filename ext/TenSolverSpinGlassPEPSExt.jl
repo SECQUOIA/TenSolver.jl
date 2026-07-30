@@ -204,28 +204,27 @@ function solve_transformation(
   strategy,
   options,
 ) where {T}
-  try
-    network = peps_network(topology, potts_h, transform, T)
-    contractor = SpinGlassEngine.MpsContractor(
-      strategy,
-      network,
-      parameters;
-      onGPU = options.onGPU,
-      beta = T(options.beta),
-      graduate_truncation = options.graduate_truncation,
-    )
-    merge_strategy = SpinGlassEngine.merge_branches(contractor; merge_prob = :none)
-    solution, info = SpinGlassEngine.low_energy_spectrum(
-      contractor,
-      search_parameters,
-      merge_strategy;
-      no_cache = options.no_cache,
-    )
+  network = peps_network(topology, potts_h, transform, T)
+  contractor = SpinGlassEngine.MpsContractor(
+    strategy,
+    network,
+    parameters;
+    onGPU = options.onGPU,
+    beta = T(options.beta),
+    graduate_truncation = options.graduate_truncation,
+  )
+  merge_strategy = SpinGlassEngine.merge_branches(contractor; merge_prob = :none)
+  solution, info = SpinGlassEngine.low_energy_spectrum(
+    contractor,
+    search_parameters,
+    merge_strategy;
+    no_cache = options.no_cache,
+  )
 
-    return (; solution, info)
-  finally
-    SpinGlassEngine.clear_memoize_cache()
-  end
+  # SpinGlassEngine memoizes contraction state globally and clears it after
+  # each spectrum solve in its own benchmark and test runners.
+  SpinGlassEngine.clear_memoize_cache()
+  return (; solution, info)
 end
 
 function decoded_records(J, h, offset, potts_h, solution, transform)
