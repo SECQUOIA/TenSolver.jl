@@ -271,27 +271,50 @@ projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites; kws...
   projection_mpos(Float64, constraints, sites; kws...)
 
 """
-    project_hamiltonian(H, projections; cutoff=1e-8, kwargs...)
+    project_hamiltonian(H, projections; formulation=:commuting, cutoff=1e-8, kwargs...)
 
-Apply one or more diagonal projection MPOs to a Hamiltonian MPO.
+Project a Hamiltonian MPO with one or more projection MPOs.
 
-For projection MPOs `P`, this builds the CoTenN-style effective Hamiltonian
-`P' * H * P`. The resulting bond dimension can grow with the product of
-`H`'s links and the projection links.
+If `Q = P₁ * ⋯ * Pₙ` is the combined projector, the effective Hamiltonian has
+the CoTenN semantics `Q' * H * Q`.
+
+With the default `formulation=:commuting`, `H` and all `Pᵢ` must be mutually
+commuting, while each `Pᵢ` must be Hermitian and idempotent. The construction
+then simplifies to `H * Q`, with bond dimension bounded by the product of `H`'s
+links and each projection link. TenSolver's objective and constraint MPOs
+satisfy these assumptions because they are diagonal.
+
+Use `formulation=:sandwich` for general, potentially noncommuting MPOs. It
+constructs `Q' * H * Q` directly, so each projection link contributes twice to
+the bond-dimension bound.
 """
-function project_hamiltonian(H::ITensorMPS.MPO, projections; cutoff=1e-8, kwargs...)
+function project_hamiltonian(
+  H::ITensorMPS.MPO,
+  projections;
+  formulation = :commuting,
+  cutoff = 1e-8,
+  kwargs...,
+)
   projection_tuple = projection_sequence(projections)
   target_sites = projection_target_sites(H)
   validate_projection_sequence(target_sites, projection_tuple)
 
-  # WARNING: The code below assumes that all MPOs are **diagonal**
-  # and all projections are actual projections, i.e. P^2 = P.
-  # It simplifies P'HP = PHP = HPP = HP.
-  # We should test that this simplification actually improves the code
-  # or if the MPO multiplication machinery already catchs it.
-  # We keep the documentation as P'HP _on purpose_ because that is the correct semantics.
   op = (x, y) -> ITensors.apply(x, y; cutoff, kwargs...)
-  return reduce(op, projection_tuple; init = H)
+  if formulation === :commuting
+    return reduce(op, projection_tuple; init = H)
+  end
+
+  if formulation === :sandwich
+    H_eff = H
+    for P in projection_tuple
+      H_eff = op(ITensors.dag(P), H_eff)
+      H_eff = op(H_eff, P)
+    end
+    return H_eff
+  end
+
+  msg = "formulation must be :commuting or :sandwich; got $(repr(formulation))"
+  throw(ArgumentError(msg))
 end
 
 """
