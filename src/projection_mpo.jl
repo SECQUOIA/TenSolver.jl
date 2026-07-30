@@ -235,9 +235,7 @@ Constraint site numbers use the same 1-based register indexing as `sites`.
 - [`NotEqualsConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the rhs.
 - [`AssignmentConstraint`](@ref) uses a membership counting automaton.
-  For rhs `k`, the maximum bond dimension is `k+1` for `==`, `<=`, and `>=`,
-  and `k+2` for `!=`. A rhs larger than the number of selected sites reduces
-  to a one-state constant automaton.
+  For rhs `k`, the maximum bond dimension is `k+2`.
 - [`RelationConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the compared site positions.
 """

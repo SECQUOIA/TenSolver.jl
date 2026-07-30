@@ -43,7 +43,7 @@ keep constrained solves close to the unconstrained cost.
 |:-----------|:---------|:------------------------|
 | [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
-| [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i \in G) \lessgtr b`` | ``b + 1`` for `==`, `<=`, `>=`; ``b + 2`` for `!=` |
+| [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i \in G) \lessgtr b`` | ``b + 2`` |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
 
 ## Using constraints
@@ -135,9 +135,7 @@ restricts how many selected sites take a value in `values`:
 \#\{\, s \in \texttt{sites} : x_s \in \texttt{values} \,\} \;\; \texttt{relation} \;\; \texttt{rhs}.
 ```
 
-For rhs `k`, its automaton has maximum bond dimension `k+1` for `==`, `<=`,
-and `>=`, and `k+2` for `!=`. If `k` is larger than the number of selected
-sites, the predicate is constant and the automaton has one state.
+For rhs `k`, its automaton has maximum bond dimension `k+2`.
 
 ```jldoctest onehot
 using TenSolver
