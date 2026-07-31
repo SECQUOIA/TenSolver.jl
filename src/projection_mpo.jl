@@ -276,11 +276,11 @@ projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites; kws...
 Project a Hamiltonian MPO with one or more projection MPOs.
 
 If `Q = P₁ * ⋯ * Pₙ` is the combined projector, the effective Hamiltonian has
-the CoTenN semantics `Q' * H * Q`.
+the semantics `Q' * H * Q`.
 
 With the default `formulation=:commuting`, `H` and all `Pᵢ` must be mutually
-commuting, while each `Pᵢ` must be Hermitian and idempotent. The construction
-then simplifies to `H * Q`, with bond dimension bounded by the product of `H`'s
+commuting, while each `Pᵢ` must an orthogonal projection (Hermitian and idempotent).
+The construction then simplifies to `H * Q`, with bond dimension bounded by the product of `H`'s
 links and each projection link. TenSolver's objective and constraint MPOs
 satisfy these assumptions because they are diagonal.
 
@@ -292,29 +292,23 @@ function project_hamiltonian(
   H::ITensorMPS.MPO,
   projections;
   formulation = :commuting,
-  cutoff = 1e-8,
   kwargs...,
 )
   projection_tuple = projection_sequence(projections)
-  target_sites = projection_target_sites(H)
+  target_sites     = projection_target_sites(H)
   validate_projection_sequence(target_sites, projection_tuple)
 
-  op = (x, y) -> ITensors.apply(x, y; cutoff, kwargs...)
+  op = (x, y) -> ITensors.apply(x, y; kwargs...)
   if formulation === :commuting
+    # TODO: We should profile and check that this simplification actually speeds up the code.
     return reduce(op, projection_tuple; init = H)
+  elseif formulation === :sandwich
+    op2(h, p) = op(ITensors.dag(p), op(h, p))
+    return reduce(op2, projection_tuple; init = H)
+  else
+    msg = "formulation must be :commuting or :sandwich; got $(repr(formulation))"
+    throw(ArgumentError(msg))
   end
-
-  if formulation === :sandwich
-    H_eff = H
-    for P in projection_tuple
-      H_eff = op(ITensors.dag(P), H_eff)
-      H_eff = op(H_eff, P)
-    end
-    return H_eff
-  end
-
-  msg = "formulation must be :commuting or :sandwich; got $(repr(formulation))"
-  throw(ArgumentError(msg))
 end
 
 """
