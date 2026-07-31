@@ -78,10 +78,14 @@ end
 
 Modular weighted-sum constraint over a vector `x`:
 
-    ( sum(weights' * x[sites]) == rhs ) mod m.
+    sum(weights[i] * x[sites[i]] for i in eachindex(sites)) ≡ rhs (mod m).
 
 `sites` must be unique positive integers,
-`weights` must be the same length as `sites`.
+`weights` must be the same length as `sites`,
+`weights` and `rhs` must be integer-valued,
+and `mod` must be a positive integer.
+
+Weights and the rhs are stored as their least nonnegative residues modulo `mod`.
 """
 struct SumModConstraint{T<:Real} <: AbstractConstraint
   weights::Dict{Int,T}
@@ -89,19 +93,27 @@ struct SumModConstraint{T<:Real} <: AbstractConstraint
   mod::T
 
   function SumModConstraint{T}(sites, weights, rhs; mod) where {T<:Real}
-    site_vec   = validate_sites(sites)
-    weight_vec = validate_weights(map(w -> w % mod, weights))
-    rhs        = validate_rhs(rhs % mod)
-    validate_same_length(site_vec, weight_vec, "sites", "weights")
+    site_vec    = validate_sites(sites)
+    raw_weights = validate_integer_values(collect(weights), "weights")
+    validate_same_length(site_vec, raw_weights, "sites", "weights")
+    modulus = validate_modulus(mod)
+    raw_rhs = validate_integer_value(rhs, "rhs")
 
-    weight_map = Dict{Int,T}(zip(site_vec, weight_vec))
+    weight_vec     = Base.mod.(raw_weights, modulus)
+    normalized_rhs = Base.mod(raw_rhs, modulus)
+    weight_map     = Dict{Int,T}(zip(site_vec, weight_vec))
 
-    return new{T}(weight_map, rhs, mod)
+    return new{T}(weight_map, normalized_rhs, modulus)
   end
 end
 
 function SumModConstraint(sites, weights, rhs; mod)
-  return SumModConstraint{typeof(mod)}(sites, weights, rhs; mod)
+  raw_weights = collect(weights)
+  isempty(raw_weights) && throw(ArgumentError("weights must not be empty"))
+
+  T = promote_type(map(typeof, raw_weights)..., typeof(rhs), typeof(mod))
+
+  return SumModConstraint{T}(sites, T.(raw_weights), convert(T, rhs); mod=convert(T, mod))
 end
 
 """
@@ -207,7 +219,10 @@ function is_feasible(x::AbstractVector, constraint::SumConstraint)
 end
 
 function is_feasible(x::AbstractVector, constraint::SumModConstraint)
-  lhs = sum(weight * x[site] for (site, weight) in constraint.weights) % constraint.mod
+  lhs = Base.mod(
+    sum(weight * x[site] for (site, weight) in constraint.weights),
+    constraint.mod,
+  )
   return lhs == constraint.rhs
 end
 
@@ -321,6 +336,31 @@ function validate_weights(weights)
   end
 
   return weights
+end
+
+function validate_integer_value(value, name)
+  if !isinteger(value)
+    throw(ArgumentError("Found noninteger $name = $(repr(value)). $name must be integer."))
+  end
+
+  return value
+end
+
+function validate_integer_values(values, name)
+  isempty(values) && throw(ArgumentError("$name must not be empty"))
+
+  for (i, value) in enumerate(values)
+    validate_integer_value(value, "$name[$(i)]")
+  end
+
+  return values
+end
+
+function validate_modulus(modulus)
+  validate_integer_value(modulus, "mod")
+  modulus >= 1 || throw(ArgumentError("mod must be a positive integer"))
+
+  return modulus
 end
 
 function validate_rhs(rhs)

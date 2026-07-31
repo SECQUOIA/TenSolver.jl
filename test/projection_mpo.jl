@@ -351,14 +351,16 @@ end
   end
 
   @testset "SumModConstraint projection" begin
-    sites = ITensors.siteinds("Qudit", 4; dim=2)
+    domain = -1:1
+    sites = ITensors.siteinds("Qudit", 4; dim=length(domain))
 
-    constraint = SumModConstraint([1, 3], [1, 2], 0 ; mod = 3)
-    dfa = TenSolver.constraint_to_dfa(constraint, length(sites),  0:1)
-    H = assert_projection_matches_feasibility(constraint, sites)
+    constraint = SumModConstraint([1, 3], [-1, 2], -1; mod = 3)
+    dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
+    H = assert_projection_matches_feasibility(constraint, sites; domain)
 
     @test length(dfa.states) == 3
-    @test ITensorMPS.maxlinkdim(H) <= 3
+    @test ITensorMPS.maxlinkdim(H) == constraint.mod
+    @test_throws ArgumentError TenSolver.constraint_to_dfa(constraint, length(sites), [0, 0.5])
   end
 
   @testset "SumConstraint floating-point lowering" begin
