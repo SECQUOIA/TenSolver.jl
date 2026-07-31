@@ -49,8 +49,9 @@ for a worked example.
 ```@docs
 TenSolver.AbstractConstraint
 TenSolver.SumConstraint
+TenSolver.SumModConstraint
 TenSolver.NotEqualsConstraint
-TenSolver.ExactlyOneConstraint
+TenSolver.AssignmentConstraint
 TenSolver.RelationConstraint
 TenSolver.is_feasible
 TenSolver.constraint_sites

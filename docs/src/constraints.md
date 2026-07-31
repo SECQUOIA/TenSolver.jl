@@ -24,26 +24,24 @@ A solve with `constraints` proceeds in three steps:
    unconstrained case.
 2. Each constraint is lowered to a deterministic finite automaton (DFA) that
    accepts exactly the feasible vectors, and the automaton is threaded into
-   an MPO ``P`` that is **diagonal with entries 1 on feasible basis states and
-   0 on infeasible ones** — an exact projector, not a penalty.
-3. DMRG minimizes the projected Hamiltonian ``P' H P``. Because numerical noise
-   and truncation can leak amplitude back into the (zero-energy) infeasible
-   kernel, the state is re-projected at every iteration, which is what makes
-   every sampled solution feasible.
+   an MPO ``P`` that is *diagonal with entries 1 on feasible basis states and
+   0 on infeasible ones*.
+3. DMRG minimizes the projected Hamiltonian ``P' H P``,
+   or some semantically equivalent context-dependent MPO.
+
 
 Each of the four built-in constraint types has a specialized automaton with a
 compact bond dimension (see the table below).
-
-
-The cost driver is the MPO bond dimension: the projected Hamiltonian satisfies
-``\chi(P' H P) \le \chi(H) \cdot \prod_i \chi(P_i)^2``, so compact projections
-keep constrained solves close to the unconstrained cost.
+For TenSolver's current implementation,
+the effective Hamiltonian has bond dimension bounded by
+``\chi(P' H P) \le \chi(H) \cdot \prod_i \chi(P_i)``.
 
 | Constraint | Enforces | Bond dimension of ``P`` |
 |:-----------|:---------|:------------------------|
 | [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
+| [`SumModConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \equiv b \pmod m`` | ``m`` |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
-| [`ExactlyOneConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i = k) = 1`` | 2 |
+| [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i \in G) \lessgtr b`` | ``b + 2`` |
 | [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
 
 ## Using constraints
@@ -103,6 +101,23 @@ when the variable domains are nonnegative integers.
 Its automaton tracks a capped partial sum,
 so the projection bond dimension is `rhs + 2` regardless of how many variables the sum touches.
 
+### Modular Sum Constraint
+
+`SumModConstraint(sites, weights, rhs; mod = m)` enforces the weighted sum
+
+```math
+\sum_{i \in \texttt{sites}} \texttt{weights}[i] \cdot x[i]
+\equiv \texttt{rhs} \pmod m,
+```
+
+The `sites` are unique positive integers representing variable indices,
+while `weights` and `rhs` must be **integers** and may be negative.
+The modulus `m` must be a positive integer.
+Weights and the rhs are normalized to their least nonnegative residues modulo `m`,
+and variable domains may contain any integer values.
+
+Its MPO tracks a partial sum with bond dimension `m`.
+
 ### NotEqualsConstraint
 
 `NotEqualsConstraint(sites, values)` forbids a single partial assignment: at
@@ -126,22 +141,22 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; constraints = [exclude], 
 (true, [1.0, 0.0])
 ```
 
-### ExactlyOneConstraint
+### AssignmentConstraint
 
-`ExactlyOneConstraint(sites, value)` requires exactly one of the selected sites
-to equal `value`:
+`AssignmentConstraint(sites, values, rel, rhs)`
+restricts how many selected sites take a value in `values`:
 
 ```math
-\#\{\, s \in \texttt{sites} : x_s = \texttt{value} \,\} = 1.
+\#\{\, s \in \texttt{sites} : x_s \in \texttt{values} \,\} \;\; \texttt{relation} \;\; \texttt{rhs}.
 ```
 
-Its specialized automaton has bond dimension 2.
+For rhs `k`, its automaton has maximum bond dimension `k+2`.
 
 ```jldoctest onehot
 using TenSolver
 
 # Pick exactly one of the three options; the second is the most valuable.
-one_hot = ExactlyOneConstraint([1, 2, 3], 1)
+one_hot = AssignmentConstraint([1, 2, 3], [1], :(==), 1)
 
 E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; constraints = [one_hot], verbosity = 0)
 
@@ -176,8 +191,8 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, 1.0]; constraints = [implies], v
 
 ## Combining constraints
 
-Passing several constraints applies their conjunction — the feasible set is the
-intersection. All four types compose freely:
+Passing several constraints applies their conjunction.
+All four types compose freely:
 
 ```jldoctest combined
 using TenSolver
@@ -185,7 +200,7 @@ using TenSolver
 constraints = [
     SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=)),
     NotEqualsConstraint([1, 2], [1, 1]),
-    ExactlyOneConstraint([2, 3], 1),
+    AssignmentConstraint([2, 3], [1], :(==), 1),
     RelationConstraint(1, :(>=), 3),
 ]
 

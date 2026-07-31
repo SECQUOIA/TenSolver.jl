@@ -24,6 +24,7 @@ include(filepath("ising_conversion.jl"))
 # Binary constraint API
 include(filepath("constraints.jl"))
 include(filepath("projection_mpo.jl"))
+include(filepath("project_hamiltonian.jl"))
 
 # MPO construction
 include(filepath("tensorize.jl"))
