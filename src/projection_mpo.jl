@@ -412,7 +412,7 @@ function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, alp
 
   for site in constraint_sites(constraint)
     transitions[site] = Dict(
-      (q, a) => Base.mod(q + weights[site] * a, modulus)
+      (q, a) => mod(q + weights[site] * a, modulus)
       for q in states, a in alphabet
     )
   end

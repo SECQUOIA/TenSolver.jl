@@ -41,7 +41,7 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
   relation::Symbol
   rhs::T
 
-  function SumConstraint{T}(sites, weights, relation, rhs::T) where {T<:Real}
+  function SumConstraint{T}(sites, weights, relation, rhs) where {T<:Real}
     site_vec   = validate_sites(sites)
     weight_vec = validate_weights(weights)
     validate_same_length(site_vec, weight_vec, "sites", "weights")
@@ -55,17 +55,10 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
 end
 
 function SumConstraint(sites, weights, relation, rhs)
-  raw_weights = collect(weights)
-  isempty(raw_weights) && throw(ArgumentError("weights must not be empty"))
-
-  weight_types = map(typeof, raw_weights)
+  weight_types = map(typeof, weights)
   T = promote_type(weight_types..., typeof(rhs))
 
-  weight_vec = T.(raw_weights)
-  rhs_value = convert(T, rhs)
-
-  # `sites` and `relation` are validated once, inside the inner constructor.
-  return SumConstraint{T}(sites, weight_vec, relation, rhs_value)
+  return SumConstraint{T}(sites, weights, relation, rhs)
 end
 
 function SumConstraint(sites, weights, rhs; relation)
@@ -108,12 +101,9 @@ struct SumModConstraint{T<:Real} <: AbstractConstraint
 end
 
 function SumModConstraint(sites, weights, rhs; mod)
-  raw_weights = collect(weights)
-  isempty(raw_weights) && throw(ArgumentError("weights must not be empty"))
+  T = promote_type(map(typeof, weights)..., typeof(rhs), typeof(mod))
 
-  T = promote_type(map(typeof, raw_weights)..., typeof(rhs), typeof(mod))
-
-  return SumModConstraint{T}(sites, T.(raw_weights), convert(T, rhs); mod=convert(T, mod))
+  return SumModConstraint{T}(sites, T.(weights), convert(T, rhs); mod=convert(T, mod))
 end
 
 """
@@ -219,10 +209,7 @@ function is_feasible(x::AbstractVector, constraint::SumConstraint)
 end
 
 function is_feasible(x::AbstractVector, constraint::SumModConstraint)
-  lhs = Base.mod(
-    sum(weight * x[site] for (site, weight) in constraint.weights),
-    constraint.mod,
-  )
+  lhs = mod(sum(w * x[s] for (s, w) in constraint.weights), constraint.mod)
   return lhs == constraint.rhs
 end
 
