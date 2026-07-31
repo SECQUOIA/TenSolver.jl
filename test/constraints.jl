@@ -12,6 +12,14 @@
     @test keyword_sum.weights == Dict(1 => 1.0, 2 => 5.0)
     @test keyword_sum.rhs == 2.0
 
+    sum_mod = SumModConstraint([1, 3], [-1, 4], -2; mod = 3)
+    @test sum_mod isa SumModConstraint{Int}
+    @test sum_mod isa AbstractConstraint
+    @test Set(TenSolver.constraint_sites(sum_mod)) == Set([1, 3])
+    @test sum_mod.weights == Dict(1 => 2, 3 => 1)
+    @test sum_mod.rhs == 1
+    @test sum_mod.mod == 3
+
     not_equals = NotEqualsConstraint([1, 2], [1, 0])
     @test not_equals isa NotEqualsConstraint{Int}
     @test Set(TenSolver.constraint_sites(not_equals)) == Set([1, 2])
@@ -67,6 +75,13 @@
     @test_throws ArgumentError SumConstraint([1], [1], "==", 0)
     @test_throws UndefKeywordError SumConstraint([1, 2], [1, 1], 1)
 
+    @test_throws DimensionMismatch SumModConstraint([1, 2], [1], 0; mod = 2)
+    @test_throws ArgumentError SumModConstraint([1], [1.5], 0; mod = 2)
+    @test_throws ArgumentError SumModConstraint([1], [1], 0.5; mod = 2)
+    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = 0)
+    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = -2)
+    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = 2.5)
+
     @testset "SumConstraint floating-point validation" begin
       @test SumConstraint([1, 2], [1.0, 2.0], 2.0; relation=:(<=)) isa SumConstraint
       @test SumConstraint([1, 2], [1.0, 1.0], 1.0; relation=:(==)) isa SumConstraint
@@ -97,6 +112,10 @@
     sum_mod = SumModConstraint([1, 2], [1, 1], 1; mod=2)
     @test  is_feasible([1, 0], sum_mod)
     @test !is_feasible([1, 1], sum_mod)
+
+    signed_sum_mod = SumModConstraint([1], [-1], -1; mod = 3)
+    @test is_feasible([1], signed_sum_mod)
+    @test is_feasible([-1], SumModConstraint([1], [1], 2; mod = 3))
 
     not_equals = NotEqualsConstraint([1, 3], [1, 0])
     @test !is_feasible([1, 1, 0], not_equals)
