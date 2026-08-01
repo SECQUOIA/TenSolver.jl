@@ -15,6 +15,7 @@ makedocs(
         "Home" => "index.md",
         "Examples" => "examples.md",
         "Constraints" => "constraints.md",
+        "PEPS Backend" => "peps_backend.md",
         "API Reference" => "api.md",
     ],
     repo = Documenter.Remotes.GitHub("SECQUOIA", "TenSolver.jl"),

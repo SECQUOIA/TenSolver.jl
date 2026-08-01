@@ -4,8 +4,11 @@ Tensor Network-based solver for discrete polynomial optimization.
 
 ## Overview
 
-TenSolver.jl provides an efficient solver for QUBO problems using tensor network methods,
-leveraging the Density Matrix Renormalization Group (DMRG) algorithm.
+TenSolver.jl provides tensor-network solvers for discrete optimization. The default
+backend uses the Density Matrix Renormalization Group (DMRG) algorithm for general
+QUBO/PUBO inputs. The optional experimental
+[PEPS Backend](@ref peps-backend-guide) supports quadratic Ising/QUBO models with
+explicit square- or king-grid layouts.
 The package is particularly useful for:
 
 - Solving large-scale discrete optimization problems
@@ -65,6 +68,8 @@ x = TenSolver.sample(psi)
 - **Probability Distribution**: Returns a probability distribution over optimal solutions
 - **Hard Constraints**: Enforces constraints exactly via CoTenN-style projection MPOs, so sampled solutions are always feasible (see [Constrained Optimization](@ref))
 - **JuMP Integration**: Works seamlessly with the JuMP modeling language
+- **Structured PEPS Experiments**: Provides an optional topology-aware backend for
+  square and king grids (see [PEPS Backend](@ref peps-backend-guide))
 - **GPU Support**: Supports GPU acceleration via CUDA.jl, Metal.jl, and other accelerators
 - **Flexible Configuration**: Numerous parameters to control accuracy vs. performance trade-off
 
@@ -85,6 +90,6 @@ If you use TenSolver in your research, please cite our [NeurIPS 2025 Workshop pa
 ## Contents
 
 ```@contents
-Pages = ["examples.md", "constraints.md", "api.md"]
+Pages = ["examples.md", "constraints.md", "peps_backend.md", "api.md"]
 Depth = 2
 ```

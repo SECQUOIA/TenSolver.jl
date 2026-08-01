@@ -261,7 +261,8 @@ The integration should be implemented as a sequence of stacked PRs:
 5. Expose the PEPS backend through QUBODrivers/JuMP attributes, including
    layout and contraction/search parameters.
 6. Add user documentation, examples, and benchmark scripts that compare the DMRG
-   and PEPS paths on appropriate problem families.
+   and PEPS paths on appropriate problem families. The user guide now lives at
+   `docs/src/peps_backend.md`; these internal notes retain implementation details.
 
 Each PR should remain useful on its own. The early PRs should avoid new runtime
 dependencies and should preserve the current public behavior exactly.
