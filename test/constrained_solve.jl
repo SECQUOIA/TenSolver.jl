@@ -33,11 +33,10 @@ end
     Q = zeros(3, 3)
     l = [-3.0, -2.0, -1.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -4.0, [1, 0, 1]
 
     E, psi = minimize(Q, l; qubo_kwargs...)
 
-    @test expected_sample == [1, 0, 1]
     assert_constrained_solution(E, psi, obj, all_constraint_types, expected_energy, expected_sample)
   end
 
@@ -49,7 +48,7 @@ end
     ]
     l = [-3.0, -2.0, -1.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -3.8, [1, 0, 1]
 
     E, psi = minimize(Q, l; preprocess=true, qubo_kwargs...)
 
@@ -83,7 +82,7 @@ end
     DynamicPolynomials.@polyvar y[1:3]
     p = -3.0y[1] - 2.0y[2] - 1.0y[3]
     obj(x) = p(y => x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -4.0, [1, 0, 1]
 
     E, psi = minimize(
       p;
@@ -256,9 +255,7 @@ end
     capacity = 7
     constraints = AbstractConstraint[SumConstraint([1, 2, 3, 4], weights, capacity; relation=:(<=))]
     obj(x) = -dot(values, x)
-    expected_energy, expected_sample = brute_force(obj, 4, constraints)
-
-    @test expected_sample == [0, 0, 1, 1]
+    expected_energy, expected_sample = -10.0, [0, 0, 1, 1]
 
     E, psi = minimize(
       zeros(4, 4),
@@ -281,9 +278,7 @@ end
     l = [-1.0, 0.5, -3.0, 0.5, -2.0]
     constraints = AbstractConstraint[SumConstraint([1, 3, 5], [1, 1, 1], 1; relation=:(==))]
     obj(x) = dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 5, constraints)
-
-    @test expected_sample == [0, 0, 1, 0, 0]
+    expected_energy, expected_sample = -3.0, [0, 0, 1, 0, 0]
 
     E, psi = minimize(
       zeros(5, 5),

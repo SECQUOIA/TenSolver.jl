@@ -11,7 +11,6 @@ import DynamicPolynomials
     ]
     h = [0.25, -1.5, 0.75]
     offset = 2.0
-    obj(s) = dot(s, J, s) + dot(h, s) + offset
 
     E, psi = minimize(
       J,
@@ -23,10 +22,9 @@ import DynamicPolynomials
       cutoff = 1e-12,
       verbosity = 0,
     )
-    E0, s0 = brute_force(obj, 3; domain = spin_domain)
 
-    @test E ≈ E0
-    @test s0 in psi
+    @test E ≈ 0.5
+    @test [1, 1, -1] in psi
     @test all(in(spin_domain), sample(psi))
   end
 
@@ -47,7 +45,6 @@ import DynamicPolynomials
   @testset "Polynomial objective" begin
     DynamicPolynomials.@polyvar s[1:3]
     p = 1.5s[1] * s[2] - 2.0s[2] * s[3] + 0.5s[1]^2 + s[3]
-    obj(x) = real(p(s => x))
 
     E, psi = minimize(
       p;
@@ -57,10 +54,9 @@ import DynamicPolynomials
       cutoff = 1e-12,
       verbosity = 0,
     )
-    E0, s0 = brute_force(obj, 3; domain = spin_domain)
 
-    @test E ≈ E0
-    @test s0 in psi
+    @test E ≈ -4.0
+    @test [1, -1, -1] in psi
   end
 
   @testset "Constraints use physical Spin values" begin
@@ -74,7 +70,6 @@ import DynamicPolynomials
       NotEqualsConstraint([1, 2], [1, 1]),
       RelationConstraint(1, :(!=), 3),
     ]
-    obj(s) = dot(s, J, s) + dot(h, s)
 
     E, psi = minimize(
       J,
@@ -87,11 +82,11 @@ import DynamicPolynomials
       cutoff = 1e-12,
       verbosity = 0,
     )
-    E0, s0 = brute_force(obj, 3, constraints; domain = spin_domain)
+    expected_sample = [1, -1, -1]
     sampled = sample(psi)
 
-    @test E ≈ E0
-    @test s0 in psi
+    @test E ≈ -2.0
+    @test expected_sample in psi
     @test psi.permutation != collect(1:3)
     @test is_feasible(sampled, constraints)
     @test all(in(spin_domain), sampled)

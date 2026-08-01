@@ -6,8 +6,9 @@
 """
     brute_force(f, n[, constraints]; domain = 0:1)
 
-A QUBO solver using a brute force approach instead of Tensor networks.
-Despite being painfully slow, this is useful as a sanity check.
+Return the minimum objective value and one minimizer found by exhaustive
+enumeration. Use only for small test problems because the work grows as
+`length(domain)^n`.
 """
 function brute_force(obj, n, constraints = AbstractConstraint[]; domain = 0:1)
   best = +Inf

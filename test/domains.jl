@@ -51,7 +51,6 @@ end
      -1.0   3.0  -1.0
       0.0  -1.0   2.0
     ]
-    obj(x) = dot(x, Q, x)
 
     E, psi = minimize(Q; domain = 0:2, iterations = 5, cutoff = 1e-12, verbosity = 0)
 
@@ -61,10 +60,8 @@ end
 
   @testset "Unconstrained linear" begin
     l = [-1.0,  2.0, -3.0]
-    obj(x) = dot(l, x)
 
     E, psi = minimize(l; domain = 0:2, iterations = 5, cutoff = 1e-12, verbosity = 0)
-    E0, x0 = brute_force(obj, 3; domain = 0:2)
 
     @test E ≈ -8
     @test [2, 0, 2] in psi
@@ -77,23 +74,19 @@ end
      -0.5   0.25  1.0
     ]
     l = [-2.0, -1.0, -3.0]
-    obj(x) = dot(x, Q, x) + dot(l, x)
 
     E, psi = minimize(Q, l; domain = 0:2, iterations = 5, cutoff = 1e-12, verbosity = 0)
-    E0, x0 = brute_force(obj, 3; domain = 0:2)
 
-    @test E ≈ E0
-    @test x0 in psi
+    @test E ≈ -4.5
+    @test [1, 0, 2] in psi
   end
 
   @testset "Single site case" begin
     Q = reshape([-2.0], 1, 1)
     l = [3.0]
     c = 5.0
-    obj(x) = dot(x, Q, x) + dot(l, x)
 
     E, psi = minimize(Q, l, c; domain = 0:2, verbosity = 0)
-    E0, x0 = brute_force(obj, 1; domain = 0:2)
 
     @test E ≈ 3.0
     @test [2] in psi
@@ -102,13 +95,12 @@ end
   @testset "Small polynomial case" begin
     DP.@polyvar y[1:3]
     p = y[1]^2 + y[1] * y[2] + 2y[2]^2 - y[2] * y[3] - 3.0y[3]
-    obj(x) = p(y => x)
 
     E, psi = minimize(p; domain = 0:2, iterations = 10, mindim = 5, cutoff = 1e-8, verbosity = 0)
-    E0, x0 = brute_force(obj, 3; domain = 0:2)
 
-    @test E ≈ E0
-    @test x0 in psi
+    @test E ≈ -6.0
+    @test [0, 0, 2] in psi
+    @test sample(psi) in ([0, 0, 2], [0, 1, 2])
   end
 
   @testset "Polynomial exponents are preserved" begin
@@ -132,7 +124,6 @@ end
     constraints = AbstractConstraint[
       SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
     ]
-    obj(x) = dot(x, Q, x) + dot(l, x)
 
     E, psi = minimize(
       Q,
@@ -144,9 +135,10 @@ end
       mindim = 10,
       verbosity = 0,
     )
-    E0, _ = brute_force(obj, 3, constraints; domain = 0:2)
 
-    @test E ≈ E0
+    expected_sample = [1, 0, 0]
+    @test E ≈ -2.0
+    @test expected_sample in psi
     @test is_feasible(sample(psi), constraints)
   end
 
