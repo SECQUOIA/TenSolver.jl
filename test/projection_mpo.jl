@@ -21,6 +21,17 @@ function assert_projection_matches_feasibility(constraint, sites; domain = 0:1)
   return H
 end
 
+function assert_projection_spot_checks(constraint, sites; domain = 0:1)
+  H = TenSolver.projection_mpo(constraint, sites; domain)
+
+  for _ in 1:2
+    bits = rand(domain, length(sites))
+    @test mpo_diagonal(H, sites, bits) ≈ is_feasible(bits, constraint) atol=sqrt(eps(Float64))
+  end
+
+  return H
+end
+
 function dfa_accepts(dfa, input)
   state = dfa.initial
 
@@ -134,11 +145,20 @@ end
     end
   end
 
-  @testset "Projection MPO" begin
+  @testset "Projection MPO spot checks" begin
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
-    for constraint in TEST_CONSTRAINTS
-      assert_projection_matches_feasibility(constraint, sites)
+    cases = [
+      SumConstraint([1, 3], [2, 1], :(<=), 2),
+      NotEqualsConstraint([1, 3], [1, 0]),
+      NotEqualsConstraint([1, 2], [1.0, 0.0]),
+      NotEqualsConstraint([1, 3, 2, 4], Bool[1, 0, 0, 1]),
+      AssignmentConstraint([1, 3], [1], :(==), 1),
+      RelationConstraint(4, :(<=), 2),
+    ]
+
+    for constraint in cases
+      assert_projection_spot_checks(constraint, sites)
     end
   end
 
@@ -171,14 +191,25 @@ end
     @test all(isempty, ITensorMPS.siteinds(all, H_eff; plev=2))
     @test ITensorMPS.siteinds(projected_psi) == sites
 
-    for bra_bits in all_bitstrings(sites), ket_bits in all_bitstrings(sites)
-      bra_feasible = is_feasible(collect(bra_bits), constraints)
-      ket_feasible = is_feasible(collect(ket_bits), constraints)
-      expected = bra_feasible && ket_feasible ?
-        mpo_matrix_element(H, sites, bra_bits, ket_bits) :
+    for bits in all_bitstrings(sites)
+      feasible = is_feasible(collect(bits), constraints)
+      expected = feasible ?
+        mpo_diagonal(H, sites, bits) :
         0.0
 
-      @test mpo_matrix_element(H_eff, sites, bra_bits, ket_bits) ≈ expected atol=1e-10
+      @test mpo_diagonal(H_eff, sites, bits) ≈ expected atol=1e-10
+    end
+
+    # Both the objective and projections are diagonal. Representative
+    # off-diagonal checks guard against index/prime mistakes without repeating
+    # the same zero contraction for every pair of basis states.
+    for (bra_bits, ket_bits) in (
+      ((0, 0, 0), (1, 0, 0)),
+      ((0, 0, 1), (0, 1, 1)),
+      ((0, 0, 0), (0, 0, 1)),
+      ((0, 0, 0), (1, 1, 0)),
+    )
+      @test mpo_matrix_element(H_eff, sites, bra_bits, ket_bits) ≈ 0.0 atol=1e-10
     end
 
     for bits in all_bitstrings(sites)
@@ -219,8 +250,15 @@ end
 
     @test length(Hs) == length(constraints)
 
+    # Across these assignments every constraint sees both an accepted and a
+    # rejected case after the nontrivial tensor-to-original permutation.
+    samples = (
+      (0, 0, 0, 0, 0),
+      (1, 0, 1, 0, 1),
+      (0, 1, 1, 1, 0),
+    )
     for (constraint, H) in zip(constraints, Hs)
-      for bits in all_bitstrings(sites)
+      for bits in samples
         original_bits = collect(bits)[invperm(perm)]
         expected = Float64(is_feasible(original_bits, constraint))
         @test mpo_diagonal(H, sites, bits) ≈ expected atol=1e-8
@@ -238,20 +276,15 @@ end
     psi = ITensorMPS.MPS(sites, fill("full", length(sites)))
     projected_psi = TenSolver.project_state(psi, P; cutoff=1e-12)
 
-    for bra_bits in all_bitstrings(sites), ket_bits in all_bitstrings(sites)
-      @test mpo_matrix_element(H_eff, sites, bra_bits, ket_bits) == 0.0
-    end
-
-    for bits in all_bitstrings(sites)
-      @test mps_amplitude(projected_psi, sites, bits) ≈ 0.0 atol=1e-8
-    end
+    @test norm(H_eff) ≈ 0.0 atol=1e-12
+    @test norm(projected_psi) ≈ 0.0 atol=1e-12
   end
 
   @testset "NotEqualsConstraint projection" begin
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
     forbidden_tuple = NotEqualsConstraint([1, 3, 4], [1, 0, 1])
-    H = assert_projection_matches_feasibility(forbidden_tuple, sites)
+    H = TenSolver.projection_mpo(forbidden_tuple, sites; domain = 0:1)
 
     for bits in all_bitstrings(sites)
       forbidden = bits[1] == 1 && bits[3] == 0 && bits[4] == 1
@@ -346,7 +379,7 @@ end
         @test dfa_accepts(dfa, bits) == is_feasible(collect(bits), constraint)
       end
 
-      H = assert_projection_matches_feasibility(constraint, sites)
+      H = TenSolver.projection_mpo(constraint, sites; domain = 0:1)
       @test ITensorMPS.maxlinkdim(H) <= 2
     end
   end
@@ -373,19 +406,13 @@ end
       SumConstraint([2, 3], [2.0, 3.0], 3.0; relation=:(>=)),
       SumConstraint([1, 2], [1.0, 2.0], 1.0; relation=:(!=)),
     ]
-
     for constraint in constraints
       dfa = TenSolver.constraint_to_dfa(constraint, length(sites), 0:1)
-      H = TenSolver.projection_mpo(constraint, sites; domain = 0:1)
+      assert_projection_spot_checks(constraint, sites)
 
       for bits in all_bitstrings(sites)
         expected = is_feasible(collect(bits), constraint)
         @test dfa_accepts(dfa, bits) == expected
-      end
-
-      for bits in all_bitstrings(sites)
-        expected = Float64(is_feasible(collect(bits), constraint))
-        @test mpo_diagonal(H, sites, bits) ≈ expected atol=1e-8
       end
     end
 

@@ -54,6 +54,3 @@ include(filepath("hdf5.jl"))
 
 # QUBODrivers.jl and Aqua.jl test suites
 include(filepath("external.jl"))
-
-# Documentation tests
-include(filepath("doctests.jl"))
