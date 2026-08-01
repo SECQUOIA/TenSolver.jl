@@ -16,8 +16,8 @@ Constraint types are experimental. They currently provide TenSolver's
 Julia lowering target for projection-MPO constrained solves; future JuMP/MOI
 integration may change which constraint abstraction is considered stable public API.
 
-See also [`SumConstraint`](@ref), [`NotEqualsConstraint`](@ref),
-[`ExactlyOneConstraint`](@ref), and [`RelationConstraint`](@ref).
+See also [`SumConstraint`](@ref), [`SumModConstraint`](@ref), [`NotEqualsConstraint`](@ref),
+[`AssignmentConstraint`](@ref), and [`RelationConstraint`](@ref).
 """
 abstract type AbstractConstraint end
 
@@ -41,7 +41,7 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
   relation::Symbol
   rhs::T
 
-  function SumConstraint{T}(sites, weights, relation, rhs::T) where {T<:Real}
+  function SumConstraint{T}(sites, weights, relation, rhs) where {T<:Real}
     site_vec   = validate_sites(sites)
     weight_vec = validate_weights(weights)
     validate_same_length(site_vec, weight_vec, "sites", "weights")
@@ -55,21 +55,55 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
 end
 
 function SumConstraint(sites, weights, relation, rhs)
-  raw_weights = collect(weights)
-  isempty(raw_weights) && throw(ArgumentError("weights must not be empty"))
-
-  weight_types = map(typeof, raw_weights)
+  weight_types = map(typeof, weights)
   T = promote_type(weight_types..., typeof(rhs))
 
-  weight_vec = T.(raw_weights)
-  rhs_value = convert(T, rhs)
-
-  # `sites` and `relation` are validated once, inside the inner constructor.
-  return SumConstraint{T}(sites, weight_vec, relation, rhs_value)
+  return SumConstraint{T}(sites, weights, relation, rhs)
 end
 
 function SumConstraint(sites, weights, rhs; relation)
   return SumConstraint(sites, weights, relation, rhs)
+end
+
+"""
+    SumModConstraint{T} <: AbstractConstraint
+    SumModConstraint(sites, weights, rhs; mod)
+
+Modular weighted-sum constraint over a vector `x`:
+
+    sum(weights[i] * x[sites[i]] for i in eachindex(sites)) ≡ rhs (mod m).
+
+`sites` must be unique positive integers,
+`weights` must be the same length as `sites`,
+`weights` and `rhs` must be integer-valued,
+and `mod` must be a positive integer.
+
+Weights and the rhs are stored as their least nonnegative residues modulo `mod`.
+"""
+struct SumModConstraint{T<:Real} <: AbstractConstraint
+  weights::Dict{Int,T}
+  rhs::T
+  mod::T
+
+  function SumModConstraint{T}(sites, weights, rhs; mod) where {T<:Real}
+    site_vec    = validate_sites(sites)
+    raw_weights = validate_integer_values(collect(weights), "weights")
+    validate_same_length(site_vec, raw_weights, "sites", "weights")
+    modulus = validate_modulus(mod)
+    raw_rhs = validate_integer_value(rhs, "rhs")
+
+    weight_vec     = Base.mod.(raw_weights, modulus)
+    normalized_rhs = Base.mod(raw_rhs, modulus)
+    weight_map     = Dict{Int,T}(zip(site_vec, weight_vec))
+
+    return new{T}(weight_map, normalized_rhs, modulus)
+  end
+end
+
+function SumModConstraint(sites, weights, rhs; mod)
+  T = promote_type(map(typeof, weights)..., typeof(rhs), typeof(mod))
+
+  return SumModConstraint{T}(sites, T.(weights), convert(T, rhs); mod=convert(T, mod))
 end
 
 """
@@ -103,28 +137,39 @@ function NotEqualsConstraint(sites, values)
 end
 
 """
-    ExactlyOneConstraint{T} <: AbstractConstraint
-    ExactlyOneConstraint(sites, value)
+    AssignmentConstraint{T} <: AbstractConstraint
+    AssignmentConstraint(sites, values, relation, rhs)
 
-Requires exactly one site in `sites` to satisfy `x[site] == value`, i.e.,
+Restrict how many `sites` satisfy `x[site] in values`, i.e.,
 
-    count(x[site] == value for site in sites) == 1.
+    count(x[site] in values for site in sites) relation rhs.
 
-`sites` must be unique positive integers, and `value` must be `0` or `1`.
+`rhs` must be a nonnegative integer. The count and `rhs` are stored
+independently of the numeric element type of `values`.
+
+A common application is to restrict _exactly one_ variable to be a certain value,
+
+```julia
+ExactlyOne(sites, value) = AssignmentConstraint(sites, [value], :(==), 1)
+```
 """
-struct ExactlyOneConstraint{T<:Real} <: AbstractConstraint
-  sites::Vector{Int}
-  value::T
+struct AssignmentConstraint{T<:Real} <: AbstractConstraint
+  sites    :: Vector{Int}
+  values   :: Set{T}
+  relation :: Symbol
+  rhs      :: Int
 
-  function ExactlyOneConstraint{T}(sites, value::T) where {T<:Real}
+  function AssignmentConstraint{T}(sites, values, relation, rhs) where {T<:Real}
     site_vec = validate_sites(sites)
+    relation = validate_relation(relation)
+    rhs      = Int(validate_rhs(rhs))
 
-    return new{T}(site_vec, value)
+    return new{T}(site_vec, Set(values), relation, rhs)
   end
 end
 
-function ExactlyOneConstraint(sites, value::T) where T
-  return ExactlyOneConstraint{T}(sites, value)
+function AssignmentConstraint(sites, values, relation, rhs)
+  return AssignmentConstraint{eltype(values)}(sites, values, relation, rhs)
 end
 
 """
@@ -163,12 +208,18 @@ function is_feasible(x::AbstractVector, constraint::SumConstraint)
   return relation_holds(lhs, constraint.relation, constraint.rhs)
 end
 
+function is_feasible(x::AbstractVector, constraint::SumModConstraint)
+  lhs = mod(sum(w * x[s] for (s, w) in constraint.weights), constraint.mod)
+  return lhs == constraint.rhs
+end
+
 function is_feasible(x::AbstractVector, constraint::NotEqualsConstraint)
   return any(x[site] != value for (site, value) in constraint.values)
 end
 
-function is_feasible(x::AbstractVector, constraint::ExactlyOneConstraint)
-  return count(site -> x[site] == constraint.value, constraint.sites) == 1
+function is_feasible(x::AbstractVector, constraint::AssignmentConstraint)
+  lhs = count(site -> x[site] in constraint.values, constraint.sites)
+  return relation_holds(lhs, constraint.relation, constraint.rhs)
 end
 
 function is_feasible(x::AbstractVector, constraint::RelationConstraint)
@@ -200,11 +251,15 @@ function constraint_sites(constraint::SumConstraint)
   return keys(constraint.weights)
 end
 
+function constraint_sites(constraint::SumModConstraint)
+  return keys(constraint.weights)
+end
+
 function constraint_sites(constraint::NotEqualsConstraint)
   return keys(constraint.values)
 end
 
-function constraint_sites(constraint::ExactlyOneConstraint)
+function constraint_sites(constraint::AssignmentConstraint)
   return constraint.sites
 end
 
@@ -268,6 +323,31 @@ function validate_weights(weights)
   end
 
   return weights
+end
+
+function validate_integer_value(value, name)
+  if !isinteger(value)
+    throw(ArgumentError("Found noninteger $name = $(repr(value)). $name must be integer."))
+  end
+
+  return value
+end
+
+function validate_integer_values(values, name)
+  isempty(values) && throw(ArgumentError("$name must not be empty"))
+
+  for (i, value) in enumerate(values)
+    validate_integer_value(value, "$name[$(i)]")
+  end
+
+  return values
+end
+
+function validate_modulus(modulus)
+  validate_integer_value(modulus, "mod")
+  modulus >= 1 || throw(ArgumentError("mod must be a positive integer"))
+
+  return modulus
 end
 
 function validate_rhs(rhs)

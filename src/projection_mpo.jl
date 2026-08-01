@@ -213,7 +213,7 @@ function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where {T}
     )
   end
 
-  return ITensorMPS.MPO(tensors)
+  return ITensorMPS.truncate!(ITensorMPS.MPO(tensors); cutoff = eps(T))
 end
 
 dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
@@ -230,13 +230,15 @@ Constraint site numbers use the same 1-based register indexing as `sites`.
 
 # Known constraints
 
-- [`SumConstraint`](@ref) uses a specialized exact integer partial-sum automaton.
-For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
-- [`NotEqualsConstraint`](@ref) uses a specialized MPO with bond dimension `2`,
+- [`SumConstraint`](@ref) uses a exact integer partial-sum automaton.
+  For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
+- [`SumModConstraint`](@ref) uses a modular partial-sum automaton.
+  Its `m` residue states give it bond dimension `m`.
+- [`NotEqualsConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the rhs.
-- [`ExactlyOneConstraint`](@ref) uses a specialized MPO with bond dimension `2`
-  that tracks whether the target value has been seen exactly once.
-- [`RelationConstraint`](@ref) uses a specialized MPO with bond dimension `2`,
+- [`AssignmentConstraint`](@ref) uses a membership counting automaton.
+  For rhs `k`, the maximum bond dimension is `k+2`.
+- [`RelationConstraint`](@ref) uses a MPO with bond dimension `2`,
   independently of the compared site positions.
 """
 function projection_mpo end
@@ -271,26 +273,44 @@ projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites; kws...
   projection_mpos(Float64, constraints, sites; kws...)
 
 """
-    project_hamiltonian(H, projections; cutoff=1e-8, kwargs...)
+    project_hamiltonian(H, projections; formulation=:commuting, cutoff=1e-8, kwargs...)
 
-Apply one or more diagonal projection MPOs to a Hamiltonian MPO.
+Project a Hamiltonian MPO with one or more projection MPOs.
 
-For projection MPOs `P`, this builds the CoTenN-style effective Hamiltonian
-`P' * H * P`. The resulting bond dimension can grow with the product of
-`H`'s links and the projection links.
+If `Q = P₁ * ⋯ * Pₙ` is the combined projector, the effective Hamiltonian has
+the semantics `Q' * H * Q`.
+
+With the default `formulation=:commuting`, `H` and all `Pᵢ` must be mutually
+commuting, while each `Pᵢ` must an orthogonal projection (Hermitian and idempotent).
+The construction then simplifies to `H * Q`, with bond dimension bounded by the product of `H`'s
+links and each projection link. TenSolver's objective and constraint MPOs
+satisfy these assumptions because they are diagonal.
+
+Use `formulation=:sandwich` for general, potentially noncommuting MPOs. It
+constructs `Q' * H * Q` directly, so each projection link contributes twice to
+the bond-dimension bound.
 """
-function project_hamiltonian(H::ITensorMPS.MPO, projections; cutoff=1e-8, kwargs...)
+function project_hamiltonian(
+  H::ITensorMPS.MPO,
+  projections;
+  formulation = :commuting,
+  kwargs...,
+)
   projection_tuple = projection_sequence(projections)
-  target_sites = projection_target_sites(H)
+  target_sites     = projection_target_sites(H)
   validate_projection_sequence(target_sites, projection_tuple)
 
-  H_eff = H
-  for P in projection_tuple
-    H_eff = ITensors.apply(ITensors.dag(P), H_eff; cutoff, kwargs...)
-    H_eff = ITensors.apply(H_eff, P; cutoff, kwargs...)
+  op = (x, y) -> ITensors.apply(x, y; kwargs...)
+  if formulation === :commuting
+    # TODO: We should profile and check that this simplification actually speeds up the code.
+    return reduce(op, projection_tuple; init = H)
+  elseif formulation === :sandwich
+    op2(h, p) = op(ITensors.dag(p), op(h, p))
+    return reduce(op2, projection_tuple; init = H)
+  else
+    msg = "formulation must be :commuting or :sandwich; got $(repr(formulation))"
+    throw(ArgumentError(msg))
   end
-
-  return H_eff
 end
 
 """
@@ -375,6 +395,31 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphab
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
+function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, alphabet) where {S}
+  if !all(isinteger, alphabet)
+    throw(ArgumentError("SumModConstraint only supports integer domains."))
+  end
+
+  (; weights, rhs) = constraint
+  modulus = constraint.mod
+
+  states    = zero(S):(modulus-one(S))
+  initial   = zero(S)
+  accepting = Set(rhs)
+
+  id_dict = Dict((q, a) => q for q in states for a in alphabet)
+  transitions = fill(id_dict, nsites)
+
+  for site in constraint_sites(constraint)
+    transitions[site] = Dict(
+      (q, a) => mod(q + weights[site] * a, modulus)
+      for q in states, a in alphabet
+    )
+  end
+
+  return DFA(states, alphabet, initial, accepting, transitions)
+end
+
 function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet) where {S}
   states    = [:mismatch, :all_matched]
   initial   = :all_matched
@@ -395,21 +440,22 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   return DFA(states, alphabet, initial, accepting, transitions)
 end
 
-function constraint_to_dfa(constraint::ExactlyOneConstraint{S}, nsites::Integer, alphabet) where {S}
-  target = constraint.value
+function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, alphabet) where {S}
+  (; values, rhs, relation) = constraint
+  beyond    = rhs + one(S)
 
-  states    = [:not_seen, :seen_once]
-  initial   = :not_seen
-  accepting = Set([:seen_once])
+  states    = zero(S):beyond
+  initial   = zero(S)
+  accepting = Set(q for q in states if relation_holds(q, relation, rhs))
 
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
   transitions = fill(id_dict, nsites)
 
+  f(_, a) = S(a in values)
   for site in constraint_sites(constraint)
     transitions[site] = Dict(
-      (q, a) => (a == target ? :seen_once : q)
+      (q, a) => min(q + f(site, a), beyond)
       for q in states, a in alphabet
-      if !(q == :seen_once && a == target)
     )
   end
 

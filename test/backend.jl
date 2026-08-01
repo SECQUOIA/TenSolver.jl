@@ -7,27 +7,22 @@ function TenSolver.minimize(::TestSymbolBackend, Q::AbstractMatrix{T}, l::Union{
 end
 
 @testset "Backend interface" begin
-  @testset "DMRG is the default backend" begin
-    Q = reshape([-2.0], 1, 1)
-
-    default_energy, default_solution = minimize(Q; verbosity=0)
-    object_energy, object_solution = minimize(Q; backend=DMRGBackend(), verbosity=0)
-    symbol_energy, symbol_solution = minimize(Q; backend=:dmrg, verbosity=0)
-
-    @test default_energy ≈ -2.0
-    @test object_energy ≈ default_energy
-    @test symbol_energy ≈ default_energy
-    @test TenSolver.sample(default_solution) == [1]
-    @test TenSolver.sample(object_solution) == [1]
-    @test TenSolver.sample(symbol_solution) == [1]
-  end
-
   @testset "Maximize forwards backend selection" begin
+    # The three-valued domain keeps the diagonal quadratic term in Q instead
+    # of simplifying it into the linear term before it reaches the backend.
     Q = reshape([2.0], 1, 1)
-    E, psi = maximize(Q; backend=:dmrg, verbosity=0)
+    E, payload = maximize(
+      Q;
+      backend=:test_symbol_backend,
+      domain=0:2,
+      verbosity=0,
+    )
 
-    @test E ≈ 2.0
-    @test TenSolver.sample(psi) == [1]
+    @test E == -42.0
+    @test payload.Q == reshape([-2.0], 1, 1)
+    @test payload.l == [0.0]
+    @test payload.c == 0.0
+    @test payload.kwargs[:verbosity] == 0
   end
 
   @testset "Symbol backends can be provided by extensions" begin

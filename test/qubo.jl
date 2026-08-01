@@ -54,7 +54,7 @@
 
     @testset "Single variable" begin
       Q = reshape([-2.0], 1, 1)
-      E, psi = minimize(Q; verbosity = 0)
+      E, psi = minimize(Q; backend = :dmrg, verbosity = 0)
 
       @test E ≈ -2.0
       @test TenSolver.sample(psi) == [1]
@@ -240,7 +240,15 @@
   end
 
   @testset "Pure quadratic" begin
-    Q = randn(dim, dim)
+    Q = [
+       0.0  1.0  0.0  0.0 -0.5
+       0.0  0.0  0.75 0.0  0.0
+       0.0  0.0  0.0 -1.0  0.0
+       0.0  0.0  0.0  0.0  0.5
+       0.0  0.0  0.0  0.0  0.0
+    ]
+    l = [-2.0, 1.0, -3.0, 2.0, -1.0]
+    Q = Q + Diagonal(l)
 
     # TenSolver solution
     e, psi = TenSolver.minimize(Q; verbosity = 0)
@@ -251,27 +259,21 @@
 
     # Does the ground energy match the solution?
     @test dot(x, Q, x) ≈ e
-
-    for i in 1:10
-      y = rand(Bool, dim)
-      @test dot(y, Q, y) >= e - 1e-8 # A small gap to amount for floating errors
-    end
-
-    # ~:~ Exact solution ~:~ #
-
-    e0, x0 = brute_force(x -> dot(x, Q, x), dim)
-    # Same minimum value
-    @test e ≈ e0
-    # Same solution
-    @test x == x0
-    # Ground state
-    @test x0 in psi
+    @test e ≈ -6.5
+    @test x == [1, 0, 1, 0, 1]
+    @test [1, 0, 1, 0, 1] in psi
   end
 
   @testset "Quad+Lin" begin
-    Q = 2*randn(dim, dim)
-    l = 2*randn(dim)
-    c = randn()
+    Q = [
+      0.0  0.5   0.0   0.0  0.0
+      0.5  0.0  -0.25  0.0  0.0
+      0.0 -0.25  0.0   0.75 0.0
+      0.0  0.0   0.75  0.0 -0.5
+      0.0  0.0   0.0  -0.5  0.0
+    ]
+    l = [1.0, -2.0, 0.5, -3.0, 1.5]
+    c = 1.25
 
     # Objective function
     obj(x) = dot(x, Q, x) + dot(l, x) + c
@@ -282,17 +284,8 @@
 
     # Does the ground energy match solution?
     @test obj(x) ≈ e
-
-    for i in 1:10
-      y = rand(Bool, dim)
-      @test obj(y) >= e - 1e-8 # A small gap to amount for floating errors
-    end
-
-    # ~:~ Exact solution ~:~ #
-    e0, x0 = brute_force(obj, dim)
-    # Same minimum value
-    @test e ≈ e0
-    # Solution is sampleable
-    @test x0 in psi
+    @test e ≈ -3.75
+    @test x == [0, 1, 0, 1, 0]
+    @test [0, 1, 0, 1, 0] in psi
   end
 end

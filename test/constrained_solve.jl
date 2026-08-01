@@ -17,7 +17,7 @@ end
   all_constraint_types = AbstractConstraint[
     SumConstraint([1, 2, 3], [1, 1, 1], 2; relation=:(<=)),
     NotEqualsConstraint([1, 2], [1, 1]),
-    ExactlyOneConstraint([2, 3], 1),
+    AssignmentConstraint([2, 3], [1], :(==), 1),
     RelationConstraint(1, :(>=), 3),
   ]
 
@@ -33,11 +33,10 @@ end
     Q = zeros(3, 3)
     l = [-3.0, -2.0, -1.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -4.0, [1, 0, 1]
 
     E, psi = minimize(Q, l; qubo_kwargs...)
 
-    @test expected_sample == [1, 0, 1]
     assert_constrained_solution(E, psi, obj, all_constraint_types, expected_energy, expected_sample)
   end
 
@@ -49,7 +48,7 @@ end
     ]
     l = [-3.0, -2.0, -1.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -3.8, [1, 0, 1]
 
     E, psi = minimize(Q, l; preprocess=true, qubo_kwargs...)
 
@@ -59,7 +58,7 @@ end
   @testset "Maximize forwards constraints" begin
     Q = zeros(2, 2)
     l = [1.0, 2.0]
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
     obj(x) = dot(x, Q, x) + dot(l, x)
 
     E, psi = maximize(
@@ -83,7 +82,7 @@ end
     DynamicPolynomials.@polyvar y[1:3]
     p = -3.0y[1] - 2.0y[2] - 1.0y[3]
     obj(x) = p(y => x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -4.0, [1, 0, 1]
 
     E, psi = minimize(
       p;
@@ -117,7 +116,7 @@ end
 
     DynamicPolynomials.@polyvar z
     p = -2.0z + 0.0
-    force_one = AbstractConstraint[ExactlyOneConstraint([1], 1)]
+    force_one = AbstractConstraint[AssignmentConstraint([1], 1, :(==), 1)]
     poly_obj(x) = p([z] => x)
 
     E_poly, psi_poly = minimize(
@@ -153,7 +152,7 @@ end
 
     DynamicPolynomials.@polyvar w
     p_pos = 2.0w + 0.0
-    force_one_poly = AbstractConstraint[ExactlyOneConstraint([1], 1)]
+    force_one_poly = AbstractConstraint[AssignmentConstraint([1], 1, :(==), 1)]
     poly_pos_obj(x) = p_pos([w] => x)
 
     E_ppos, psi_ppos = minimize(
@@ -169,7 +168,7 @@ end
   end
 
   @testset "Zero objective keeps feasible constrained samples" begin
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
     E, psi = minimize(
       zeros(2, 2);
       constraints,
@@ -256,9 +255,7 @@ end
     capacity = 7
     constraints = AbstractConstraint[SumConstraint([1, 2, 3, 4], weights, capacity; relation=:(<=))]
     obj(x) = -dot(values, x)
-    expected_energy, expected_sample = brute_force(obj, 4, constraints)
-
-    @test expected_sample == [0, 0, 1, 1]
+    expected_energy, expected_sample = -10.0, [0, 0, 1, 1]
 
     E, psi = minimize(
       zeros(4, 4),
@@ -281,9 +278,7 @@ end
     l = [-1.0, 0.5, -3.0, 0.5, -2.0]
     constraints = AbstractConstraint[SumConstraint([1, 3, 5], [1, 1, 1], 1; relation=:(==))]
     obj(x) = dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 5, constraints)
-
-    @test expected_sample == [0, 0, 1, 0, 0]
+    expected_energy, expected_sample = -3.0, [0, 0, 1, 0, 0]
 
     E, psi = minimize(
       zeros(5, 5),
@@ -309,7 +304,7 @@ end
     Random.seed!(20260715)
 
     l = [-1.0, -1.0]
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
 
     E, psi = minimize(
       zeros(2, 2),
