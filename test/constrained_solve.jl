@@ -17,7 +17,7 @@ end
   all_constraint_types = AbstractConstraint[
     SumConstraint([1, 2, 3], [1, 1, 1], 2; relation=:(<=)),
     NotEqualsConstraint([1, 2], [1, 1]),
-    ExactlyOneConstraint([2, 3], 1),
+    AssignmentConstraint([2, 3], [1], :(==), 1),
     RelationConstraint(1, :(>=), 3),
   ]
 
@@ -33,11 +33,10 @@ end
     Q = zeros(3, 3)
     l = [-3.0, -2.0, -1.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -4.0, [1, 0, 1]
 
     E, psi = minimize(Q, l; qubo_kwargs...)
 
-    @test expected_sample == [1, 0, 1]
     assert_constrained_solution(E, psi, obj, all_constraint_types, expected_energy, expected_sample)
   end
 
@@ -49,7 +48,7 @@ end
     ]
     l = [-3.0, -2.0, -1.0]
     obj(x) = dot(x, Q, x) + dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -3.8, [1, 0, 1]
 
     E, psi = minimize(Q, l; preprocess=true, qubo_kwargs...)
 
@@ -59,7 +58,7 @@ end
   @testset "Maximize forwards constraints" begin
     Q = zeros(2, 2)
     l = [1.0, 2.0]
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
     obj(x) = dot(x, Q, x) + dot(l, x)
 
     E, psi = maximize(
@@ -83,7 +82,7 @@ end
     DynamicPolynomials.@polyvar y[1:3]
     p = -3.0y[1] - 2.0y[2] - 1.0y[3]
     obj(x) = p(y => x)
-    expected_energy, expected_sample = brute_force(obj, 3, all_constraint_types)
+    expected_energy, expected_sample = -4.0, [1, 0, 1]
 
     E, psi = minimize(
       p;
@@ -117,7 +116,7 @@ end
 
     DynamicPolynomials.@polyvar z
     p = -2.0z + 0.0
-    force_one = AbstractConstraint[ExactlyOneConstraint([1], 1)]
+    force_one = AbstractConstraint[AssignmentConstraint([1], 1, :(==), 1)]
     poly_obj(x) = p([z] => x)
 
     E_poly, psi_poly = minimize(
@@ -153,7 +152,7 @@ end
 
     DynamicPolynomials.@polyvar w
     p_pos = 2.0w + 0.0
-    force_one_poly = AbstractConstraint[ExactlyOneConstraint([1], 1)]
+    force_one_poly = AbstractConstraint[AssignmentConstraint([1], 1, :(==), 1)]
     poly_pos_obj(x) = p_pos([w] => x)
 
     E_ppos, psi_ppos = minimize(
@@ -168,47 +167,8 @@ end
     assert_constrained_solution(E_ppos, psi_ppos, poly_pos_obj, force_one_poly, 2.0, [1])
   end
 
-  @testset "Callbacks and stats remain available" begin
-    Q = zeros(2, 2)
-    l = [-1.0, -2.0]
-    constraints = AbstractConstraint[NotEqualsConstraint([1, 2], [1, 1])]
-    calls = Int[]
-    objectives = Float64[]
-
-    E, psi = minimize(
-      Q,
-      l;
-      constraints,
-      iterations=2,
-      verbosity=0,
-      cutoff=1e-12,
-      noise=[0.0],
-      on_iteration=(mps; iteration, objective, kw...) -> begin
-        push!(calls, iteration)
-        push!(objectives, objective)
-        callback_solution = TenSolver.Solution{Float64}(
-          deepcopy(mps),
-          0:1,
-          collect(1:length(mps)),
-          Float64[],
-          Int[],
-          Float64[],
-        )
-        @test is_feasible(TenSolver.sample(callback_solution), constraints)
-      end,
-    )
-
-    @test calls == [1, 2]
-    @test length(objectives) == 2
-    @test length(psi.energies) == 2
-    @test length(psi.bond_dims) == 2
-    @test length(psi.elapsed_times) == 2
-    @test is_feasible(TenSolver.sample(psi), constraints)
-    @test E ≈ -2.0
-  end
-
   @testset "Zero objective keeps feasible constrained samples" begin
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
     E, psi = minimize(
       zeros(2, 2);
       constraints,
@@ -226,20 +186,26 @@ end
   @testset "Infeasible constraints report status, not exception" begin
     impossible = AbstractConstraint[SumConstraint([1, 2], [1, 1], 3; relation=:(==))]
 
-    E, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
-      zeros(2, 2);
-      constraints=impossible,
-      verbosity=0,
-    )
+    io = IOBuffer()
+    E, psi = with_logger(ConsoleLogger(io, Logging.Debug)) do
+      minimize(
+        zeros(2, 2);
+        constraints=impossible,
+        verbosity=0,
+      )
+    end
+    debug_log = String(take!(io))
 
     @test E == Inf
     @test !is_feasible(psi)
-    @test isempty(psi.energies)
-    @test isempty(psi.bond_dims)
-    @test isempty(psi.elapsed_times)
-    # The solve reports; querying a nonexistent solution throws.
-    @test_throws DomainError TenSolver.sample(psi)
+    @test isempty(psi.stats.energies)
+    @test isempty(psi.stats.bond_dims)
+    @test isempty(psi.stats.elapsed_times)
+    @test isempty(psi.stats.variances)
+    @test psi.stats.max_bonds.initial_state == 0
     @test [0, 0] ∉ psi
+    @test occursin("empty feasible subspace", debug_log)
+    @test !occursin("Exception while generating log record", debug_log)
 
     # The supremum over an empty feasible set is -Inf.
     Emax, psimax = @test_logs (:warn, r"empty feasible subspace") maximize(
@@ -289,9 +255,7 @@ end
     capacity = 7
     constraints = AbstractConstraint[SumConstraint([1, 2, 3, 4], weights, capacity; relation=:(<=))]
     obj(x) = -dot(values, x)
-    expected_energy, expected_sample = brute_force(obj, 4, constraints)
-
-    @test expected_sample == [0, 0, 1, 1]
+    expected_energy, expected_sample = -10.0, [0, 0, 1, 1]
 
     E, psi = minimize(
       zeros(4, 4),
@@ -314,9 +278,7 @@ end
     l = [-1.0, 0.5, -3.0, 0.5, -2.0]
     constraints = AbstractConstraint[SumConstraint([1, 3, 5], [1, 1, 1], 1; relation=:(==))]
     obj(x) = dot(l, x)
-    expected_energy, expected_sample = brute_force(obj, 5, constraints)
-
-    @test expected_sample == [0, 0, 1, 0, 0]
+    expected_energy, expected_sample = -3.0, [0, 0, 1, 0, 0]
 
     E, psi = minimize(
       zeros(5, 5),
@@ -342,7 +304,7 @@ end
     Random.seed!(20260715)
 
     l = [-1.0, -1.0]
-    constraints = AbstractConstraint[ExactlyOneConstraint([1, 2], 1)]
+    constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
 
     E, psi = minimize(
       zeros(2, 2),

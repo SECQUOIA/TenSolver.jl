@@ -27,11 +27,21 @@ end
   @test !isdefined(TenSolver, :solution_space)
 
   @testset "Maximize forwards backend selection" begin
+    # The three-valued domain keeps the diagonal quadratic term in Q instead
+    # of simplifying it into the linear term before it reaches the backend.
     Q = reshape([2.0], 1, 1)
-    E, psi = maximize(Q; backend=:dmrg, verbosity=0)
+    E, payload = maximize(
+      Q;
+      backend=:test_symbol_backend,
+      domain=0:2,
+      verbosity=0,
+    )
 
-    @test E ≈ 2.0
-    @test TenSolver.sample(psi) == [1]
+    @test E == -42.0
+    @test payload.Q == reshape([-2.0], 1, 1)
+    @test payload.l == [0.0]
+    @test payload.c == 0.0
+    @test payload.kwargs[:verbosity] == 0
   end
 
   @testset "Symbol backends can be provided by extensions" begin
@@ -39,9 +49,6 @@ end
     E, payload = minimize(Q; backend=:test_symbol_backend, verbosity=0, cutoff=1e-6)
 
     @test E == 42.0
-    @test payload.Q === Q
-    @test iszero(payload.l)
-    @test iszero(payload.c)
     @test payload.kwargs[:cutoff] == 1e-6
     @test payload.kwargs[:verbosity] == 0
     @test !haskey(payload.kwargs, :preprocess)

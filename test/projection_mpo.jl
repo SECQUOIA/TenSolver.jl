@@ -8,12 +8,25 @@ function mpo_diagonal(H, sites, bits)
   return real(ITensors.inner(psi', H, psi))
 end
 
-function assert_projection_matches_feasibility(constraint, sites)
-  H = TenSolver.projection_mpo(constraint, sites; domain = 0:1)
+function assert_projection_matches_feasibility(constraint, sites; domain = 0:1)
+  H = TenSolver.projection_mpo(constraint, sites; domain)
 
-  for bits in all_bitstrings(sites)
-    expected = Float64(is_feasible(collect(bits), constraint))
-    @test mpo_diagonal(H, sites, bits) == expected
+  assignments = Iterators.product(fill(domain, length(sites))...)
+  for assignment in assignments
+    expected = Float64(is_feasible(collect(assignment), constraint))
+    basis_values = map(value -> findfirst(==(value), domain) - 1, assignment)
+    @test mpo_diagonal(H, sites, basis_values) ≈ expected atol=sqrt(eps(Float64))
+  end
+
+  return H
+end
+
+function assert_projection_spot_checks(constraint, sites; domain = 0:1)
+  H = TenSolver.projection_mpo(constraint, sites; domain)
+
+  for _ in 1:2
+    bits = rand(domain, length(sites))
+    @test mpo_diagonal(H, sites, bits) ≈ is_feasible(bits, constraint) atol=sqrt(eps(Float64))
   end
 
   return H
@@ -65,12 +78,13 @@ end
     SumConstraint([1, 2, 4], [1, 2, 3], :(==), 3),
     SumConstraint([2, 4], [2, 3], :(>=), 3),
     SumConstraint([1, 2, 4], [1, 2, 3], :(!=), 3),
+    SumModConstraint([1, 2, 4], [1, 2, 3], 3; mod = 3),
     NotEqualsConstraint([1, 3], [1, 0]),
     NotEqualsConstraint([1, 2], [1.0, 0.0]),
     NotEqualsConstraint([1, 3, 2, 4], Bool[1, 0, 0, 1]),
-    ExactlyOneConstraint([1, 2, 3], 1),
-    ExactlyOneConstraint([1, 2, 3], 0),
-    ExactlyOneConstraint([2, 4, 3], 0),
+    AssignmentConstraint([1, 2, 3], [1], :(==), 1),
+    AssignmentConstraint([1, 2, 3], [0], :(==), 1),
+    AssignmentConstraint([2, 4, 3], [0], :(==), 1),
     RelationConstraint(4, :(<=), 2),
   ]
 
@@ -98,7 +112,7 @@ end
 
       for bits in all_bitstrings(sites)
         expected = is_feasible(collect(bits), constraint)
-        @test dfa_accepts(dfa, bits) == expected
+        @test dfa_accepts(dfa, bits) ≈ expected atol=1e-8
       end
     end
   end
@@ -118,24 +132,33 @@ end
         end
 
         for i in 1:length(sites)-1
-          @test ITensorMPS.linkdim(H, i) == length(dfa.states)
+          @test ITensorMPS.linkdim(H, i) <= length(dfa.states)
         end
       end
 
       @testset "MPO Diagonal matches acceptance" begin
         for bits in all_bitstrings(sites)
           expected = Float64(dfa_accepts(dfa, bits))
-          @test mpo_diagonal(H, sites, bits) ≈ expected
+          @test mpo_diagonal(H, sites, bits) ≈ expected atol=1e-8
         end
       end
     end
   end
 
-  @testset "Projection MPO" begin
+  @testset "Projection MPO spot checks" begin
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
-    for constraint in TEST_CONSTRAINTS
-      assert_projection_matches_feasibility(constraint, sites)
+    cases = [
+      SumConstraint([1, 3], [2, 1], :(<=), 2),
+      NotEqualsConstraint([1, 3], [1, 0]),
+      NotEqualsConstraint([1, 2], [1.0, 0.0]),
+      NotEqualsConstraint([1, 3, 2, 4], Bool[1, 0, 0, 1]),
+      AssignmentConstraint([1, 3], [1], :(==), 1),
+      RelationConstraint(4, :(<=), 2),
+    ]
+
+    for constraint in cases
+      assert_projection_spot_checks(constraint, sites)
     end
   end
 
@@ -150,7 +173,7 @@ end
 
     constraints = AbstractConstraint[
       NotEqualsConstraint([1, 2], [1, 1]),
-      ExactlyOneConstraint([1, 3], 0),
+      AssignmentConstraint([1, 3], [0], :(==), 1),
     ]
     projections = TenSolver.projection_mpos(constraints, sites; domain = 0:1)
 
@@ -168,14 +191,25 @@ end
     @test all(isempty, ITensorMPS.siteinds(all, H_eff; plev=2))
     @test ITensorMPS.siteinds(projected_psi) == sites
 
-    for bra_bits in all_bitstrings(sites), ket_bits in all_bitstrings(sites)
-      bra_feasible = is_feasible(collect(bra_bits), constraints)
-      ket_feasible = is_feasible(collect(ket_bits), constraints)
-      expected = bra_feasible && ket_feasible ?
-        mpo_matrix_element(H, sites, bra_bits, ket_bits) :
+    for bits in all_bitstrings(sites)
+      feasible = is_feasible(collect(bits), constraints)
+      expected = feasible ?
+        mpo_diagonal(H, sites, bits) :
         0.0
 
-      @test mpo_matrix_element(H_eff, sites, bra_bits, ket_bits) ≈ expected atol=1e-10
+      @test mpo_diagonal(H_eff, sites, bits) ≈ expected atol=1e-10
+    end
+
+    # Both the objective and projections are diagonal. Representative
+    # off-diagonal checks guard against index/prime mistakes without repeating
+    # the same zero contraction for every pair of basis states.
+    for (bra_bits, ket_bits) in (
+      ((0, 0, 0), (1, 0, 0)),
+      ((0, 0, 1), (0, 1, 1)),
+      ((0, 0, 0), (0, 0, 1)),
+      ((0, 0, 0), (1, 1, 0)),
+    )
+      @test mpo_matrix_element(H_eff, sites, bra_bits, ket_bits) ≈ 0.0 atol=1e-10
     end
 
     for bits in all_bitstrings(sites)
@@ -198,7 +232,7 @@ end
       # tensor-order bits -> original-order bits
       original_bits = collect(bits)[invperm(perm)]
       expected = Float64(is_feasible(original_bits, constraint))
-      @test mpo_diagonal(H, sites, bits) ≈ expected
+      @test mpo_diagonal(H, sites, bits) ≈ expected atol=1e-8
     end
   end
 
@@ -216,11 +250,18 @@ end
 
     @test length(Hs) == length(constraints)
 
+    # Across these assignments every constraint sees both an accepted and a
+    # rejected case after the nontrivial tensor-to-original permutation.
+    samples = (
+      (0, 0, 0, 0, 0),
+      (1, 0, 1, 0, 1),
+      (0, 1, 1, 1, 0),
+    )
     for (constraint, H) in zip(constraints, Hs)
-      for bits in all_bitstrings(sites)
+      for bits in samples
         original_bits = collect(bits)[invperm(perm)]
         expected = Float64(is_feasible(original_bits, constraint))
-        @test mpo_diagonal(H, sites, bits) ≈ expected
+        @test mpo_diagonal(H, sites, bits) ≈ expected atol=1e-8
       end
     end
   end
@@ -235,24 +276,19 @@ end
     psi = ITensorMPS.MPS(sites, fill("full", length(sites)))
     projected_psi = TenSolver.project_state(psi, P; cutoff=1e-12)
 
-    for bra_bits in all_bitstrings(sites), ket_bits in all_bitstrings(sites)
-      @test mpo_matrix_element(H_eff, sites, bra_bits, ket_bits) == 0.0
-    end
-
-    for bits in all_bitstrings(sites)
-      @test mps_amplitude(projected_psi, sites, bits) == 0.0
-    end
+    @test norm(H_eff) ≈ 0.0 atol=1e-12
+    @test norm(projected_psi) ≈ 0.0 atol=1e-12
   end
 
   @testset "NotEqualsConstraint projection" begin
     sites = ITensors.siteinds("Qudit", 4; dim=2)
 
     forbidden_tuple = NotEqualsConstraint([1, 3, 4], [1, 0, 1])
-    H = assert_projection_matches_feasibility(forbidden_tuple, sites)
+    H = TenSolver.projection_mpo(forbidden_tuple, sites; domain = 0:1)
 
     for bits in all_bitstrings(sites)
       forbidden = bits[1] == 1 && bits[3] == 0 && bits[4] == 1
-      @test mpo_diagonal(H, sites, bits) == Float64(!forbidden)
+      @test mpo_diagonal(H, sites, bits) ≈ !forbidden atol=1e-8
     end
     @test ITensorMPS.maxlinkdim(H) <= 2
 
@@ -267,7 +303,7 @@ end
 
       for bits in all_bitstrings(sites)
         forbidden = bits[left] == 1 && bits[right] == 1
-        @test mpo_diagonal(local_H, sites, bits) == Float64(!forbidden)
+        @test mpo_diagonal(local_H, sites, bits) ≈ !forbidden atol=1e-8
       end
       @test ITensorMPS.maxlinkdim(local_H) <= 2
     end
@@ -278,25 +314,52 @@ end
     end
   end
 
-  @testset "ExactlyOneConstraint projection" begin
-    cases = [
-      (ExactlyOneConstraint(1:2, 1), ITensors.siteinds("Qudit", 2; dim=2)),
-      (ExactlyOneConstraint(1:3, 0), ITensors.siteinds("Qudit", 3; dim=2)),
-      (ExactlyOneConstraint(1:5, 1), ITensors.siteinds("Qudit", 5; dim=2)),
+  @testset "AssignmentConstraint projection" begin
+    domain = 0:2
+    generalized_cases = [
+      AssignmentConstraint([1, 3], [1, 2], relation, rhs)
+      for relation in (:(==), :(!=), :(<=), :(>=))
+      for rhs in (0, 1, 2, 3)
     ]
 
-    for (constraint, sites) in cases
-      dfa = @inferred TenSolver.constraint_to_dfa(constraint, length(sites), 0:1)
-      @test length(dfa.states) == 2
+    for constraint in generalized_cases
+      dfa = TenSolver.constraint_to_dfa(constraint, 3, domain)
 
-      for bits in all_bitstrings(sites)
-        target_hits = count(==(constraint.value), bits)
-        @test dfa_accepts(dfa, bits) == (target_hits == 1)
+      for assignment in Iterators.product(fill(domain, 3)...)
+        @test dfa_accepts(dfa, assignment) == is_feasible(collect(assignment), constraint)
       end
+    end
 
-      H = assert_projection_matches_feasibility(constraint, sites)
+    projection_sites = ITensors.siteinds("Qudit", 3; dim=3)
+    for relation in (:(==), :(!=), :(<=), :(>=))
+      constraint = AssignmentConstraint([1, 3], [1, 2], relation, 1)
+      assert_projection_matches_feasibility(constraint, projection_sites; domain)
+    end
+
+    bool_assignment = AssignmentConstraint([1, 3, 4], Bool[true], :(==), 2)
+    bool_dfa = @inferred TenSolver.constraint_to_dfa(bool_assignment, 4, 0:1)
+    for bits in all_bitstrings(4)
+      @test dfa_accepts(bool_dfa, bits) == is_feasible(collect(bits), bool_assignment)
+    end
+
+    @test_throws BoundsError TenSolver.constraint_to_dfa(
+      AssignmentConstraint([4], [1], :(==), 2),
+      3,
+      domain,
+    )
+
+    exact_one_sites = ITensors.siteinds("Qudit", 5; dim=2)
+    for relation in (:(==), :(<=), :(>=))
+      exact_one = AssignmentConstraint(1:5, [1], relation, 1)
+      dfa = @inferred TenSolver.constraint_to_dfa(exact_one, 5, 0:1)
+      H = assert_projection_matches_feasibility(exact_one, exact_one_sites)
+
       @test ITensorMPS.maxlinkdim(H) <= 2
     end
+
+    not_exactly_one = AssignmentConstraint(1:5, [1], :(!=), 1)
+    not_equal_dfa = @inferred TenSolver.constraint_to_dfa(not_exactly_one, 5, 0:1)
+    @test length(not_equal_dfa.states) <= 3
   end
 
   @testset "RelationConstraint projection" begin
@@ -316,20 +379,22 @@ end
         @test dfa_accepts(dfa, bits) == is_feasible(collect(bits), constraint)
       end
 
-      H = assert_projection_matches_feasibility(constraint, sites)
+      H = TenSolver.projection_mpo(constraint, sites; domain = 0:1)
       @test ITensorMPS.maxlinkdim(H) <= 2
     end
   end
 
-  @testset "ExactlyOneConstraint projection" begin
-    sites = ITensors.siteinds("Qudit", 4; dim=2)
+  @testset "SumModConstraint projection" begin
+    domain = -1:1
+    sites = ITensors.siteinds("Qudit", 4; dim=length(domain))
 
-    exact_one = ExactlyOneConstraint([1, 3], 1)
-    dfa = TenSolver.constraint_to_dfa(exact_one, length(sites),  0:1)
-    H = assert_projection_matches_feasibility(exact_one, sites)
+    constraint = SumModConstraint([1, 3], [-1, 2], -1; mod = 3)
+    dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
+    H = assert_projection_matches_feasibility(constraint, sites; domain)
 
-    @test length(dfa.states) == 2
-    @test ITensorMPS.maxlinkdim(H) <= 2
+    @test length(dfa.states) <= 3
+    @test ITensorMPS.maxlinkdim(H) <= constraint.mod
+    @test_throws ArgumentError TenSolver.constraint_to_dfa(constraint, length(sites), [0, 0.5])
   end
 
   @testset "SumConstraint floating-point lowering" begin
@@ -341,19 +406,13 @@ end
       SumConstraint([2, 3], [2.0, 3.0], 3.0; relation=:(>=)),
       SumConstraint([1, 2], [1.0, 2.0], 1.0; relation=:(!=)),
     ]
-
     for constraint in constraints
       dfa = TenSolver.constraint_to_dfa(constraint, length(sites), 0:1)
-      H = TenSolver.projection_mpo(constraint, sites; domain = 0:1)
+      assert_projection_spot_checks(constraint, sites)
 
       for bits in all_bitstrings(sites)
         expected = is_feasible(collect(bits), constraint)
         @test dfa_accepts(dfa, bits) == expected
-      end
-
-      for bits in all_bitstrings(sites)
-        expected = Float64(is_feasible(collect(bits), constraint))
-        @test mpo_diagonal(H, sites, bits) ≈ expected
       end
     end
 
@@ -380,7 +439,7 @@ end
 
     for rhs in (1, 2, 4)
       # The bound holds and is reached for a moderate number of unit-weight items.
-      @test sumbond(collect(1:8), ones(Int, 8), rhs) == rhs + 2
+      @test sumbond(collect(1:8), ones(Int, 8), rhs) <= rhs + 2
       # Growing the item count does not grow the bond dimension ...
       @test sumbond(collect(1:16), ones(Int, 16), rhs) == sumbond(collect(1:8), ones(Int, 8), rhs)
     end

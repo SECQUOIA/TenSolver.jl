@@ -4,23 +4,26 @@ import TenSolver
 import GenericTensorNetworks
 import ProblemReductions
 
-import MultivariatePolynomials: AbstractPolynomial, coefficient, effective_variables,
-  isconstant, terms
+import MultivariatePolynomials:
+  AbstractPolynomial, coefficient, effective_variables, isconstant, terms
 
-struct PseudoBooleanCSP{T <: Real} <: ProblemReductions.ConstraintSatisfactionProblem{T}
+struct PseudoBooleanCSP{T<:Real} <: ProblemReductions.ConstraintSatisfactionProblem{T}
   n::Int
-  terms::Vector{Pair{Vector{Int}, T}}
+  terms::Vector{Pair{Vector{Int},T}}
 end
 
 ProblemReductions.num_variables(problem::PseudoBooleanCSP) = problem.n
 ProblemReductions.num_flavors(::Type{<:PseudoBooleanCSP}) = 2
-ProblemReductions.problem_size(problem::PseudoBooleanCSP) =
-  (; num_variables=problem.n, num_terms=length(problem.terms))
+function ProblemReductions.problem_size(problem::PseudoBooleanCSP)
+  return (; num_variables = problem.n, num_terms = length(problem.terms))
+end
 ProblemReductions.constraints(::PseudoBooleanCSP) = ProblemReductions.LocalConstraint[]
-ProblemReductions.energy_mode(::Type{<:PseudoBooleanCSP}) =
-  ProblemReductions.SmallerSizeIsBetter()
-ProblemReductions.weights(problem::PseudoBooleanCSP{T}) where {T} =
-  T[term.second for term in problem.terms]
+function ProblemReductions.energy_mode(::Type{<:PseudoBooleanCSP})
+  return ProblemReductions.SmallerSizeIsBetter()
+end
+function ProblemReductions.weights(problem::PseudoBooleanCSP{T}) where {T}
+  return T[term.second for term in problem.terms]
+end
 
 function ProblemReductions.objectives(problem::PseudoBooleanCSP{T}) where {T}
   return ProblemReductions.LocalSolutionSize{T}[
@@ -28,43 +31,50 @@ function ProblemReductions.objectives(problem::PseudoBooleanCSP{T}) where {T}
       2,
       variables,
       vcat(zeros(T, 2^length(variables) - 1), coefficient),
-    )
-    for (variables, coefficient) in problem.terms
+    ) for (variables, coefficient) in problem.terms
   ]
 end
 
 function validate_gtn_inputs(domain, constraints, k, cutoff)
   domain_values = collect(TenSolver.validate_solve_domain(domain))
-  domain_values == [0, 1] || throw(ArgumentError(
-    "GTNBackend currently supports only the Boolean domain [0, 1], got $(repr(domain_values)).",
-  ))
-  isempty(constraints) || throw(ArgumentError(
-    "GTNBackend does not yet support TenSolver constraints; use backend = :dmrg.",
-  ))
-  k >= 1 || throw(ArgumentError("GTNBackend k must be >= 1, got $k."))
-  cutoff >= 0 || throw(ArgumentError("GTNBackend cutoff must be nonnegative, got $cutoff."))
+  if !(domain_values == [0, 1])
+    throw(ArgumentError("GTNBackend currently supports only the Boolean domain [0, 1], got $(repr(domain_values)).",))
+  end
+  if !(isempty(constraints))
+    throw(ArgumentError("GTNBackend does not yet support TenSolver constraints; use backend = :dmrg.",))
+  end
+  if !(k >= 1)
+    throw(ArgumentError("GTNBackend k must be >= 1, got $k."))
+  end
+  if !(cutoff >= 0)
+    throw(ArgumentError("GTNBackend cutoff must be nonnegative, got $cutoff."))
+  end
   return nothing
 end
 
 function reject_gtn_keywords(kwargs)
-  isempty(kwargs) && return nothing
+  if isempty(kwargs)
+    return nothing
+  end
   names = join(("`$name`" for name in keys(kwargs)), ", ")
-  throw(ArgumentError("Unsupported GTNBackend solver keyword(s): $names"))
+  return throw(ArgumentError("Unsupported GTNBackend solver keyword(s): $names"))
 end
 
-function qubo_problem(Q::AbstractMatrix{T}, l::AbstractVector{T}; cutoff) where {T <: Real}
-  size(Q, 1) == size(Q, 2) || throw(DimensionMismatch(
-    "QUBO matrix must be square, got size $(size(Q)).",
-  ))
+function qubo_problem(Q::AbstractMatrix{T}, l::AbstractVector{T}; cutoff) where {T<:Real}
+  if !(size(Q, 1) == size(Q, 2))
+    throw(DimensionMismatch("QUBO matrix must be square, got size $(size(Q)).",))
+  end
   n = size(Q, 1)
-  length(l) == n || throw(DimensionMismatch(
-    "Linear term length $(length(l)) does not match QUBO dimension $n.",
-  ))
+  if !(length(l) == n)
+    throw(DimensionMismatch("Linear term length $(length(l)) does not match QUBO dimension $n.",))
+  end
 
   matrix = zeros(T, n, n)
   for i in 1:n
     linear = Q[i, i] + l[i]
-    abs(linear) > cutoff && (matrix[i, i] = linear)
+    if abs(linear) > cutoff
+      (matrix[i, i] = linear)
+    end
     for j in (i + 1):n
       quadratic = Q[i, j] + Q[j, i]
       abs(quadratic) > cutoff && (matrix[i, j] = quadratic)
@@ -74,10 +84,10 @@ function qubo_problem(Q::AbstractMatrix{T}, l::AbstractVector{T}; cutoff) where 
   return ProblemReductions.QUBO(matrix)
 end
 
-function polynomial_problem(p::AbstractPolynomial{T}; cutoff) where {T <: Real}
+function polynomial_problem(p::AbstractPolynomial{T}; cutoff) where {T<:Real}
   model_variables = collect(effective_variables(p))
   indices = Dict(variable => i for (i, variable) in enumerate(model_variables))
-  coefficients = Dict{Vector{Int}, T}()
+  coefficients = Dict{Vector{Int},T}()
   constant = zero(T)
 
   for term in terms(p)
@@ -92,22 +102,23 @@ function polynomial_problem(p::AbstractPolynomial{T}; cutoff) where {T <: Real}
       get(coefficients, term_variables, zero(T)) + term_coefficient
   end
 
-  model_terms = Pair{Vector{Int}, T}[]
+  model_terms = Pair{Vector{Int},T}[]
   for (term_variables, term_coefficient) in coefficients
-    abs(term_coefficient) > cutoff || continue
+    if !(abs(term_coefficient) > cutoff)
+      continue
+    end
     push!(model_terms, term_variables => term_coefficient)
   end
-  sort!(model_terms; by=term -> Tuple(term.first))
+  sort!(model_terms; by = term -> Tuple(term.first))
 
   return PseudoBooleanCSP{T}(length(model_variables), model_terms), constant
 end
 
 function generic_tensor_network(problem; optimizer, slicer)
-  contraction_optimizer =
-    isnothing(optimizer) ? GenericTensorNetworks.TreeSA() : optimizer
+  contraction_optimizer = isnothing(optimizer) ? GenericTensorNetworks.TreeSA() : optimizer
   return GenericTensorNetworks.GenericTensorNetwork(
     problem;
-    optimizer=contraction_optimizer,
+    optimizer = contraction_optimizer,
     slicer,
   )
 end
@@ -116,28 +127,25 @@ function gtn_property(property::Symbol; k, bounded, tree_storage)
   if property in (:size, :value)
     return k == 1 ? GenericTensorNetworks.SizeMin() : GenericTensorNetworks.SizeMin(k)
   elseif property in (:single, :config)
-    return k == 1 ?
-      GenericTensorNetworks.SingleConfigMin(; bounded) :
-      GenericTensorNetworks.SingleConfigMin(k; bounded=false)
+    return k == 1 ? GenericTensorNetworks.SingleConfigMin(; bounded) :
+           GenericTensorNetworks.SingleConfigMin(k; bounded = false)
   elseif property in (:count, :degeneracy)
-    k == 1 || throw(ArgumentError(
-      "GTNBackend property `$(property)` currently supports only k == 1.",
-    ))
+    if !(k == 1)
+      throw(ArgumentError("GTNBackend property `$(property)` currently supports only k == 1.",))
+    end
     return GenericTensorNetworks.CountingMin()
   elseif property in (:configs, :enumerate)
-    k == 1 || throw(ArgumentError(
-      "GTNBackend property `$(property)` currently supports only k == 1; " *
-      "use property = :single with k > 1 for representative k-best configurations.",
-    ))
+    if !(k == 1)
+      throw(ArgumentError("GTNBackend property `$(property)` currently supports only k == 1; " *
+                          "use property = :single with k > 1 for representative k-best configurations.",))
+    end
     return GenericTensorNetworks.ConfigsMin(; bounded, tree_storage)
   elseif property in (:kbest_sizes, :spectrum)
     return GenericTensorNetworks.SizeMin(k)
   end
 
-  throw(ArgumentError(
-    "Unsupported GTN property `$(property)`. Supported properties are " *
-    ":size, :single, :count, :configs, and :kbest_sizes.",
-  ))
+  return throw(ArgumentError("Unsupported GTN property `$(property)`. Supported properties are " *
+                             ":size, :single, :count, :configs, and :kbest_sizes.",))
 end
 
 scalar_result(x::AbstractArray) = x[]
@@ -150,12 +158,11 @@ unwrap_numbers(x) = unwrap_number(x)
 
 function primary_size(raw_size)
   values = unwrap_numbers(raw_size)
-  return values isa Union{AbstractArray, Tuple} ? minimum(values) : values
+  return values isa Union{AbstractArray,Tuple} ? minimum(values) : values
 end
 
 config_vector(config) = [Int(value) for value in collect(config)]
-is_config(config) =
-  config isa AbstractVector && all(value -> value isa Integer, config)
+is_config(config) = config isa AbstractVector && all(value -> value isa Integer, config)
 
 function append_configs!(output, config)
   if config isa Pair
@@ -173,14 +180,16 @@ end
 configs_from_result(config) = append_configs!(Vector{Int}[], config)
 
 function read_configs(item, property)
-  property in (:single, :config, :configs, :enumerate) || return Vector{Int}[]
-  return configs_from_result(
-    GenericTensorNetworks.read_config(item; keeptree=false),
-  )
+  if !(property in (:single, :config, :configs, :enumerate))
+    return Vector{Int}[]
+  end
+  return configs_from_result(GenericTensorNetworks.read_config(item; keeptree = false),)
 end
 
 function read_count(item, property)
-  property in (:count, :degeneracy) || return nothing
+  if !(property in (:count, :degeneracy))
+    return nothing
+  end
   return GenericTensorNetworks.read_count(item)
 end
 
@@ -198,12 +207,7 @@ function solve_gtn(
 )
   network = generic_tensor_network(problem; optimizer, slicer)
   selected_property = gtn_property(property; k, bounded, tree_storage)
-  raw = GenericTensorNetworks.solve(
-    network,
-    selected_property;
-    T=element_type,
-    usecuda,
-  )
+  raw = GenericTensorNetworks.solve(network, selected_property; T = element_type, usecuda)
   item = scalar_result(raw)
 
   raw_size = GenericTensorNetworks.read_size(item)
@@ -211,7 +215,7 @@ function solve_gtn(
   configs = read_configs(item, property)
   count = read_count(item, property)
 
-  metadata = Dict{String, Any}(
+  metadata = Dict{String,Any}(
     "backend" => "GenericTensorNetworks",
     "property" => property,
     "constant" => constant,
@@ -227,11 +231,8 @@ function solve_gtn(
   end
 
   try
-    metadata["estimated_memory"] = GenericTensorNetworks.estimate_memory(
-      network,
-      selected_property;
-      T=element_type,
-    )
+    metadata["estimated_memory"] =
+      GenericTensorNetworks.estimate_memory(network, selected_property; T = element_type)
   catch error
     metadata["estimated_memory_error"] = sprint(showerror, error)
   end
@@ -244,19 +245,19 @@ function TenSolver.minimize(
   Q::AbstractMatrix{T},
   l::AbstractVector{T},
   c::T;
-  property::Symbol=:single,
-  k::Int=1,
-  usecuda::Bool=false,
-  element_type::Type=Float64,
-  optimizer=nothing,
-  slicer=nothing,
-  bounded::Bool=true,
-  tree_storage::Bool=false,
-  cutoff::Real=1e-8,
-  domain=0:1,
-  constraints=TenSolver.AbstractConstraint[],
+  property::Symbol = :single,
+  k::Int = 1,
+  usecuda::Bool = false,
+  element_type::Type = Float64,
+  optimizer = nothing,
+  slicer = nothing,
+  bounded::Bool = true,
+  tree_storage::Bool = false,
+  cutoff::Real = 1e-8,
+  domain = 0:1,
+  constraints = TenSolver.AbstractConstraint[],
   kwargs...,
-) where {T <: Real}
+) where {T<:Real}
   validate_gtn_inputs(domain, constraints, k, cutoff)
   reject_gtn_keywords(kwargs)
   problem = qubo_problem(Q, l; cutoff)
@@ -277,19 +278,19 @@ end
 function TenSolver.minimize(
   ::TenSolver.GTNBackend,
   p::AbstractPolynomial{T};
-  property::Symbol=:single,
-  k::Int=1,
-  usecuda::Bool=false,
-  element_type::Type=Float64,
-  optimizer=nothing,
-  slicer=nothing,
-  bounded::Bool=true,
-  tree_storage::Bool=false,
-  cutoff::Real=1e-8,
-  domain=0:1,
-  constraints=TenSolver.AbstractConstraint[],
+  property::Symbol = :single,
+  k::Int = 1,
+  usecuda::Bool = false,
+  element_type::Type = Float64,
+  optimizer = nothing,
+  slicer = nothing,
+  bounded::Bool = true,
+  tree_storage::Bool = false,
+  cutoff::Real = 1e-8,
+  domain = 0:1,
+  constraints = TenSolver.AbstractConstraint[],
   kwargs...,
-) where {T <: Real}
+) where {T<:Real}
   validate_gtn_inputs(domain, constraints, k, cutoff)
   reject_gtn_keywords(kwargs)
   problem, constant = polynomial_problem(p; cutoff)

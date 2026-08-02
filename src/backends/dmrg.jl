@@ -31,27 +31,7 @@ Select TenSolver's default ITensorMPS DMRG backend.
 """
 struct DMRGBackend <: AbstractTenSolverBackend end
 
-normalize_backend(::Val{:dmrg}) = default_backend
-
-function validate_solve_domain(domain)
-  # Preprocessing to dedeplicate domain values
-  domain = (ismutable(domain) ? unique! : unique)(sort(domain))
-  d = length(domain)
-
-  if !applicable(iterate, domain)
-    throw(ArgumentError("`domain` must be an iterable collection of values."))
-  elseif !applicable(length, domain)
-    throw(ArgumentError("`domain` must have a finite length."))
-  elseif isempty(domain)
-    throw(ArgumentError("`domain` must contain at least one value."))
-  elseif !all(u -> u isa Real, domain)
-    throw(ArgumentError("`domain` values must be values of a real type."))
-  elseif !allunique(domain)
-    throw(ArgumentError("`domain` values must be unique."))
-  end
-
-  return domain
-end
+normalize_backend(::Val{:dmrg}) = DMRGBackend()
 
 """
     minimize(::DMRGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
@@ -87,12 +67,11 @@ function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::
   , domain::AbstractVector = 0:1
   , kwargs...
 ) where T
-  domain_values = validate_solve_domain(domain)
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, lp; cutoff, domain = domain_values)
+  H      = tensorize(Qp, lp; cutoff, domain)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, domain = domain_values, kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, kwargs...)
 end
 
 """
@@ -112,14 +91,13 @@ function minimize(
   cutoff=1e-8,
   domain::AbstractVector = 0:1,
   kwargs...,
-) where T
-  domain_values = validate_solve_domain(domain)
-  H      = tensorize(p; cutoff, domain = domain_values)
+) where {T}
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
+  H      = tensorize(p; cutoff, domain)
 
-  return minimize_mpo(H, cte, obj ; cutoff, domain = domain_values, kwargs...)
+  return minimize_mpo(H, cte, obj ; cutoff, domain, kwargs...)
 end
 
 
@@ -165,10 +143,10 @@ end
 # Infeasibility is a solver outcome, not an argument error: report it as a
 # status like other optimization packages (objective +Inf, empty Solution),
 # so it maps onto MOI.INFEASIBLE at the JuMP layer. See the discussion in #94.
-function infeasible_result(::Type{T}, domain) where {T}
+function infeasible_result(::Type{T}, domain, stats) where {T}
   @warn "constraints define an empty feasible subspace"
   F = float(T)
-  return real(T)(+Inf), infeasible_solution(F, domain)
+  return real(T)(+Inf), infeasible_solution(F, domain, stats)
 end
 
 
@@ -247,8 +225,8 @@ function tensorize(
   return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
 end
 
-function minimize_mpo( H :: MPO
-                     , c :: T
+function minimize_mpo( H_obj :: MPO
+                     , c     :: T
                      , obj
                      ; device      = cpu
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
@@ -259,7 +237,7 @@ function minimize_mpo( H :: MPO
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
                      , vtol       = cutoff
-                     , check_variance_every_iteration = 10
+                     , check_variance_every_iteration :: Int = 10
                      # DMRG keywords
                      , inidim     = 40
                      , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
@@ -271,16 +249,16 @@ function minimize_mpo( H :: MPO
                      # Iteration callback
                      , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
-                     , permutation :: Vector{Int} = collect(1:length(H))
+                     , permutation :: Vector{Int} = collect(1:length(H_obj))
                      ) where {T}
   callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  initial_time      = time()
-  energies_log      = T[]
-  bond_dims_log     = Int[]
-  elapsed_times_log = Float64[]
+  check_variance_every_iteration >= 1 || throw(ArgumentError(
+    "`check_variance_every_iteration` must be >= 1, got $check_variance_every_iteration",
+  ))
+  initial_time = time()
 
   # Quantization
-  sites = ITensorMPS.siteinds(first, H; plev=0)
+  sites = ITensorMPS.siteinds(first, H_obj; plev=0)
 
   # Constraints
   projections = map(
@@ -289,21 +267,25 @@ function minimize_mpo( H :: MPO
   )
 
   # Hamiltonian construction
-  H = device(H)
-  H = is_zero_tensor(H; cutoff) ? H : project_hamiltonian(H, projections; cutoff)
+  H_obj = device(H_obj)
+  H = is_zero_tensor(H_obj; cutoff) ? H_obj : device(project_hamiltonian(H_obj, projections; cutoff))
 
   # Initial state
   psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
-  if isnothing(psi)
-    return infeasible_result(T, domain)
-  end
   psi = device(psi)
+
+  stats = SolverStatistics{T}(;
+    projections   = ITensorMPS.maxlinkdim.(projections),
+    objective     = ITensorMPS.maxlinkdim(H_obj),
+    initial_state = isnothing(psi) ? 0 : ITensorMPS.maxlinkdim(psi),
+    hamiltonian   = ITensorMPS.maxlinkdim(H),
+  )
 
   @debug(
     "Constraint projection MPO construction finished",
-    projection_max_bond = map(ITensorMPS.maxlinkdim, projections),
-    projected_hamiltonian_max_bond = ITensorMPS.maxlinkdim(H),
-    projected_initial_max_bond = ITensorMPS.maxlinkdim(psi),
+    projection_max_bond = stats.max_bonds.projections,
+    projected_hamiltonian_max_bond = stats.max_bonds.hamiltonian,
+    projected_initial_max_bond = stats.max_bonds.initial_state,
     time=(time() - initial_time),
   )
 
@@ -311,7 +293,9 @@ function minimize_mpo( H :: MPO
   var    = T(Inf)
   energy = T(Inf)
 
-  for i in Iterators.countfrom(1)
+  iter = isnothing(psi) ? [] : Iterators.countfrom(1)
+
+  for i in iter
     energy, psi = groundstate(H, device(psi)
                       ; projections
                       , nsweeps     = 1
@@ -328,9 +312,11 @@ function minimize_mpo( H :: MPO
                  )
 
     # Get metadata #
+    checked_variance = nothing
     if i % check_variance_every_iteration == 0
       vtime = time()
       var = variance(H, psi)
+      checked_variance = var
       @debug "Calculate variance" variance=var time=(time() - vtime())
     end
 
@@ -338,19 +324,23 @@ function minimize_mpo( H :: MPO
 
     bond_dim = ITensorMPS.maxlinkdim(psi)
 
+    # Per-iteration stats (always collected)
+    record_stats!(
+      stats;
+      energy = energy+c,
+      bond_dim,
+      elapsed_time,
+      variance = checked_variance,
+    )
+
     iterlog_iteration(
       verbosity,
       i,
       energy + c,
       bond_dim,
-      i % check_variance_every_iteration == 0 ? var : nothing,
+      checked_variance,
       elapsed_time,
     )
-
-    # Per-iteration stats (always collected)
-    push!(energies_log,      energy + c)
-    push!(bond_dims_log,     bond_dim)
-    push!(elapsed_times_log, elapsed_time)
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
@@ -373,13 +363,12 @@ function minimize_mpo( H :: MPO
     end
   end
 
-
   if isinf(energy)
-    optimal, dist = infeasible_result(T, domain)
+    optimal, dist = infeasible_result(T, domain, stats)
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
-    dist = Solution{T}(psi, domain, permutation, energies_log, bond_dims_log, elapsed_times_log)
+    dist = Solution{T}(psi, domain, permutation, stats)
     optimal = obj(sample(dist))
   end
 

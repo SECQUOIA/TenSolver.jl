@@ -6,8 +6,9 @@
 """
     brute_force(f, n[, constraints]; domain = 0:1)
 
-A QUBO solver using a brute force approach instead of Tensor networks.
-Despite being painfully slow, this is useful as a sanity check.
+Return the minimum objective value and one minimizer found by exhaustive
+enumeration. Use only for small test problems because the work grows as
+`length(domain)^n`.
 """
 function brute_force(obj, n, constraints = AbstractConstraint[]; domain = 0:1)
   best = +Inf
@@ -38,4 +39,22 @@ end
 function mps_amplitude(psi, sites, bits)
   basis = ITensorMPS.MPS(sites, string.(bits))
   return real(ITensors.inner(basis, psi))
+end
+
+function randpoly(x, maxdegree)
+  dim = length(x)
+  mkarray(i) = randn(Iterators.repeated(dim, i)...)
+  form(a, x) = sum(a[t] * prod(x[i] for i in Tuple(t)) for t in CartesianIndices(a))
+
+  return sum(form(mkarray(i), x) for i in 1:maxdegree) + randn()
+end
+
+function bandwidth(Q)
+  bw = 0
+  for i in axes(Q, 1), j in (i + 1):last(axes(Q, 2))
+    if abs(Q[i, j] + Q[j, i]) > 0
+      bw = max(bw, j - i)
+    end
+  end
+  return bw
 end

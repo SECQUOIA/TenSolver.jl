@@ -2,7 +2,56 @@ import ITensors, ITensorMPS
 import ITensorMPS: MPS, siteinds
 
 """
-    Solution
+    SolverStatistics{T}
+
+## Fields
+
+- `energies`: per-iteration calculated energy/objective value;
+- `bond_dims`: per-iteration solution maximum bond dimension;
+- `elapsed_times`: per-iteration total until the iteration completed;
+- `variances`: per-iteration Hamiltonian variance, or `nothing` on iterations
+  where the variance was not checked;
+- `max_bonds`: structure containing bond dimensions for multiple tensors used throughout the iteration
+  - `initial_state`: bond for the initial MPS guess;
+  - `objective`: bond for the MPO representing the objective function `H`;
+  - `projections`: bonds for the MPOs representing each constraint;
+  - `hamiltonian`: bond for the MPO representing the actual Hamiltonian `P'HP` representing both objective and constraints;
+"""
+struct SolverStatistics{T <: Real}
+  energies      :: Vector{T}
+  bond_dims     :: Vector{Int64}
+  elapsed_times :: Vector{Float64}
+  variances     :: Vector{Union{Nothing,T}}
+  max_bonds     :: @NamedTuple begin
+    projections   :: Vector{Int64}
+    objective     :: Int64
+    initial_state :: Int64
+    hamiltonian   :: Int64
+  end
+
+  function SolverStatistics{T}(; projections, objective, initial_state, hamiltonian) where {T}
+    new{T}(
+      T[],
+      Int64[],
+      Float64[],
+      Union{Nothing,T}[],
+      (; projections, objective, initial_state, hamiltonian),
+    )
+  end
+end
+
+function record_stats!(stats::SolverStatistics; energy, bond_dim, elapsed_time, variance)
+  push!(stats.energies,      energy)
+  push!(stats.bond_dims,     bond_dim)
+  push!(stats.elapsed_times, elapsed_time)
+  push!(stats.variances,     variance)
+
+  return stats
+end
+
+
+"""
+    Solution{T}
 
 The result of running [`minimize`](@ref) or [`maximize`](@ref): an MPS wave function
 over the optimal solution space, together with per-iteration convergence stats.
@@ -14,38 +63,29 @@ Use [`sample`](@ref) to draw vectors from it.
 - `tensor`: the underlying MPS, or `nothing` when the model is infeasible.
 - `domain`: possible variable values.
 - `permutation`: original variable index represented by each tensor site.
-- `energies`: expected objective value of the problem recorded at each iteration of the solver.
-- `bond_dims`: maximum MPS bond dimension at each iteration.
-- `elapsed_times`: wall-clock time in seconds from the start of the solve at each iteration.
-
-The three stats vectors are parallel — `energies[i]`, `bond_dims[i]`, and `elapsed_times[i]`
-all correspond to iteration `i`.
+- `stats`: per-iteration convergence stats. See [`SolverStatistics`](@ref).
 
 Provably infeasible models produce a `Solution` with no MPS and empty stats
 vectors; check with [`is_feasible`](@ref) before sampling.
 """
 struct Solution{T <: Real}
-    tensor        :: Union{MPS, Nothing}
-    domain        :: Vector{T}
-    permutation   :: Vector{Int}
-    energies      :: Vector{T}
-    bond_dims     :: Vector{Int}
-    elapsed_times :: Vector{Float64}
+  tensor      :: Union{MPS, Nothing}
+  domain      :: Vector{T}
+  permutation :: Vector{Int}
+  stats       :: SolverStatistics{T}
 
-    function Solution{T}(
-      tensor::Union{MPS,Nothing},
-      domain,
-      permutation::Vector{Int},
-      energies::Vector{T},
-      bond_dims::Vector{Int},
-      elapsed_times::Vector{Float64},
-    ) where {T <: Real}
-      return new{T}(tensor, domain, permutation, energies, bond_dims, elapsed_times)
-    end
+  function Solution{T}(
+    tensor::Union{MPS,Nothing},
+    domain,
+    permutation::Vector{Int},
+    stats::SolverStatistics,
+  ) where {T <: Real}
+    return new{T}(tensor, domain, permutation, stats)
+  end
 end
 
-function infeasible_solution(::Type{T}, domain) where {T <: Real}
-  return Solution{T}(nothing, domain, Int[], T[], Int[], Float64[])
+function infeasible_solution(::Type{T}, domain, stats) where {T <: Real}
+  return Solution{T}(nothing, domain, Int[], stats)
 end
 
 """
@@ -91,24 +131,24 @@ when the selected GTN property produces them, together with the raw backend
 result and metadata.
 """
 struct GTNSolution{C, R}
-    configs   :: C
-    result    :: R
-    property  :: Symbol
-    metadata  :: Dict{String, Any}
+  configs  :: C
+  result   :: R
+  property :: Symbol
+  metadata :: Dict{String, Any}
 end
 
 function sample(psi::GTNSolution)
-    if psi.configs isa AbstractVector && !isempty(psi.configs)
-        return rand(psi.configs)
-    else
-        throw(ArgumentError("GTNSolution with property `$(psi.property)` does not contain sampleable configurations."))
-    end
+  if psi.configs isa AbstractVector && !isempty(psi.configs)
+    return rand(psi.configs)
+  else
+    throw(ArgumentError("GTNSolution with property `$(psi.property)` does not contain sampleable configurations."))
+  end
 end
 
 sample(psi::GTNSolution, n::Integer) = [sample(psi) for _ in 1:n]
 
 function Base.in(bs, psi::GTNSolution)
-    return psi.configs isa AbstractVector && collect(Int, bs) in psi.configs
+  return psi.configs isa AbstractVector && collect(Int, bs) in psi.configs
 end
 
 """

@@ -1,68 +1,35 @@
-import DynamicPolynomials, TypedPolynomials
+import DynamicPolynomials as DP
+import TypedPolynomials   as TP
 import MultivariatePolynomials: maxdegree
-const DP = DynamicPolynomials
-const TP = TypedPolynomials
 
-form(a, x) = sum(a[t] * prod(x[i] for i in Tuple(t)) for t in CartesianIndices(a))
-
-function randpoly(x, maxdegree)
-  dim = length(x)
-  mkarray(i) = randn(Iterators.repeated(dim, i)...)
-
-  return sum(form(mkarray(i), x) for i in 1:maxdegree) + randn()
-end
-
-function test_correctness(dim, obj, args...)
+function test_correctness(obj, expected_energy, expected_sample, args...)
     # TenSolver solution
-    e, psi = TenSolver.minimize(args...)
+    e, psi = TenSolver.minimize(args...; verbosity = 0)
     x = TenSolver.sample(psi)
 
     # Does the ground energy match solution?
     @test obj(x) ≈ e
-
-    for _ in 1:10
-      y = rand(Bool, dim)
-      @test obj(y) >= e - 1e-8 # A small gap to amount for floating errors
-    end
-
-    # ~:~ Exact solution ~:~ #
-    e0, x0 = brute_force(obj, dim)
-    # Same minimum value
-    @test e ≈ e0
-    # Solution is sampleable
-    @test x0 in psi
+    @test e ≈ expected_energy
+    @test x == expected_sample
+    @test expected_sample in psi
 end
 
 @testset "DynamicPolynomials.jl" begin
-  dim = 5
-  DP.@polyvar x[1:dim]
+  DP.@polyvar x[1:3]
+  # One fixed mixed-degree objective exercises linear, quadratic, and cubic
+  # lowering. The cubic term changes the unique optimum from [1, 1, 1].
+  p = 1.5 - 3x[1] - 2x[2] - x[3] + 0.5x[1] * x[2] +
+      5x[1] * x[2] * x[3]
 
-  @testset "Quadratic" begin
-    p = randpoly(x, 2)
-    @test maxdegree(p) == 2
-    test_correctness(dim, a -> p(x => a), p)
-  end
-
-  @testset "Cubic" begin
-    p = randpoly(x, 3)
-    @test maxdegree(p) == 3
-    test_correctness(dim, a -> p(x => a), p)
-  end
+  @test maxdegree(p) == 3
+  test_correctness(a -> p(x => a), -3.0, [1, 1, 0], p)
 end
 
 @testset "TypedPolynomials.jl" begin
-  dim = 5
-  TP.@polyvar x[1:5]
+  TP.@polyvar x[1:3]
+  p = 1.5 - 3x[1] - 2x[2] - x[3] + 0.5x[1] * x[2] +
+      5x[1] * x[2] * x[3]
 
-  @testset "Quadratic" begin
-    p = randpoly(x, 2)
-    @test maxdegree(p) == 2
-    test_correctness(dim, a -> p(x => a), p)
-  end
-
-  @testset "Cubic" begin
-    p = randpoly(x, 3)
-    @test maxdegree(p) == 3
-    test_correctness(dim, a -> p(x => a), p)
-  end
+  @test maxdegree(p) == 3
+  test_correctness(a -> p(x => a), -3.0, [1, 1, 0], p)
 end

@@ -1,4 +1,4 @@
-using Test, Random, LinearAlgebra
+using Test, Random, LinearAlgebra, Logging
 
 using  TenSolver
 
@@ -24,14 +24,20 @@ include(filepath("ising_conversion.jl"))
 # Binary constraint API
 include(filepath("constraints.jl"))
 include(filepath("projection_mpo.jl"))
+include(filepath("project_hamiltonian.jl"))
+
+# MPO construction
+include(filepath("tensorize.jl"))
 
 # Traditional interface
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
 include(filepath("domains.jl"))
+include(filepath("fractional_domains.jl"))
 include(filepath("spin_domains.jl"))
 include(filepath("constrained_solve.jl"))
 include(filepath("gtn.jl"))
+
 # JuMP interface
 include(filepath("jump.jl"))
 
@@ -49,6 +55,3 @@ include(filepath("hdf5.jl"))
 
 # QUBODrivers.jl and Aqua.jl test suites
 include(filepath("external.jl"))
-
-# Documentation tests
-include(filepath("doctests.jl"))

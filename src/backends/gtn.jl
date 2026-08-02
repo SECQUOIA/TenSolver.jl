@@ -12,8 +12,6 @@ struct GTNBackend <: AbstractTenSolverBackend end
 normalize_backend(::Val{:gtn}) = GTNBackend()
 
 function minimize(::GTNBackend, args...; kwargs...)
-  throw(ArgumentError(
-    "GTNBackend requires GenericTensorNetworks and ProblemReductions. " *
-    "Load them with `using GenericTensorNetworks, ProblemReductions` and retry.",
-  ))
+  return throw(ArgumentError("GTNBackend requires GenericTensorNetworks and ProblemReductions. " *
+                             "Load them with `using GenericTensorNetworks, ProblemReductions` and retry.",))
 end
