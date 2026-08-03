@@ -98,83 +98,9 @@ function permute_dfa!(dfa::DFA, permutation::AbstractVector{<:Integer})
   return dfa
 end
 
-function tensor_from_nonzeros(::Type{T}, inds, nonzeros) where {T}
-  ind_tuple = Tuple(inds)
-  tensor = ITensors.ITensor(T, ind_tuple...)
-
-  for (coordinate, value) in nonzeros
-    coordinate_tuple = Tuple(coordinate)
-    length(coordinate_tuple) == length(ind_tuple) ||
-      throw(DimensionMismatch("nonzero coordinate length must match tensor order"))
-
-    selector = map(i -> ind_tuple[i] => coordinate_tuple[i], eachindex(ind_tuple))
-    tensor[selector...] = tensor[selector...] + convert(T, value)
-  end
-
-  return tensor
-end
-
-function tensor_indices(site, left_link, right_link)
-  return filter(!isnothing, (left_link, site, ITensors.prime(site), right_link))
-end
-
-function tensor_coordinate(symbol_pos::Integer, left_pos, right_pos, left_link, right_link)
-  coordinate = Int[]
-  !isnothing(left_link) && push!(coordinate, left_pos)
-  push!(coordinate, symbol_pos, symbol_pos)
-  !isnothing(right_link) && push!(coordinate, right_pos)
-  return coordinate
-end
-
-function dfa_site_tensor(
-  ::Type{T},
-  site,
-  left_link,
-  right_link,
-  dfa::DFA,
-  step::Integer,
-  state_positions,
-) where {T}
-  inds = tensor_indices(site, left_link, right_link)
-  nonzeros = Tuple{Vector{Int},T}[]
-  table = dfa.transitions[step]
-
-  source_states = isnothing(left_link) ? (dfa.initial,) : dfa.states
-  for source_state in source_states
-    left_pos = isnothing(left_link) ? nothing : state_positions[source_state]
-
-    for (symbol_pos, symbol) in enumerate(dfa.alphabet)
-      next_state = get(table, (source_state, symbol), nothing)
-      isnothing(next_state) && continue
-
-      if isnothing(right_link)
-        next_state in dfa.accepting || continue
-        push!(
-          nonzeros,
-          (tensor_coordinate(symbol_pos, left_pos, nothing, left_link, right_link), one(T)),
-        )
-      else
-        right_pos = state_positions[next_state]
-        push!(
-          nonzeros,
-          (tensor_coordinate(symbol_pos, left_pos, right_pos, left_link, right_link), one(T)),
-        )
-      end
-    end
-  end
-
-  return tensor_from_nonzeros(T, inds, nonzeros)
-end
-
 function validate_dfa_sites(dfa::DFA, sites)
-  if isempty(sites)
-    throw(ArgumentError("sites must not be empty"))
-  end
   if any(site -> ITensors.dim(site) != length(dfa.alphabet), sites)
     throw(DimensionMismatch("each site dimension must match the DFA alphabet size"))
-  end
-  if length(sites) != length(dfa.transitions)
-    throw(DimensionMismatch("DFA transition tables must match the number of sites"))
   end
 end
 
@@ -188,45 +114,55 @@ The physical index basis positions are matched against `dfa.alphabet` in order:
 
 The MPO bond dimension equals `length(dfa.states)`.
 """
-function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where {T}
+function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where T
   validate_dfa_sites(dfa, sites)
-
-  state_positions = Dict(state => i for (i, state) in enumerate(dfa.states))
-  links = [
-    ITensors.Index(length(dfa.states), "Link,DFA,l=$i")
-    for i in 1:max(length(sites) - 1, 0)
-  ]
-
-  tensors = Vector{ITensors.ITensor}(undef, length(sites))
-  for site_position in eachindex(sites)
-    left_link  = site_position == firstindex(sites) ? nothing : links[site_position - 1]
-    right_link = site_position == lastindex(sites)  ? nothing : links[site_position]
-
-    tensors[site_position] = dfa_site_tensor(
-      T,
-      sites[site_position],
-      left_link,
-      right_link,
-      dfa,
-      site_position,
-      state_positions,
-    )
-  end
-
-  return ITensorMPS.truncate!(ITensorMPS.MPO(tensors); cutoff = eps(T))
+  tensors = transition_tensors(T, dfa)
+  return arrays_to_itensor_mpo( tensors, sites)
 end
 
-dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
+
+# Turn a stepwise DFA into a sequence of 3-tensors or 4-tensors
+# representing its transition matrices.
+function transition_tensors(::Type{T}, dfa::DFA) where T
+  (; states, alphabet, transitions, initial, accepting) = dfa
+
+  # initial -> states -> states -> ... -> states -> accepting
+  sources(i) = i == firstindex(transitions) ? (initial,)   : states
+  targets(i) = i == lastindex(transitions)  ? (accepting,) : tuple.(states)
+
+  # Turn a 1xkxnxn or kx1xnxn tensor into a kxnxn tensor (used on the boundaries)
+  proper_shape(A) = dropdims(A; dims = Tuple(filter(d -> size(A, d) == 1, (1, 2))))
+
+  return [
+    proper_shape(T[
+      a == b && haskey(transitions[i], (s, a)) && transitions[i][(s, a)] in ts
+      for s  in sources(i),
+          ts in targets(i),
+          a  in alphabet,
+          b  in alphabet
+    ])
+    for i in eachindex(transitions)
+  ]
+end
+
+# Turn a homebrew MPO into an appropriate ITensor.
+# This is the only bridge between ITensor and this module.
+function arrays_to_itensor_mpo(arrays, sites)
+  links = [
+    ITensors.Index(size(A, 1), "Link,l=$i")
+    for (i, A) in pairs(arrays) if i != lastindex(arrays)
+  ]
+  wires(i) = filter(!isnothing, (get(links, i-1, nothing), get(links, i, nothing), sites[i]', sites[i]))
+  itensors = [ ITensors.itensor(A, wires(i)...) for (i, A) in pairs(arrays) ]
+
+  return ITensorMPS.truncate!(ITensorMPS.MPO(itensors); cutoff = eps(real(eltype(first(arrays)))))
+end
 
 """
     projection_mpo([T], constraint, sites; domain)
 
 Build a projection MPO representing a `constraint` applicable to any MPS over `sites`.
-
-The diagonal entry is `one(T)` for computational basis states
-satisfying `constraint`, and `zero(T)` otherwise.
-The current construction is exact and uncompressed.
-Constraint site numbers use the same 1-based register indexing as `sites`.
+Constraint site numbers must use the same 1-based register indexing as `sites`.
 
 # Known constraints
 
