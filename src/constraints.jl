@@ -1,3 +1,6 @@
+integer(::Type{T}) where {T<:Integer} = T
+integer(::Type) = Int
+
 """
     AbstractConstraint
 
@@ -41,7 +44,7 @@ struct SumConstraint{T<:Integer} <: AbstractConstraint
   relation::Symbol
   rhs::T
 
-  function SumConstraint{T}(sites, weights, relation, rhs) where {T<:Real}
+  function SumConstraint{T}(sites, weights, relation, rhs) where {T<:Integer}
     site_vec   = validate_sites(sites)
     weight_vec = validate_weights(weights)
     validate_same_length(site_vec, weight_vec, "sites", "weights")
@@ -62,11 +65,8 @@ struct SumConstraint{T<:Integer} <: AbstractConstraint
   end
 end
 
-integer(::Type{T}) where {T<:Integer} = T
-integer(::Type) = Int
-
 function SumConstraint(sites, weights, relation, rhs)
-  T = integer(promote_type(typeof(rhs), valtype(weights)))
+  T = integer(promote_type(typeof(rhs), eltype(weights)))
   return SumConstraint{T}(sites, weights, relation, rhs)
 end
 
@@ -94,16 +94,14 @@ struct SumModConstraint{T<:Integer} <: AbstractConstraint
   rhs::T
   mod::T
 
-  function SumModConstraint{T}(sites, weights, rhs; mod) where {T<:Real}
+  function SumModConstraint{T}(sites, weights, rhs; mod) where {T<:Integer}
     site_vec    = validate_sites(sites)
-    raw_weights = validate_integer_values(collect(weights), "weights")
-    validate_same_length(site_vec, raw_weights, "sites", "weights")
+    validate_same_length(site_vec, weights, "sites", "weights")
     modulus     = validate_modulus(mod)
-    raw_rhs     = validate_integer_value(rhs, "rhs")
 
     modulus        = T(modulus)
-    weight_vec     = Base.mod.(T.(raw_weights), modulus)
-    normalized_rhs = Base.mod(T(raw_rhs), modulus)
+    weight_vec     = @. Base.mod(T(weights), modulus)
+    normalized_rhs = Base.mod(T(rhs), modulus)
 
     weight_map     = Dict{Int,T}(zip(site_vec, weight_vec))
     filter!(p -> !iszero(p.second), weight_map)
@@ -321,7 +319,7 @@ function validate_weights(weights)
   # by the constraint/MPO work tracked in #57. Signed weights (e.g. encoding a
   # difference `x1 - x2 == 0`) are intentionally out of scope here and should be
   # revisited together with that lowering, not relaxed in isolation.
-  for (i, weight) in enumerate(weights)
+  for (i, weight) in pairs(weights)
     if weight < 0
       throw(ArgumentError("Found negative weight w[$(i)] = $(repr(weight)). Weights must be nonnegative."))
     end
@@ -333,26 +331,7 @@ function validate_weights(weights)
   return weights
 end
 
-function validate_integer_value(value, name)
-  if !isinteger(value)
-    throw(ArgumentError("Found noninteger $name = $(repr(value)). $name must be integer."))
-  end
-
-  return value
-end
-
-function validate_integer_values(values, name)
-  isempty(values) && throw(ArgumentError("$name must not be empty"))
-
-  for (i, value) in enumerate(values)
-    validate_integer_value(value, "$name[$(i)]")
-  end
-
-  return values
-end
-
 function validate_modulus(modulus)
-  validate_integer_value(modulus, "mod")
   modulus >= 1 || throw(ArgumentError("mod must be a positive integer"))
 
   return modulus
@@ -362,16 +341,14 @@ function validate_rhs(rhs)
   if rhs < 0
     throw(ArgumentError("Found negative rhs = $(repr(rhs)). rhs must be nonnegative."))
   end
-  if !isinteger(rhs)
-    throw(ArgumentError("Found noninteger rhs = $(repr(rhs)). rhs must be integer."))
-  end
 
   return rhs
 end
 
 function validate_relation(relation)
-  relation in VALID_RELATIONS ||
+  if !(relation in VALID_RELATIONS)
     throw(ArgumentError("relation must be one of: $(join(string.(VALID_RELATIONS), ", "))"))
+  end
 
   return relation
 end
