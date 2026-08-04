@@ -299,6 +299,31 @@ end
 ##############################################
 
 """
+    mapreduce_dfa(f, op, constraint, nsites, alphabet; initial, predicate, states)
+
+Build a DFA by mapping each constrained site symbol through `f` and combining
+the result in a state accumulator with `op`.
+
+The function `f` is assumed to take the `states` to a set where `op`
+acts as a monoid operation, i.e., its associative and `initial` is the identity element.
+The predicate must be a Boolean-valued function deciding whether a state is accepting or not.
+
+This is an internal method encapsulating a common pattern for constraint representation.
+"""
+function mapreduce_dfa(f, op, constraint, nsites, alphabet; initial, predicate, states)
+  accepting = Set(q for q in states if predicate(q))
+
+  id_dict = Dict((q, a) => q for q in states for a in alphabet)
+  transitions = fill(id_dict, nsites)
+
+  for i in constraint_sites(constraint)
+    transitions[i] = Dict((q, a) => op(q, f(i, a)) for q in states, a in alphabet)
+  end
+
+  return DFA(states, alphabet, initial, accepting, transitions)
+end
+
+"""
     constraint_to_dfa(constraint, n, alphabet)
 
 Build a [`DFA`](@ref) recognizing `constraint` with transitions for `n` steps.
@@ -306,96 +331,79 @@ The `alphabet` parameter represents the domain for a constraint's variables.
 """
 function constraint_to_dfa end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet) where {S}
-  if !all(a -> isinteger(a) && a >= 0, alphabet)
+function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domain) where {S}
+  if !all(a -> isinteger(a) && a >= 0, domain)
     throw(ArgumentError("SumConstraint only supports nonnegative integer domains."))
   end
 
   (; weights, rhs, relation) = constraint
-  beyond    = rhs + one(S)
+  beyond = rhs + one(S)
 
-  states    = zero(S):beyond
-  initial   = zero(S)
-  accepting = Set(q for q in states if relation_holds(q, relation, rhs))
-
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
-
-  for site in constraint_sites(constraint)
-    transitions[site] = Dict(
-      (q, a) => min(q + weights[site] * a, beyond)
-      for q in states, a in alphabet
-    )
-  end
-
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return mapreduce_dfa(
+    (i, a) -> weights[i] * S(a),
+    (x, y) -> min(x + y, beyond),
+    constraint,
+    nsites,
+    domain,
+    ;
+    states    = zero(S):beyond,
+    initial   = zero(S),
+    predicate = q -> relation_holds(q, relation, rhs),
+  )
 end
 
-function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, alphabet) where {S}
-  if !all(isinteger, alphabet)
+function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, domain) where {S}
+  if !all(isinteger, domain)
     throw(ArgumentError("SumModConstraint only supports integer domains."))
   end
 
   (; weights, rhs) = constraint
   modulus = constraint.mod
 
-  states    = zero(S):(modulus-one(S))
-  initial   = zero(S)
-  accepting = Set(rhs)
-
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
-
-  for site in constraint_sites(constraint)
-    transitions[site] = Dict(
-      (q, a) => mod(q + weights[site] * a, modulus)
-      for q in states, a in alphabet
-    )
-  end
-
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return mapreduce_dfa(
+    (i, a) -> mod(weights[i] * a, modulus),
+    (x, y) -> mod(x + y, modulus),
+    constraint,
+    nsites,
+    domain,
+    ;
+    states    = zero(S):(modulus-one(S)),
+    initial   = zero(S),
+    predicate = ==(rhs),
+  )
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet) where {S}
-  states    = [:mismatch, :all_matched]
-  initial   = :all_matched
-  accepting = Set([:mismatch])
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, domain) where {S}
+  (; values) = constraint
 
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
-
-  for site in constraint_sites(constraint)
-    target = constraint.values[site]
-
-    transitions[site] = Dict(
-      (q, a) => S(a) == target ? q : :mismatch
-      for q in states, a in alphabet
-    )
-  end
-
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return mapreduce_dfa(
+    (i, a) -> S(a) != values[i],
+    (x, y) -> x | y,
+    constraint,
+    nsites,
+    domain,
+    ;
+    states    = Bool[0, 1],
+    initial   = false,
+    predicate = identity,
+  )
 end
 
-function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, alphabet) where {S}
+function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, domain) where {S}
   (; values, rhs, relation) = constraint
-  beyond    = rhs + one(S)
+  beyond = rhs + one(S)
 
-  states    = zero(S):beyond
-  initial   = zero(S)
-  accepting = Set(q for q in states if relation_holds(q, relation, rhs))
-
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
-
-  f(_, a) = S(a in values)
-  for site in constraint_sites(constraint)
-    transitions[site] = Dict(
-      (q, a) => min(q + f(site, a), beyond)
-      for q in states, a in alphabet
-    )
-  end
-
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return mapreduce_dfa(
+    (i, a) -> S(a in values),
+    (x, y) -> min(x + y, beyond),
+    constraint,
+    nsites,
+    domain,
+    ;
+    states    = zero(S):beyond,
+    initial   = zero(S),
+    predicate = q -> relation_holds(q, relation, rhs),
+  )
 end
 
 function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alphabet)
