@@ -36,7 +36,7 @@ and `relation` must be one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`.
 
 Warning: The `==` and `!=` relations use exact arithmetic comparison.
 """
-struct SumConstraint{T<:Real} <: AbstractConstraint
+struct SumConstraint{T<:Integer} <: AbstractConstraint
   weights::Dict{Int,T}
   relation::Symbol
   rhs::T
@@ -48,16 +48,25 @@ struct SumConstraint{T<:Real} <: AbstractConstraint
     relation   = validate_relation(relation)
     rhs        = validate_rhs(rhs)
 
+    weight_vec = T.(weight_vec)
+    rhs        = T(rhs)
+
+    g = gcd(rhs, weight_vec...)
+    weight_vec .= div.(weight_vec, g)
+    rhs         = div(rhs, g)
+
     weight_map = Dict{Int,T}(zip(site_vec, weight_vec))
+    filter!(p -> !iszero(p.second), weight_map)
 
     return new{T}(weight_map, relation, rhs)
   end
 end
 
-function SumConstraint(sites, weights, relation, rhs)
-  weight_types = map(typeof, weights)
-  T = promote_type(weight_types..., typeof(rhs))
+integer(::Type{T}) where {T<:Integer} = T
+integer(::Type) = Int
 
+function SumConstraint(sites, weights, relation, rhs)
+  T = integer(promote_type(typeof(rhs), valtype(weights)))
   return SumConstraint{T}(sites, weights, relation, rhs)
 end
 
@@ -80,7 +89,7 @@ and `mod` must be a positive integer.
 
 Weights and the rhs are stored as their least nonnegative residues modulo `mod`.
 """
-struct SumModConstraint{T<:Real} <: AbstractConstraint
+struct SumModConstraint{T<:Integer} <: AbstractConstraint
   weights::Dict{Int,T}
   rhs::T
   mod::T
@@ -89,20 +98,22 @@ struct SumModConstraint{T<:Real} <: AbstractConstraint
     site_vec    = validate_sites(sites)
     raw_weights = validate_integer_values(collect(weights), "weights")
     validate_same_length(site_vec, raw_weights, "sites", "weights")
-    modulus = validate_modulus(mod)
-    raw_rhs = validate_integer_value(rhs, "rhs")
+    modulus     = validate_modulus(mod)
+    raw_rhs     = validate_integer_value(rhs, "rhs")
 
-    weight_vec     = Base.mod.(raw_weights, modulus)
-    normalized_rhs = Base.mod(raw_rhs, modulus)
+    modulus        = T(modulus)
+    weight_vec     = Base.mod.(T.(raw_weights), modulus)
+    normalized_rhs = Base.mod(T(raw_rhs), modulus)
+
     weight_map     = Dict{Int,T}(zip(site_vec, weight_vec))
+    filter!(p -> !iszero(p.second), weight_map)
 
     return new{T}(weight_map, normalized_rhs, modulus)
   end
 end
 
 function SumModConstraint(sites, weights, rhs; mod)
-  T = promote_type(map(typeof, weights)..., typeof(rhs), typeof(mod))
-
+  T = integer(promote_type(typeof(rhs), typeof(mod), eltype(weights)))
   return SumModConstraint{T}(sites, T.(weights), convert(T, rhs); mod=convert(T, mod))
 end
 
@@ -130,10 +141,7 @@ struct NotEqualsConstraint{T<:Real} <: AbstractConstraint
 end
 
 function NotEqualsConstraint(sites, values)
-  isempty(values) && throw(ArgumentError("values must not be empty"))
-  T = promote_type(map(typeof, values)...)
-
-  return NotEqualsConstraint{T}(sites, T.(values))
+  return NotEqualsConstraint{eltype(values)}(sites, values)
 end
 
 """
