@@ -76,11 +76,11 @@
     @test_throws UndefKeywordError SumConstraint([1, 2], [1, 1], 1)
 
     @test_throws DimensionMismatch SumModConstraint([1, 2], [1], 0; mod = 2)
-    @test_throws ArgumentError SumModConstraint([1], [1.5], 0; mod = 2)
-    @test_throws ArgumentError SumModConstraint([1], [1], 0.5; mod = 2)
-    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = 0)
-    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = -2)
-    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = 2.5)
+    @test_throws ArgumentError SumModConstraint([1], [1], 0;   mod = 0)
+    @test_throws ArgumentError SumModConstraint([1], [1], 0;   mod = -2)
+    @test_throws InexactError  SumModConstraint([1], [1.5], 0; mod = 2)
+    @test_throws InexactError  SumModConstraint([1], [1], 0.5; mod = 2)
+    @test_throws InexactError  SumModConstraint([1], [1], 0;   mod = 2.5)
 
     @testset "SumConstraint floating-point validation" begin
       @test SumConstraint([1, 2], [1.0, 2.0], 2.0; relation=:(<=)) isa SumConstraint
