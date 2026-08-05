@@ -105,9 +105,11 @@ struct SumModConstraint{T<:Integer} <: AbstractConstraint
     weights = T.(weights)
     rhs     = T(rhs)
     mod     = T(mod)
+    g       = gcd(mod, rhs, weights...)
 
-    @. weights = Base.mod(weights, mod)
-    rhs        = Base.mod(rhs, mod)
+    mod        = div(mod, g)
+    @. weights = Base.mod(div(weights, g), mod)
+    rhs        = Base.mod(div(rhs, g), mod)
 
     weight_map = Dict{Int,T}(zip(sites, weights))
     filter!(p -> !iszero(p.second), weight_map)
