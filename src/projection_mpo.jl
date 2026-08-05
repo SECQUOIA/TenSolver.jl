@@ -407,12 +407,8 @@ function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer,
 end
 
 function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alphabet)
-  left  = constraint.left_site
-  right = constraint.right_site
-
-  first_site    = min(left, right)
-  second_site   = max(left, right)
-  left_is_first = left == first_site
+  # Depends on left_site < right_site, as enforced by RelationConstraint
+  (; left_site, right_site, relation) = constraint
 
   states    = alphabet
   initial   = last(states)
@@ -421,13 +417,12 @@ function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alph
   id_dict = Dict((q, a) => q for q in states for a in alphabet)
   transitions = fill(id_dict, nsites)
 
-  transitions[first_site] = Dict((q, a) => a for q in states, a in alphabet)
+  transitions[left_site] = Dict((q, a) => a for q in states, a in alphabet)
 
-  transitions[second_site] = Dict(
+  transitions[right_site] = Dict(
     (q, a) => q
     for q in states, a in alphabet
-    if left_is_first ? relation_holds(q, constraint.relation, a) :
-                       relation_holds(a, constraint.relation, q)
+    if relation_holds(q, constraint.relation, a)
   )
 
   return DFA(states, alphabet, initial, accepting, transitions)

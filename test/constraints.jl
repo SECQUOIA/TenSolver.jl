@@ -57,6 +57,13 @@
     @test relation.left_site == 1
     @test relation.relation == Symbol(">=")
     @test relation.right_site == 2
+
+    relation2 = RelationConstraint(2, Symbol(">="), 1)
+    @test relation2 isa RelationConstraint
+    @test relation2 isa AbstractConstraint
+    @test relation2.left_site == 1
+    @test relation2.relation == Symbol("<=")
+    @test relation2.right_site == 2
   end
 
   @testset "Constructor validation" begin
