@@ -1,7 +1,4 @@
-using LinearAlgebra
-import Combinatorics: multiset_permutations
-
-import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, isconstant
+import MultivariatePolynomials: AbstractPolynomial, effective_variables
 
 maybe(f::Function, mx::Nothing; default=nothing) = default
 maybe(f::Function, mx; default=nothing) = f(mx)
@@ -155,14 +152,15 @@ function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
 end
 
 function minimize(
-  p::AbstractPolynomial{T}
+  p::AbstractPolynomial
   ;
   backend=default_backend,
-  domain::AbstractVector = 0:1,
+  domain = 0:1,
   kwargs...,
-) where T
-  domain = validate_solve_domain(domain)
-  p      = simplify_polynomial(p, domain)
+)
+  nvars  = length(effective_variables(p))
+  domain = canonicalize_domain(domain, nvars)
+  p      = domain_residue(p, domain)
   return minimize(normalize_backend(backend), p; domain, kwargs...)
 end
 
@@ -172,11 +170,12 @@ function minimize(
   c :: T = zero(T)
   ;
   backend = default_backend,
-  domain::AbstractVector = 0:1,
+  domain = 0:1,
   kwargs...,
 ) where {T<:Real}
-  domain  = validate_solve_domain(domain)
-  Q, l, c = simplify_polynomial(Q, l, c, domain)
+  nvars   = LinearAlgebra.checksquare(Q)
+  domain  = canonicalize_domain(domain, nvars)
+  Q, l, c = domain_residue(Q, l, c, domain)
   return minimize(normalize_backend(backend), Q, l, c; domain, kwargs...)
 end
 
@@ -217,50 +216,51 @@ end
 # Domain validation                                                   #
 #=====================================================================#
 
-function validate_solve_domain(domain)
-  # Preprocessing to dedeplicate domain values
-  domain = (ismutable(domain) ? unique! : unique)(sort(domain))
-
-  if !applicable(iterate, domain)
-    throw(ArgumentError("`domain` must be an iterable collection of values."))
-  elseif !applicable(length, domain)
-    throw(ArgumentError("`domain` must have a finite length."))
-  elseif isempty(domain)
-    throw(ArgumentError("`domain` must contain at least one value."))
-  elseif !all(u -> u isa Real, domain)
-    throw(ArgumentError("`domain` values must be values of a real type."))
-  elseif !allunique(domain)
-    throw(ArgumentError("`domain` values must be unique."))
-  end
-
-  return domain
+function canonicalize_domain(ds::AbstractVector{<:Number}, nvariables::Integer)
+  dom = canonicalize_variable_domain(ds)
+  return fill(dom, nvariables)
 end
 
-function simplify_polynomial(p::AbstractPolynomial, domain)
+function canonicalize_domain(ds::AbstractVector{<:AbstractVector}, nvariables::Integer)
+  @argcheck length(ds) == nvariables
+  return canonicalize_variable_domain.(ds)
+end
+
+function canonicalize_variable_domain(vdomain)
+  @argcheck applicable(length, vdomain)
+  @argcheck (!isempty)(vdomain)
+  @argcheck eltype(vdomain) <: Real
+
+  # Preprocessing to dedeplicate domain values
+  return (ismutable(vdomain) ? unique! : unique)(sort(vdomain))
+end
+
+function domain_residue(p::AbstractPolynomial, domains)
   # A finite domain xi in U = {u1, ..., ud} is equivalent
   # to the root set of a single variable polynomial
   # q(x) = (xi - u1)...(xi - ud)
-  rooted(x) = prod(x - a for a in domain)
+  rooted(x, dom) = prod(x - a for a in dom)
   # By dividing p // q, we get
   # p(x) = m(x)q(x) + r(x).
   # Notice that for any a in U, q(a) = 0, and
   # p(a) = m(a)*0 + r(a) = r(a).
   # Thus, we transform p -> r as a degree reduction procedure.
-  return mapfoldl(rooted, rem, effective_variables(p); init = p)
+  vars = effective_variables(p)
+  return mapfoldl(splat(rooted), rem, zip(vars, domains); init = p)
 end
 
-function simplify_polynomial(Q::AbstractMatrix, l, c, domain)
+function domain_residue(Q::AbstractMatrix, l, c, domains)
   # A variable x in {a, b} satifies
   #   (x - a)(x - b) = 0
   #   x^2 = (a + b)x - ab
   #   Thus, we exchange the diagonal terms x^2 by linear and constant terms.
-  if length(domain) == 2
-    s, p = sum(domain), prod(domain)
+  Qd = Diagonal(view(Q, diagind(Q)))
+  ss = [length(dom) == 2 ? sum(dom)  : 0 for dom in domains]
+  ps = [length(dom) == 2 ? prod(dom) : 0 for dom in domains]
 
-    l = l .+ s .* diag(Q)
-    c = c  - p  * sum(diag(Q))
-    Q = Q .- Diagonal(view(Q, diagind(Q)))
-  end
+  l = l .+ Qd * ss
+  c = c  - dot(diag(Q), ps)
+  Q = Q .- Qd .* Diagonal(length.(domains) .== 2)
 
   return Q, l, c
 end

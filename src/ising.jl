@@ -7,8 +7,8 @@ function conversion_type(Q::AbstractMatrix, l, c)
 end
 
 function check_qubo_dimensions(Q::AbstractMatrix, l)
-  issquare(Q) || throw(DimensionMismatch("The QUBO matrix must be square. Encountered dimensions $(size(Q))."))
-  if !isnothing(l) && length(l) != size(Q, 1)
+  n = LinearAlgebra.checksquare(Q)
+  if !isnothing(l) && length(l) != n
     throw(DimensionMismatch("The QUBO linear vector length must match the matrix size. Encountered matrix size $(size(Q)) and vector length $(length(l))."))
   end
 end

@@ -3,6 +3,8 @@ import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
 
 import ITensors, ITensorMPS
 
+import Combinatorics: multiset_permutations
+
 import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
 
 # Diagonal matrix whose eigenvalues are the ordered feasible values for a variable.
@@ -61,13 +63,14 @@ Backend-specific keyword arguments:
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
 """
-function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::T
+function minimize(::DMRGBackend, Q::AbstractMatrix, l::AbstractVector, c::Real
   ; cutoff=1e-8
   , preprocess::Bool=false
-  , domain::AbstractVector = 0:1
+  , domain
   , kwargs...
-) where T
+)
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
+  domain = domain[permutation]
   H      = tensorize(Qp, lp; cutoff, domain)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
@@ -86,12 +89,12 @@ See also [`maximize`](@ref).
 """
 function minimize(
   ::DMRGBackend,
-  p::AbstractPolynomial{T}
+  p::AbstractPolynomial
   ;
   cutoff=1e-8,
-  domain::AbstractVector = 0:1,
+  domain,
   kwargs...,
-) where {T}
+)
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
@@ -174,7 +177,7 @@ function tensorize(
   end
 
   N = size(Q, 1)
-  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
+  sites = [ITensors.siteind("Qudit"; dim = length(domain[k])) for k in 1:N]
   os = OpSum{T}()
 
   for t in Qs
@@ -185,7 +188,7 @@ function tensorize(
       coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
 
       if abs(coeff) > cutoff
-        op   = Iterators.flatmap(v -> ("D", (domain = domain,), v), idx)
+        op   = Iterators.flatmap(k -> ("D", (domain = domain[k],), k), idx)
         os .+= (coeff, op...)
       end
     end
@@ -200,7 +203,7 @@ function tensorize(
   domain,
 ) where T
   N = length(effective_variables(p))
-  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
+  sites = [ITensors.siteind("Qudit"; dim = length(domain[k])) for k in 1:N]
   os = OpSum{T}()
 
   # Map: var name => index
@@ -213,8 +216,9 @@ function tensorize(
       op = Iterators.flatten(
         map(powers(t)) do p
           v, e = p
+          k = indices[v]
           Iterators.flatten(
-            Iterators.repeated(("D", (domain = domain,), indices[v]), e),
+            Iterators.repeated(("D", (domain = domain[k],), k), e),
           )
         end
       )
