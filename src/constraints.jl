@@ -207,7 +207,11 @@ struct RelationConstraint <: AbstractConstraint
     @argcheck left != right
     @argcheck relation in VALID_RELATIONS
 
-    return new(left, relation, right)
+    return if left < right
+      new(left, relation, right)
+    else
+      new(right, relation_swap(relation), left)
+    end
   end
 end
 
@@ -294,10 +298,19 @@ const VALID_RELATIONS = (
 )
 
 function relation_holds(lhs, relation, rhs)
-  relation === Symbol("==") && return lhs == rhs
-  relation === Symbol("!=") && return lhs != rhs
-  relation === Symbol("<=") && return lhs <= rhs
-  relation === Symbol(">=") && return lhs >= rhs
+  relation === :(==) && return lhs == rhs
+  relation === :(!=) && return lhs != rhs
+  relation === :(<=) && return lhs <= rhs
+  relation === :(>=) && return lhs >= rhs
+
+  error("unsupported relation: $relation")
+end
+
+function relation_swap(relation)
+  relation === :(==) && return :(==)
+  relation === :(!=) && return :(!=)
+  relation === :(<=) && return :(>=)
+  relation === :(>=) && return :(<=)
 
   error("unsupported relation: $relation")
 end
