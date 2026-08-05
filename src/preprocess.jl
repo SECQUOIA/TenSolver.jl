@@ -103,9 +103,7 @@ Q[permutation, permutation]
 ```
 """
 function qmatrix_permutation(Q::AbstractMatrix; cutoff = 0)
-  if !issquare(Q)
-    throw(DimensionMismatch("Q must be square. Encountered dimensions $(size(Q))."))
-  end
+  LinearAlgebra.checksquare(Q)
 
   adjacency, weights = qmatrix_adjacency(Q, cutoff)
   return reverse_cuthill_mckee(adjacency, weights)
