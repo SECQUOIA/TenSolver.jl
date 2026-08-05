@@ -45,20 +45,21 @@ struct SumConstraint{T<:Integer} <: AbstractConstraint
   rhs::T
 
   function SumConstraint{T}(sites, weights, relation, rhs) where {T<:Integer}
-    site_vec   = validate_sites(sites)
-    weight_vec = validate_weights(weights)
-    validate_same_length(site_vec, weight_vec, "sites", "weights")
-    relation   = validate_relation(relation)
-    rhs        = validate_rhs(rhs)
+    @argcheck allunique(sites)
+    @argcheck all(>(0), sites)
+    @argcheck length(weights) == length(sites) DimensionMismatch
+    @argcheck all(>=(0), weights)  # WIP: this is only necessary at the DFA level
+    @argcheck rhs >= 0
+    @argcheck relation in VALID_RELATIONS
 
-    weight_vec = T.(weight_vec)
-    rhs        = T(rhs)
+    # Helps reduce the bond dimension
+    weights = T.(weights)
+    rhs     = T(rhs)
+    g       = gcd(rhs, weights...)
+    @. weights = div(weights, g)
+    rhs        = div(rhs, g)
 
-    g = gcd(rhs, weight_vec...)
-    weight_vec .= div.(weight_vec, g)
-    rhs         = div(rhs, g)
-
-    weight_map = Dict{Int,T}(zip(site_vec, weight_vec))
+    weight_map = Dict{Int,T}(zip(sites, weights))
     filter!(p -> !iszero(p.second), weight_map)
 
     return new{T}(weight_map, relation, rhs)
@@ -95,18 +96,23 @@ struct SumModConstraint{T<:Integer} <: AbstractConstraint
   mod::T
 
   function SumModConstraint{T}(sites, weights, rhs; mod) where {T<:Integer}
-    site_vec    = validate_sites(sites)
-    validate_same_length(site_vec, weights, "sites", "weights")
-    modulus     = validate_modulus(mod)
+    @argcheck all(>(0), sites)
+    @argcheck allunique(sites)
+    @argcheck length(weights) == length(sites) DimensionMismatch
+    @argcheck mod >= 1
 
-    modulus        = T(modulus)
-    weight_vec     = @. Base.mod(T(weights), modulus)
-    normalized_rhs = Base.mod(T(rhs), modulus)
+    # Helps reduce the bond dimension
+    weights = T.(weights)
+    rhs     = T(rhs)
+    mod     = T(mod)
 
-    weight_map     = Dict{Int,T}(zip(site_vec, weight_vec))
+    @. weights = Base.mod(weights, mod)
+    rhs        = Base.mod(rhs, mod)
+
+    weight_map = Dict{Int,T}(zip(sites, weights))
     filter!(p -> !iszero(p.second), weight_map)
 
-    return new{T}(weight_map, normalized_rhs, modulus)
+    return new{T}(weight_map, rhs, mod)
   end
 end
 
@@ -129,10 +135,11 @@ struct NotEqualsConstraint{T<:Real} <: AbstractConstraint
   values::Dict{Int, T}
 
   function NotEqualsConstraint{T}(sites, values::AbstractVector{T}) where {T<:Real}
-    site_vec = validate_sites(sites)
-    validate_same_length(site_vec, values, "sites", "values")
+    @argcheck all(>(0), sites)
+    @argcheck allunique(sites)
+    @argcheck length(values) == length(sites) DimensionMismatch
 
-    value_map = Dict{Int,T}(zip(site_vec, values))
+    value_map = Dict{Int,T}(zip(sites, values))
 
     return new{T}(value_map)
   end
@@ -166,11 +173,12 @@ struct AssignmentConstraint{T<:Real} <: AbstractConstraint
   rhs      :: Int
 
   function AssignmentConstraint{T}(sites, values, relation, rhs) where {T<:Real}
-    site_vec = validate_sites(sites)
-    relation = validate_relation(relation)
-    rhs      = Int(validate_rhs(rhs))
+    @argcheck all(>(0), sites)
+    @argcheck allunique(sites)
+    @argcheck rhs >= 0
+    @argcheck relation in VALID_RELATIONS
 
-    return new{T}(site_vec, Set(values), relation, rhs)
+    return new{T}(sites, Set(values), relation, Int(rhs))
   end
 end
 
@@ -193,12 +201,13 @@ struct RelationConstraint <: AbstractConstraint
   relation::Symbol
   right_site::Int
 
-  function RelationConstraint(left_site, relation, right_site)
-    left  = validate_site(left_site, "left_site")
-    right = validate_site(right_site, "right_site")
-    left == right && throw(ArgumentError("relation constraint sites must be distinct"))
+  function RelationConstraint(left, relation, right)
+    @argcheck left  > 0
+    @argcheck right > 0
+    @argcheck left != right
+    @argcheck relation in VALID_RELATIONS
 
-    return new(left, validate_relation(relation), right)
+    return new(left, relation, right)
   end
 end
 
@@ -274,7 +283,7 @@ function constraint_sites(constraint::RelationConstraint)
 end
 
 #----------------------------------------------------------#
-# Constraint Validation
+# Valid relations
 #----------------------------------------------------------#
 
 const VALID_RELATIONS = (
@@ -283,75 +292,6 @@ const VALID_RELATIONS = (
   Symbol("<="),
   Symbol(">="),
 )
-
-function validate_site(site, name)
-  site isa Integer || throw(ArgumentError("$name must be an integer"))
-  site > 0 || throw(ArgumentError("$name must be a positive integer"))
-
-  return Int(site)
-end
-
-function validate_sites(sites)
-  if isempty(sites)
-    throw(ArgumentError("sites must not be empty"))
-  end
-
-  validated = [validate_site(site, "sites") for site in sites]
-  if !allunique(validated)
-    throw(ArgumentError("sites must be unique"))
-  end
-
-  return validated
-end
-
-function validate_same_length(left, right, left_name, right_name)
-  if length(left) != length(right)
-    throw(DimensionMismatch("$left_name and $right_name must have the same length"))
-  end
-end
-
-function validate_weights(weights)
-  if isempty(weights)
-    throw(ArgumentError("weights must not be empty"))
-  end
-  # Nonnegativity is a deliberate v1 contract (issue #56 acceptance criteria):
-  # it keeps the predicate aligned with the nonnegative projection targets used
-  # by the constraint/MPO work tracked in #57. Signed weights (e.g. encoding a
-  # difference `x1 - x2 == 0`) are intentionally out of scope here and should be
-  # revisited together with that lowering, not relaxed in isolation.
-  for (i, weight) in pairs(weights)
-    if weight < 0
-      throw(ArgumentError("Found negative weight w[$(i)] = $(repr(weight)). Weights must be nonnegative."))
-    end
-    if !isinteger(weight)
-      throw(ArgumentError("Found noninteger weight w[$(i)] = $(repr(weight)). Weights must be integer."))
-    end
-  end
-
-  return weights
-end
-
-function validate_modulus(modulus)
-  modulus >= 1 || throw(ArgumentError("mod must be a positive integer"))
-
-  return modulus
-end
-
-function validate_rhs(rhs)
-  if rhs < 0
-    throw(ArgumentError("Found negative rhs = $(repr(rhs)). rhs must be nonnegative."))
-  end
-
-  return rhs
-end
-
-function validate_relation(relation)
-  if !(relation in VALID_RELATIONS)
-    throw(ArgumentError("relation must be one of: $(join(string.(VALID_RELATIONS), ", "))"))
-  end
-
-  return relation
-end
 
 function relation_holds(lhs, relation, rhs)
   relation === Symbol("==") && return lhs == rhs

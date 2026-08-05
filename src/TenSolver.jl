@@ -2,6 +2,7 @@ module TenSolver
 
 import ITensors, ITensorMPS
 using QUBODrivers: QUBODrivers, QUBOTools, MOI
+using ArgCheck: @argcheck
 
 using LinearAlgebra
 

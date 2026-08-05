@@ -60,13 +60,11 @@
   end
 
   @testset "Constructor validation" begin
-    @test_throws ArgumentError AssignmentConstraint(Int[], 1, :(==), 1)
     @test_throws ArgumentError AssignmentConstraint([0], 1, :(==), 1)
     @test_throws ArgumentError AssignmentConstraint([1, 1], 1, :(==), 1)
-    @test_throws ArgumentError AssignmentConstraint([1.0], 1, :(==), 1)
     @test_throws ArgumentError AssignmentConstraint([1], [1], :(==), -1)
-    @test_throws ArgumentError AssignmentConstraint([1], [1], :(==), 1.5)
     @test_throws ArgumentError AssignmentConstraint([1], [1], :(<), 1)
+    @test_throws InexactError  AssignmentConstraint([1], [1], :(==), 1.5)
 
     @test_throws DimensionMismatch SumConstraint([1, 2], [1], Symbol("=="), 1)
     @test_throws ArgumentError SumConstraint([1], [-1], Symbol("=="), 0)
@@ -86,8 +84,8 @@
       @test SumConstraint([1, 2], [1.0, 2.0], 2.0; relation=:(<=)) isa SumConstraint
       @test SumConstraint([1, 2], [1.0, 1.0], 1.0; relation=:(==)) isa SumConstraint
 
-      @test_throws ArgumentError SumConstraint([1, 2], [1.5, 1.0], 2.0; relation=:(<=))
-      @test_throws ArgumentError SumConstraint([1, 2], [1.0, 1.0], 1.5; relation=:(<=))
+      @test_throws InexactError  SumConstraint([1, 2], [1.5, 1.0], 2.0; relation=:(<=))
+      @test_throws InexactError  SumConstraint([1, 2], [1.0, 1.0], 1.5; relation=:(<=))
       @test_throws ArgumentError SumConstraint([1, 2], [1.0, -1.0], 0.0; relation=:(<=))
     end
 
