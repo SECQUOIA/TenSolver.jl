@@ -1,5 +1,5 @@
 import ITensors: inner
-import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
+import ITensorMPS: MPS, MPO, OpSum, siteinds, @OpName_str, @SiteType_str, @StateName_str
 
 import ITensors, ITensorMPS
 
@@ -32,6 +32,93 @@ Select TenSolver's default ITensorMPS DMRG backend.
 struct DMRGBackend <: AbstractTenSolverBackend end
 
 normalize_backend(::Val{:dmrg}) = DMRGBackend()
+
+"""
+    DMRGSolution{T}
+
+The result of running [`minimize`](@ref) or [`maximize`](@ref) with the DMRG
+backend: an MPS wave function over the optimal solution space, together with
+per-iteration convergence statistics.
+
+Use [`sample`](@ref) to draw vectors from it.
+
+## Fields
+
+- `tensor`: the underlying MPS, or `nothing` when the model is infeasible.
+- `domain`: possible variable values.
+- `permutation`: original variable index represented by each tensor site.
+- `stats`: per-iteration convergence stats. See [`SolverStatistics`](@ref).
+
+Provably infeasible models produce a `DMRGSolution` with no MPS and empty
+statistics vectors; check with [`is_feasible`](@ref) before sampling.
+"""
+struct DMRGSolution{T <: Real} <: Solution
+  tensor      :: Union{MPS,Nothing}
+  domain      :: Vector{T}
+  permutation :: Vector{Int}
+  stats       :: SolverStatistics{T}
+
+  function DMRGSolution{T}(
+    tensor::Union{MPS,Nothing},
+    domain,
+    permutation::Vector{Int},
+    stats::SolverStatistics,
+  ) where {T <: Real}
+    return new{T}(tensor, domain, permutation, stats)
+  end
+end
+
+function infeasible_solution(::Type{T}, domain, stats) where {T <: Real}
+  return DMRGSolution{T}(nothing, domain, Int[], stats)
+end
+
+"""
+    is_feasible(psi::DMRGSolution)
+
+Whether `psi` came from solving a satisfiable model. Feasible solutions carry
+an MPS and can be sampled.
+"""
+is_feasible(psi::DMRGSolution) = !isnothing(psi.tensor)
+
+original_order(bs, permutation) = bs[invperm(permutation)]
+
+"""
+    sample(psi::DMRGSolution)
+
+Sample a vector from the DMRG probability distribution.
+
+Throw a `DomainError` when `psi` is infeasible, since there is no solution to
+query.
+"""
+function sample(psi::DMRGSolution)
+  if is_feasible(psi)
+    bs = psi.domain[ITensorMPS.sample!(psi.tensor)]
+    return original_order(bs, psi.permutation)
+  else
+    throw(DomainError("the model is infeasible; there is no solution to sample"))
+  end
+end
+
+function prob(psi::DMRGSolution{T}, bs) where {T}
+  return is_feasible(psi) ? abs2(coeff(psi, bs)) : zero(T)
+end
+
+function coeff(psi::DMRGSolution, bs)
+  tn    = psi.tensor
+  sites = siteinds(tn)
+  bs    = bs[psi.permutation]
+  positions = map(bs) do value
+    position = findfirst(==(value), psi.domain)
+    if isnothing(position)
+      throw(DomainError(value, "value is outside the solution domain $(psi.domain)"))
+    end
+    return position - 1
+  end
+  # Qudit state names are zero-based basis positions, not physical domain values.
+  psi0  = MPS(sites, string.(positions))
+
+  return inner(psi0,  tn)
+end
 
 """
     minimize(::DMRGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
@@ -368,7 +455,7 @@ function minimize_mpo( H_obj :: MPO
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
-    dist = Solution{T}(psi, domain, permutation, stats)
+    dist = DMRGSolution{T}(psi, domain, permutation, stats)
     optimal = obj(sample(dist))
   end
 
