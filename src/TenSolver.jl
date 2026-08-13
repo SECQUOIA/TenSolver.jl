@@ -1,14 +1,30 @@
 module TenSolver
 
-import ITensors, ITensorMPS
-using QUBODrivers: QUBODrivers, QUBOTools, MOI
-using ArgCheck: @argcheck
-
 using LinearAlgebra
+using Printf: @printf
+using Random: Random, AbstractRNG, Repetition, Sampler, SamplerTrivial
+
+using ArgCheck: @argcheck
+using Combinatorics: multiset_permutations
+
+import ITensors, ITensorMPS
+using  ITensors: inner
+using  ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
+
+import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
+
+using QUBODrivers: QUBODrivers, QUBOTools, MOI
 
 const __VERSION__ = pkgversion(@__MODULE__)
 
+const cpu = identity
+
+include("domains.jl")
+
 include("preprocess.jl")
+
+include("solution.jl")
+export sample
 
 include("ising.jl")
 export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
@@ -20,17 +36,12 @@ export is_feasible
 
 include("projection_mpo.jl")
 
-include("solution.jl")
-export sample
+# Convergence logging
+include("log.jl")
 
 include("solver.jl")
 export minimize, maximize
 export DMRGBackend
-
-# Convergence logging
-include("log.jl")
-
-cpu = identity
 
 
 ## ~:~ Welcome to the QUBOVerse ~:~ ##

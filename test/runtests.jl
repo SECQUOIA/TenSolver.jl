@@ -1,6 +1,7 @@
 using Test, Random, LinearAlgebra, Logging
 
 using  TenSolver
+import TenSolver as TS
 
 # Makes ITensor slower but catches more errors. Good for development.
 import ITensors
@@ -17,6 +18,7 @@ include(filepath("utils.jl"))
 
 # Abstract Backend API
 include(filepath("backend.jl"))
+include(filepath("variable_domains.jl"))
 
 # Ising <-> QUBO utilities
 include(filepath("ising_conversion.jl"))

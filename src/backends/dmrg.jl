@@ -1,12 +1,3 @@
-import ITensors: inner
-import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
-
-import ITensors, ITensorMPS
-
-import Combinatorics: multiset_permutations
-
-import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
-
 # Diagonal matrix whose eigenvalues are the ordered feasible values for a variable.
 # For Spin variables, this is the Pauli σ_z matrix.
 # For Boolean variables, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -66,11 +57,11 @@ Backend-specific keyword arguments:
 function minimize(::DMRGBackend, Q::AbstractMatrix, l::AbstractVector, c::Real
   ; cutoff=1e-8
   , preprocess::Bool=false
-  , domain
+  , domain::Domains
   , kwargs...
 )
   Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  domain = domain[permutation]
+  domain = permute!(domain, permutation)
   H      = tensorize(Qp, lp; cutoff, domain)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
@@ -92,7 +83,7 @@ function minimize(
   p::AbstractPolynomial
   ;
   cutoff=1e-8,
-  domain,
+  domain::Domains,
   kwargs...,
 )
   cte    = constant_term(p)
@@ -169,7 +160,7 @@ function tensorize(
   Q::AbstractArray{T},
   rest::Vararg{AbstractArray{T}};
   cutoff = zero(T),
-  domain,
+  domain::Domains,
 ) where T
   Qs = [Q, rest...]
   if !allequal(Iterators.flatmap(size, Qs))
@@ -200,7 +191,7 @@ end
 function tensorize(
   p::AbstractPolynomial{T};
   cutoff = zero(T),
-  domain,
+  domain::Domains,
 ) where T
   N = length(effective_variables(p))
   sites = [ITensors.siteind("Qudit"; dim = length(domain[k])) for k in 1:N]
@@ -236,7 +227,7 @@ function minimize_mpo( H_obj :: MPO
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
                      , verbosity   = 1
                      , constraints = AbstractConstraint[]
-                     , domain
+                     , domain     :: Domains
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
@@ -255,10 +246,9 @@ function minimize_mpo( H_obj :: MPO
                      , callback_every   :: Int = 1
                      , permutation :: Vector{Int} = collect(1:length(H_obj))
                      ) where {T}
-  callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  check_variance_every_iteration >= 1 || throw(ArgumentError(
-    "`check_variance_every_iteration` must be >= 1, got $check_variance_every_iteration",
-  ))
+  @argcheck callback_every >= 1
+  @argcheck check_variance_every_iteration >= 1
+
   initial_time = time()
 
   # Quantization
