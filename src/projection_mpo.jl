@@ -294,7 +294,7 @@ The `domain` parameter represents the (finite) domain for each of the `n` variab
 """
 function constraint_to_dfa end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domains) where {S}
+function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domains::Domains) where {S}
   for domain in domains
     @argcheck all(isinteger, domain)
     @argcheck all(>=(0), domain)

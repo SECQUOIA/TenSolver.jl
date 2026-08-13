@@ -10,18 +10,18 @@ import ITensorMPS: maxlinkdim
 
   @testset "Bond dimension UB" begin
     @testset "Tridiagonal" begin
-      for domain in [[0, 1], [-1, 1], [-2, 3, 5]]
+      for domain in TenSolver.Domains.([[0, 1], [-1, 1], [-2, 3, 5]], dim)
         Q = randn(dim, dim)
-        H = TenSolver.tensorize(Tridiagonal(Q); domain = TenSolver.canonicalize_domain(domain, dim))
+        H = TenSolver.tensorize(Tridiagonal(Q); domain)
 
         @test maxlinkdim(H) <= 3
       end
     end
 
     @testset "Full rank" begin
-      for domain in [[0, 1], [-1, 1], [-2, 3, 5]]
+      for domain in TenSolver.Domains.([[0, 1], [-1, 1], [-2, 3, 5]], dim)
         Q = randn(dim, dim)
-        H = TenSolver.tensorize(Q; domain = TenSolver.canonicalize_domain(domain, dim))
+        H = TenSolver.tensorize(Q; domain)
 
         @test maxlinkdim(H) <= ceil(bandwidth(Q)/2) + 2
       end

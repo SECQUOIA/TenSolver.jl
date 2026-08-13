@@ -95,6 +95,13 @@ TenSolver.project_hamiltonian
 TenSolver.project_state
 ```
 
+### Variable Domains
+
+```@docs
+TenSolver.Domains
+TenSolver.domain_residue
+```
+
 ## Index
 
 ```@index

@@ -1,6 +1,3 @@
-import ITensors, ITensorMPS
-import ITensorMPS: MPS, siteinds
-
 """
     SolverStatistics{T}
 
@@ -70,7 +67,7 @@ vectors; check with [`is_feasible`](@ref) before sampling.
 """
 struct Solution{T <: Real}
   tensor      :: Union{MPS, Nothing}
-  domain      :: Vector{Vector{T}}
+  domain      :: Domains{T}
   permutation :: Vector{Int}
   stats       :: SolverStatistics{T}
 
@@ -137,18 +134,15 @@ function prob(psi::Solution{T}, bs) where {T}
 end
 
 function coeff(psi::Solution, assignment)
-  tn    = psi.tensor
-  sites = siteinds(tn)
-  assignment = assignment[psi.permutation]
-  positions  = map(zip(assignment, psi.domain)) do (v, dom)
-    if insorted(v, dom)
-      return findfirst(==(v), dom) - 1
-    else
-      throw(DomainError(v, "Value not in domain $repr(psi.domain[k])"))
-    end
+  (; domain, permutation, tensor) = psi
+  assignment = assignment[permutation]
+  if assignment in domain
+    positions = [searchsortedfirst(d, v) - 1 for (v, d) in zip(assignment, domain)]
+  else
+      throw(DomainError(assignment, "Value not in domain $repr(domain)"))
   end
   # Qudit state names are zero-based basis positions, not physical domain values.
-  psi0  = MPS(sites, string.(positions))
+  psi0  = MPS(ITensorMPS.siteinds(tensor), string.(positions))
 
-  return inner(psi0,  tn)
+  return inner(psi0, tensor)
 end
