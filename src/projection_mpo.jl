@@ -15,22 +15,23 @@
 """
     DFA{S, A}
 
-Step-dependent deterministic finite automaton.
+Deterministic finite automaton with step-dependent and partial transitions.
 
 Fields:
 - `states`: DFA states, used to define the MPO bond dimension.
-- `alphabet`: local symbols, ordered to match the physical basis positions.
+- `alphabet`: Per-stage DFA alphabet.
 - `initial`: start state.
 - `accepting`: set of accepting states.
-- `transitions`: one transition table per site; each table maps `(state, symbol)` to
+- `transitions`: one transition table per step; each table maps `(state, symbol)` to
   the next state. Missing entries are rejected.
 """
 struct DFA{S,A}
   states::Vector{S}
+  alphabets::Vector{Vector{A}}
   initial::S
   accepting::Set{S}
   transitions::Vector{Dict{Tuple{S,A},S}}
-  function DFA{S,A}(states, initial, accepting, transitions) where {S,A}
+  function DFA{S,A}(states, alphabets, initial, accepting, transitions) where {S,A}
     accepting = Set{S}(accepting)
 
     @argcheck (!isempty)(states)
@@ -38,30 +39,35 @@ struct DFA{S,A}
     @argcheck initial in states
     @argcheck issubset(accepting, states)
 
+    @argcheck (!isempty)(alphabets)
+    @argcheck all(!isempty, alphabets)
+    @argcheck length(alphabets) == length(transitions)
+
     @argcheck (!isempty)(transitions)
     let states_set = Set(states)
       for (i, table) in enumerate(transitions), ((s, a), ns) in table
-        @argcheck s  in states_set  "transitions[$(i)]: unknown source state"
-        @argcheck ns in states_set  "transitions[$(i)]: unknown target state"
+        @argcheck s  in states_set   "transitions[$(i)]: unknown source state"
+        @argcheck a  in alphabets[i] "transitions[$(i)]: symbol not in alphabet"
+        @argcheck ns in states_set   "transitions[$(i)]: unknown target state"
       end
     end
 
-    return new{S,A}(states, initial, accepting, transitions)
+    return new{S,A}(states, alphabets, initial, accepting, transitions)
   end
 end
 
-function DFA(states, initial, accepting, transitions)
+function DFA(states, alphabets, initial, accepting, transitions)
   S = eltype(states)
-  A = fieldtype(keytype(first(transitions)), 2)
-  return DFA{S,A}(states, initial, accepting, transitions)
+  A = eltype(first(alphabets))
+  return DFA{S,A}(states, alphabets, initial, accepting, transitions)
 end
 
-function DFA(; states, initial, accepting, transitions)
-  return DFA(states, initial, accepting, transitions)
+function DFA(; states, alphabets, initial, accepting, transitions)
+  return DFA(states, alphabets, initial, accepting, transitions)
 end
 
-alphabet(dfa::DFA, i) = unique!(sort!([a for (_, a) in keys(dfa.transitions[i])]))
-states(dfa::DFA, i) = dfa.states
+alphabet(dfa::DFA, i) = dfa.alphabets[i]
+states(dfa::DFA, i)   = dfa.states
 
 function permute_dfa!(dfa::DFA, permutation::AbstractVector{<:Integer})
   if length(permutation) != length(dfa.transitions)
@@ -69,6 +75,7 @@ function permute_dfa!(dfa::DFA, permutation::AbstractVector{<:Integer})
   end
 
   permute!(dfa.transitions, permutation)
+  permute!(dfa.alphabets, permutation)
   return dfa
 end
 
@@ -77,7 +84,7 @@ end
 
 Build an exact diagonal projection MPO from a step-dependent DFA.
 
-The MPO bond dimension is at much the number of states.
+The MPO bond dimension is at most the number of states.
 """
 function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where T
   for (k, site) in pairs(sites)
@@ -140,8 +147,7 @@ Constraint site numbers must use the same 1-based register indexing as `sites`.
   independently of the rhs.
 - [`AssignmentConstraint`](@ref) uses a membership counting automaton.
   For rhs `k`, the maximum bond dimension is `k+2`.
-- [`RelationConstraint`](@ref) uses a MPO with bond dimension `length(domain)`,
-  independently of the compared site positions.
+- [`RelationConstraint`](@ref) uses a MPO with bond dimension equal to the first variable's domain size.
 """
 function projection_mpo end
 
@@ -175,7 +181,7 @@ projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites; kws...
   projection_mpos(Float64, constraints, sites; kws...)
 
 """
-    project_hamiltonian(H, projections; formulation=:commuting, cutoff=1e-8, kwargs...)
+    project_hamiltonian(H, projections; formulation=:commuting, cutoff, kwargs...)
 
 Project a Hamiltonian MPO with one or more projection MPOs.
 
@@ -216,7 +222,7 @@ function project_hamiltonian(
 end
 
 """
-    project_state(psi, projections; cutoff=1e-8, kwargs...)
+    project_state(psi, projections; kwargs...)
 
 Apply one or more diagonal projection MPOs to an MPS.
 
@@ -278,12 +284,12 @@ function mapreduce_dfa(f, op, constraint, nsites, domains; initial, predicate, s
   transitions = [Dict((q, a) => q for q in states for a in domains[i]) for i in 1:nsites]
 
   for i in constraint_sites(constraint)
-    transitions[i] = Dict((q, a) => op(q, f(i, a)) for q in states, a in domains[i])
+    transitions[i] = Dict((q, a) => op(i)(q, f(i)(a)) for q in states, a in domains[i])
   end
 
   S = eltype(states)
   A = eltype(first(domains))
-  return DFA{S,A}(states, initial, accepting, transitions)
+  return DFA{S,A}(states, [domains...], initial, accepting, transitions)
 end
 
 """
@@ -304,8 +310,8 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domain
   beyond = rhs + one(S)
 
   return mapreduce_dfa(
-    (i, a) -> weights[i] * S(a),
-    (x, y) -> min(x + y, beyond),
+    i -> a -> weights[i] * S(a),
+    i -> (x, y) -> min(x + y, beyond),
     constraint,
     nsites,
     domains,
@@ -325,8 +331,8 @@ function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, dom
   modulus = constraint.mod
 
   return mapreduce_dfa(
-    (i, a) -> mod(weights[i] * a, modulus),
-    (x, y) -> mod(x + y, modulus),
+    i -> a -> mod(weights[i] * a, modulus),
+    i -> (x, y) -> mod(x + y, modulus),
     constraint,
     nsites,
     domains,
@@ -341,8 +347,8 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   (; values) = constraint
 
   return mapreduce_dfa(
-    (i, a) -> S(a) != values[i],
-    (x, y) -> x | y,
+    i -> a -> S(a) != values[i],
+    i -> (|),
     constraint,
     nsites,
     domains,
@@ -358,8 +364,8 @@ function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer,
   beyond = rhs + 1
 
   return mapreduce_dfa(
-    (i, a) -> a in values,
-    (x, y) -> min(x + y, beyond),
+    i -> in(values),
+    i -> (x, y) -> min(x + y, beyond),
     constraint,
     nsites,
     domains,
@@ -388,5 +394,5 @@ function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, doma
     if relation_holds(q, constraint.relation, a)
   )
 
-  return DFA{eltype(states), eltype(states)}(states, initial, accepting, transitions)
+  return DFA{eltype(states), eltype(states)}(states, [domains...], initial, accepting, transitions)
 end

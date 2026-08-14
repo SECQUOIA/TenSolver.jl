@@ -58,7 +58,7 @@ function exactly_one_one_dfa(num_sites)
     for _ in 1:num_sites
   ]
 
-  return TenSolver.DFA([0, 1, 2], 0, Set([1]), transitions)
+  return TenSolver.DFA([0, 1, 2], fill(0:1, num_sites), 0, Set([1]), transitions)
 end
 
 function divisible_by_three_dfa(num_sites)
@@ -70,7 +70,7 @@ function divisible_by_three_dfa(num_sites)
     for _ in 1:num_sites
   ]
 
-  return TenSolver.DFA([0, 1, 2], 0, Set([0]), transitions)
+  return TenSolver.DFA([0, 1, 2], fill(0:1, num_sites), 0, Set([0]), transitions)
 end
 
 @testset "Constraints as MPO Projection" begin

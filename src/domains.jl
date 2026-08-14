@@ -2,8 +2,12 @@
     Domains{T}
 
 Represent a finite domain for each variable in an optimization problem.
+
+Indexing or Iterating over it yields the local variable domains,
+while "wholesale" operations such as `in` or `rand`
+treat it as a collection of possible values for a variable.
 """
-struct Domains{T<:Real} <: AbstractVector{Vector{T}}
+struct Domains{T<:Real}
   ds :: Vector{Vector{T}}
 
   function Domains(dom::AbstractVector{<:Real}, nvariables::Integer)
@@ -39,20 +43,34 @@ end
 # Abstract Array Interface                                            #
 #=====================================================================#
 
-Base.size(domains::Domains) = (length(domains.ds),)
+Base.length(dom::Domains) = length(dom.ds)
+Base.getindex(dom::Domains, i::Int) = dom.ds[i]
+
+Base.size(dom::Domains) = (length(dom),)
+Base.axes(dom::Domains) = map(Base.OneTo, size(dom))
+
+Base.broadcastable(dom::Domains) = dom
+Base.BroadcastStyle(::Type{<:Domains}) = Base.Broadcast.DefaultArrayStyle{1}()
 
 Base.IndexStyle(::Type{<:Domains}) = IndexLinear()
 
-Base.getindex(domains::Domains, i::Int) = domains.ds[i]
+Base.eltype(dom::Domains{T})  where T = T
+Base.valtype(dom::Domains{T}) where T = T
+
+function Base.iterate(dom::Domains, state::Int=1)
+  if state <= length(dom)
+    return dom[state], state + 1
+  else
+    return nothing
+  end
+end
+
 
 #=====================================================================#
 # Other Interfaces                                                    #
 #=====================================================================#
 
 Base.in(x, dom::Domains) = all(insorted.(x, dom))
-
-Base.eltype(dom::Domains{T})  where T = T
-Base.valtype(dom::Domains{T}) where T = T
 
 function Base.permute!(dom::Domains, permutation::AbstractVector)
   @argcheck length(dom) == length(permutation)
