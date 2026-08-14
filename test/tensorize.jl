@@ -10,7 +10,7 @@ import ITensorMPS: maxlinkdim
 
   @testset "Bond dimension UB" begin
     @testset "Tridiagonal" begin
-      for domain in TenSolver.Domains.([[0, 1], [-1, 1], [-2, 3, 5]], dim)
+      for domain in TenSolver.Domains{Float64}.([[0, 1], [-1, 1], [-2, 3, 5]], dim)
         Q = randn(dim, dim)
         H = TenSolver.tensorize(Tridiagonal(Q); domain)
 
@@ -19,7 +19,7 @@ import ITensorMPS: maxlinkdim
     end
 
     @testset "Full rank" begin
-      for domain in TenSolver.Domains.([[0, 1], [-1, 1], [-2, 3, 5]], dim)
+      for domain in TenSolver.Domains{Float64}.([[0, 1], [-1, 1], [-2, 3, 5]], dim)
         Q = randn(dim, dim)
         H = TenSolver.tensorize(Q; domain)
 

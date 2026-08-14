@@ -10,32 +10,30 @@ treat it as a collection of possible values for a variable.
 struct Domains{T<:Real}
   ds :: Vector{Vector{T}}
 
-  function Domains(dom::AbstractVector{<:Real}, nvariables::Integer)
-    dom = canonicalize_variable_domain(dom)
-    T = float(eltype(dom))
+  function Domains{T}(dom::AbstractVector{<:Number}, nvariables::Integer) where T
+    dom = canonicalize_variable_domain(T, dom)
     return new{T}(fill(dom, nvariables))
   end
 
-  function Domains(ds::AbstractVector{<:AbstractVector}, nvariables::Integer)
+  function Domains{T}(ds::AbstractVector{<:AbstractVector}, nvariables::Integer) where T
     @argcheck length(ds) == nvariables
-    ds = canonicalize_variable_domain.(ds)
-    T  = float(promote_type(map(eltype, ds)...))
+    ds = canonicalize_variable_domain.(T, ds)
     return new{T}(ds)
   end
 end
 
-function Domains(dom::Domains, nvariables::Integer)
-  @argcheck length(dom) == nvariables
-  return dom
+function Domains{T}(dom::Domains, nvariables::Integer) where T
+  return Domains{T}(dom.ds, nvariables)
 end
 
-function canonicalize_variable_domain(vdomain)
-  @argcheck applicable(length, vdomain)
+function canonicalize_variable_domain(T::Type, vdomain)
+  vdomain = convert(Vector{T}, vdomain)
+
   @argcheck (!isempty)(vdomain)
   @argcheck eltype(vdomain) <: Real
 
   # Preprocessing to dedeplicate domain values
-  return (ismutable(vdomain) ? unique! : unique)(sort(vdomain))
+  return unique!(sort!(vdomain))
 end
 
 
@@ -49,7 +47,7 @@ Base.getindex(dom::Domains, i::Int) = dom.ds[i]
 Base.size(dom::Domains) = (length(dom),)
 Base.axes(dom::Domains) = map(Base.OneTo, size(dom))
 
-Base.broadcastable(dom::Domains) = dom
+Base.broadcastable(dom::Domains) = dom.ds
 Base.BroadcastStyle(::Type{<:Domains}) = Base.Broadcast.DefaultArrayStyle{1}()
 
 Base.IndexStyle(::Type{<:Domains}) = IndexLinear()

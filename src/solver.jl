@@ -87,7 +87,9 @@ Keyword arguments:
   For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
   If the constraints admit no solution at all, the solve does not error: it logs a warning and
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
-- `domain` - Possible variable values. Defaults to `[0, 1]`.
+- `domain` - Allowed values per variable.
+   Can be either a vector of per-variable domains or a single uniform domain valid for all variables.
+   Defaults to `[0, 1]`.
   Unconstrained DMRG optimization accepts any finite collection of real values;
   individual constraint types can impose narrower requirements. Use `[-1, 1]`
   for Ising spins. Domains are sorted and deduplicated before solving.
@@ -150,50 +152,68 @@ function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
 end
 
 function minimize(
-  p::AbstractPolynomial
+    p::AbstractPolynomial
   ;
   backend=default_backend,
   domain = 0:1,
   kwargs...,
 )
-  nvars  = length(effective_variables(p))
-  domain = Domains(domain, nvars)
+  nvars = length(MP.effective_variables(p))
+
+  T = float(MP.coefficient_type(p))
+  p = MP.polynomial(p, T)
+
+  domain = Domains{T}(domain, nvars)
   p      = domain_residue(p, domain)
   return minimize(normalize_backend(backend), p; domain, kwargs...)
 end
 
 function minimize(
-  Q :: AbstractMatrix{T},
-  l :: AbstractVector{T} = zeros(T, size(Q, 1)),
-  c :: T = zero(T)
+  Q :: AbstractMatrix,
+  l :: AbstractVector = zeros(eltype(Q), size(Q, 1)),
+  c :: Real = zero(eltype(Q))
   ;
   backend = default_backend,
   domain = 0:1,
   kwargs...,
-) where {T<:Real}
+)
+  @argcheck length(l) == size(Q, 1)
   nvars   = LinearAlgebra.checksquare(Q)
-  domain  = Domains(domain, nvars)
+
+  # SVD algos require float type.
+  # We can review this if a later backend asks for integer representation.
+  T = float(promote_type(eltype(Q), eltype(l), typeof(c)))
+  Q, l, c = T.(Q), T.(l), T(c)
+
+  domain  = Domains{T}(domain, nvars)
   Q, l, c = domain_residue(Q, l, c, domain)
+  @assert allequal([eltype(Q), eltype(l), typeof(c), eltype(domain)]) # Sanity check / debug-only
   return minimize(normalize_backend(backend), Q, l, c; domain, kwargs...)
 end
 
-function minimize(l :: AbstractVector{T}, c :: T = zero(T); kwargs...) where {T<:Real}
-  return minimize(zeros(T, size(l, 1), size(l, 1)), l, c; kwargs...)
+function minimize(l :: AbstractVector{<:Real}, c :: Real = zero(eltype(l)); kwargs...)
+  Q = zeros(eltype(l), size(l, 1), size(l, 1))
+  return minimize(Q, l, c; kwargs...)
 end
 
-function minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where {T<:Real}
-  return minimize(Q, zeros(T, size(Q, 1)), c; kwargs...)
+function minimize(Q :: AbstractMatrix{<:Real}, c :: Real; kwargs...)
+  l = zeros(eltype(Q), size(Q, 1))
+  return minimize(Q, l, c; kwargs...)
 end
 
 """
-    maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
-    maximize(p::AbstractPolynomial; kwargs...)
+    maximize([Q::Matrix], [l::Vector], [c::Number] ; domain, kwargs...)
+    maximize(p::AbstractPolynomial ; domain, kwargs...)
 
-Solve the Quadratic Unconstrained Binary Optimization problem
-for maximization.
+Solve a polynomial discrete optimization problem
 
-    max  b'Qb + l'b + c
-    s.t. b_i in {0, 1}
+    max  p(x)
+    s.t. x_i in domain
+         constraints
+
+In the matrix version, the objective is limited to quadratic forms x -> x'Qx + l'x + c.
+Missing arguments (quadratic, linear or constant term)
+are allowed and taken to be zero.
 
 All keywords accepted by [`minimize`](@ref) can also be used for maximization problems.
 Provably infeasible constrained models return `-Inf` (the supremum over an
@@ -258,7 +278,7 @@ function domain_residue(Q::AbstractMatrix, l, c, domains::Domains)
 
   l = l .+ Qd * ss
   c = c  - dot(diag(Q), ps)
-  Q = Q .- Qd .* Diagonal(length.(domains) .== 2)
+  Q = Q .- Qd .* Diagonal([length(d) == 2 for d in domains])
 
   return Q, l, c
 end

@@ -8,7 +8,7 @@ function mpo_diagonal(H, sites, bits)
   return real(ITensors.inner(psi', H, psi))
 end
 
-function assert_projection_matches_feasibility(constraint, sites; domain = TenSolver.Domains(0:1, length(sites)))
+function assert_projection_matches_feasibility(constraint, sites; domain = TenSolver.Domains{Float64}(0:1, length(sites)))
   H = TenSolver.projection_mpo(constraint, sites; domain)
 
   assignments = Iterators.product(domain...)
@@ -21,7 +21,7 @@ function assert_projection_matches_feasibility(constraint, sites; domain = TenSo
   return H
 end
 
-function assert_projection_spot_checks(constraint, sites; domain = TenSolver.Domains(0:1, length(sites)))
+function assert_projection_spot_checks(constraint, sites; domain = TenSolver.Domains{Float64}(0:1, length(sites)))
   H = TenSolver.projection_mpo(constraint, sites; domain)
 
   for _ in 1:2
@@ -107,7 +107,7 @@ end
 
   @testset "Constraint -> DFA" begin
     sites  = ITensors.siteinds("Qudit", 4; dim=2)
-    domain = TenSolver.Domains(0:1, length(sites))
+    domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
     for constraint in TEST_CONSTRAINTS
       dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
@@ -170,7 +170,7 @@ end
        0.25 -2.00  0.75
       -0.50  0.75  3.00
     ]
-    domain = TenSolver.Domains(0:1, 3)
+    domain = TenSolver.Domains{Float64}(0:1, 3)
     H = TenSolver.tensorize(Q; domain)
     sites = ITensorMPS.siteinds(first, H; plev=0)
 
@@ -227,7 +227,7 @@ end
   @testset "Projection MPO permutation" begin
     sites = ITensors.siteinds("Qudit", 4; dim=2)
     perm = [3, 1, 4, 2]
-    domain = TenSolver.Domains(0:1, length(sites))
+    domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
     constraint = RelationConstraint(1, :(<=), 4)
     H = TenSolver.projection_mpo(constraint, sites; permutation=perm, domain)
@@ -243,7 +243,7 @@ end
   @testset "Projection MPO permutation with multiple constraints" begin
     sites = ITensors.siteinds("Qudit", 5; dim=2)
     perm = [4, 1, 5, 2, 3]
-    domain = TenSolver.Domains(0:1, length(sites))
+    domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
     constraints = AbstractConstraint[
       SumConstraint([1, 5], [1, 1], 1; relation=:(==)),
@@ -272,7 +272,7 @@ end
   end
 
   @testset "Infeasible projections remain zero" begin
-    domain = TenSolver.Domains(0:1, 2)
+    domain = TenSolver.Domains{Float64}(0:1, 2)
     H = TenSolver.tensorize([1.0 0.5; 0.5 2.0]; domain)
     sites = ITensorMPS.siteinds(first, H; plev=0)
     impossible = SumConstraint([1, 2], [1, 1], :(==), 3)
@@ -288,7 +288,7 @@ end
 
   @testset "NotEqualsConstraint projection" begin
     sites = ITensors.siteinds("Qudit", 4; dim=2)
-    domain = TenSolver.Domains(0:1, length(sites))
+    domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
 
     forbidden_tuple = NotEqualsConstraint([1, 3, 4], [1, 0, 1])
@@ -328,7 +328,7 @@ end
       for relation in (:(==), :(!=), :(<=), :(>=))
       for rhs in (0, 1, 2, 3)
     ]
-    domain = TenSolver.Domains(0:2, 3)
+    domain = TenSolver.Domains{Float64}(0:2, 3)
 
     for constraint in generalized_cases
       dfa = TenSolver.constraint_to_dfa(constraint, 3, domain)
@@ -350,7 +350,7 @@ end
       domain,
     )
 
-    domain = TenSolver.Domains(0:2, 4)
+    domain = TenSolver.Domains{Float64}(0:2, 4)
     bool_assignment = AssignmentConstraint([1, 3, 4], Bool[true], :(==), 2)
     bool_dfa = @inferred TenSolver.constraint_to_dfa(bool_assignment, 4, domain)
     for bits in all_bitstrings(4)
@@ -359,7 +359,7 @@ end
 
 
     exact_one_sites = ITensors.siteinds("Qudit", 5; dim=2)
-    domain = TenSolver.Domains(0:1, 5)
+    domain = TenSolver.Domains{Float64}(0:1, 5)
     for relation in (:(==), :(<=), :(>=))
       exact_one = AssignmentConstraint(1:5, [1], relation, 1)
       dfa = @inferred TenSolver.constraint_to_dfa(exact_one, 5, domain)
@@ -381,7 +381,7 @@ end
       for relation in (:(==), :(!=), :(<=), :(>=))
       for (left, right) in ((1, 4), (4, 1), (2, 5), (5, 2))
     ]
-    domain = TenSolver.Domains(0:1, length(sites))
+    domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
     for constraint in relation_cases
       dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
@@ -398,7 +398,7 @@ end
 
   @testset "SumModConstraint projection" begin
     sites = ITensors.siteinds("Qudit", 4; dim=3)
-    domain = TenSolver.Domains(-1:1, length(sites))
+    domain = TenSolver.Domains{Float64}(-1:1, length(sites))
 
     constraint = SumModConstraint([1, 3], [-1, 2], -1; mod = 3)
     dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
@@ -411,7 +411,7 @@ end
 
   @testset "SumConstraint floating-point lowering" begin
     sites = ITensors.siteinds("Qudit", 3; dim=2)
-    domain = TenSolver.Domains(0:1, length(sites))
+    domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
     constraints = [
       SumConstraint([1, 2], [1.0, 1.0], 1.0; relation=:(==)),
@@ -432,7 +432,7 @@ end
     @test_throws ArgumentError TenSolver.projection_mpo(
       SumConstraint([1], [1], 1; relation=:(==)),
       ITensors.siteinds("Qudit", 1; dim=2);
-      domain = TenSolver.Domains([-1, 1], 1),
+      domain = TenSolver.Domains{Float64}([-1, 1], 1),
     )
   end
 
@@ -444,7 +444,7 @@ end
     # penalty-QUBO encoding, whose DMRG bond dimension grows with problem size.
     function sumbond(sitelist, weights, rhs)
       sites = ITensors.siteinds("Qudit", maximum(sitelist); dim=2)
-      domain = TenSolver.Domains(0:1, length(sites))
+      domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
       return ITensorMPS.maxlinkdim(
         TenSolver.projection_mpo(
@@ -473,7 +473,7 @@ end
        0.0  0.0   0.0 -1.0  0.25
        0.0  0.0   0.0  0.0  2.0
     ]
-    domain = TenSolver.Domains(0:1, 5)
+    domain = TenSolver.Domains{Float64}(0:1, 5)
     H = TenSolver.tensorize(Q, diag(Q); domain)
     sites = ITensorMPS.siteinds(first, H; plev=0)
     sum_constraint = SumConstraint([1, 2, 3, 4, 5], ones(Int, 5), 2; relation=:(<=))

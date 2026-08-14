@@ -11,7 +11,8 @@ import ITensors, ITensorMPS
 using  ITensors: inner
 using  ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
 
-import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
+using MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, polynomial, terms, variables, effective_variables, powers, isconstant
+import MultivariatePolynomials as MP
 
 using QUBODrivers: QUBODrivers, QUBOTools, MOI
 
