@@ -139,7 +139,7 @@ function coeff(psi::Solution, assignment)
   if assignment in domain
     positions = [searchsortedfirst(d, v) - 1 for (v, d) in zip(assignment, domain)]
   else
-      throw(DomainError(assignment, "Value not in domain $repr(domain)"))
+    throw(DomainError(assignment, "Value not in domain $(repr(domain))"))
   end
   # Qudit state names are zero-based basis positions, not physical domain values.
   psi0  = MPS(ITensorMPS.siteinds(tensor), string.(positions))
