@@ -3,7 +3,7 @@ import TenSolver as TS
 
 @testset "Variable Domains" begin
   @testset "Domains Array Interface" begin
-    dom = TS.Domains([[0, 1], [-1, 1], [-3, 4, 5.7]], 3)
+    dom = TS.Domains{Float64}([[0, 1], [-1, 1], [-3, 4, 5.7]], 3)
 
     @test eltype(dom) === Float64
 
@@ -12,7 +12,7 @@ import TenSolver as TS
   end
 
   @testset "Domain Simplification" begin
-    domains = map(d -> TS.Domains(d, 3), [
+    domains = map(d -> TS.Domains{Float64}(d, 3), [
       [0, 1],
       [-1, 1],
       [-3, 5.7, 4],
@@ -20,7 +20,7 @@ import TenSolver as TS
      ])
 
     @testset "Quadratic Objectives" begin
-      Q, l, c = TS.domain_residue([1 0; 0 1.0], [0.0, 0.0], 0.0, TS.Domains([-1, 1], 2))
+      Q, l, c = TS.domain_residue([1 0; 0 1.0], [0.0, 0.0], 0.0, TS.Domains{Float64}([-1, 1], 2))
       @test iszero(Q)
       @test iszero(l)
       @test c ≈ 2
