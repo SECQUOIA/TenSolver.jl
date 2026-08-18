@@ -163,13 +163,75 @@ end
 end
 
 @testset "Per-variable domains" begin
-  domain = [0:1, 0:2, [-1, 1, 3.5]]
-  l = [-1.0, 3.0, -5.0]
+  @testset "Linear Unconstrained Model" begin
+    domain = [0:1, 0:2, [-1, 1, 3.5]]
+    l = [-1.0, 3.0, -5.0]
 
-  E, psi = minimize(l; domain, verbosity=0)
-  x = sample(psi)
+    E, psi = minimize(l; domain, verbosity=0)
+    x = sample(psi)
 
-  @test E ≈ -18.5
-  @test x == [1.0, 0.0, 3.5]
-  @test [1.0, 0.0, 3.5] in psi
+    @test E ≈ -18.5
+    @test x == [1.0, 0.0, 3.5]
+    @test [1.0, 0.0, 3.5] in psi
+  end
+
+  @testset "Per-variable Float32 domains" begin
+    domain = [[0, 1], [0, 2, 5], [0, 1, 3, 4]]
+    Q = Float32[
+      2.0  0.5  0.75
+      0.0  1.5  0.0
+      0.0  0.0  3.0
+    ]
+    l = Float32[1.0, 2.0, 3.0]
+
+    E, psi = minimize(Q, l; domain, preprocess=false, verbosity=0)
+    x = TenSolver.sample(psi)
+
+    @test E isa Float32
+    @test eltype(x) === Float32
+    @test E ≈ 0.0f0
+    @test [0.0f0, 0.0f0, 0.0f0] in psi
+  end
+
+  @testset "NotEqualsConstraint with preprocess" begin
+    domain = [0:1, [0.0, 2.0, 5.0], [0.25, 1.75, 4.0, 8.0]]
+    Q = [
+      2.0  0.5  0.75
+      0.0  1.5  0.0
+      0.0  0.0  3.0
+    ]
+    l = [1.0, 2.0, 3.0]
+    constraints = AbstractConstraint[NotEqualsConstraint([2], [0])]
+
+    E0, psi0 = minimize(Q, l; domain, constraints, preprocess=false, verbosity=0)
+    E1, psi1 = minimize(Q, l; domain, constraints, preprocess=true, verbosity=0)
+
+    @test E0 ≈ 10.9375
+    @test E1 ≈ 10.9375
+    @test [0.0, 2.0, 0.25] in psi0
+    @test [0.0, 2.0, 0.25] in psi1
+    @test is_feasible(sample(psi0), constraints)
+    @test is_feasible(sample(psi1), constraints)
+  end
+
+  @testset "RelationConstraint with per-variable domains" begin
+    domain = [0:1, [0.0, 2.0, 5.0], [0.25, 1.75, 4.0, 8.0]]
+    Q = [
+      2.0  0.5  0.75
+      0.0  1.5  0.0
+      0.0  0.0  3.0
+    ]
+    l = [1.0, 2.0, 3.0]
+    constraints = AbstractConstraint[RelationConstraint(1, :(>=), 3)]
+
+    E0, psi0 = minimize(Q, l; domain, constraints, preprocess=false, verbosity=0)
+    E1, psi1 = minimize(Q, l; domain, constraints, preprocess=true, verbosity=0)
+
+    @test E0 ≈ 4.125
+    @test E1 ≈ 4.125
+    @test [1.0, 0.0, 0.25] in psi0
+    @test [1.0, 0.0, 0.25] in psi1
+    @test is_feasible(sample(psi0), constraints)
+    @test is_feasible(sample(psi1), constraints)
+  end
 end
