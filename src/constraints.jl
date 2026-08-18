@@ -1,6 +1,11 @@
 integer(::Type{T}) where {T<:Integer} = T
 integer(::Type) = Int
 
+function permute(d::Dict{K,V}, p) where {K, V}
+  invp = invperm(p)
+  return Dict{K,V}(invp[k] => v for (k, v) in d)
+end
+
 """
     AbstractConstraint
 
@@ -44,26 +49,31 @@ struct SumConstraint{T<:Integer} <: AbstractConstraint
   relation::Symbol
   rhs::T
 
-  function SumConstraint{T}(sites, weights, relation, rhs) where {T<:Integer}
-    @argcheck allunique(sites)
-    @argcheck all(>(0), sites)
-    @argcheck length(weights) == length(sites) DimensionMismatch
-    @argcheck all(>=(0), weights)  # WIP: this is only necessary at the DFA level
-    @argcheck rhs >= 0
+  function SumConstraint{T}(weights, relation, rhs) where {T<:Integer}
     @argcheck relation in VALID_RELATIONS
+    @argcheck rhs >= 0
 
-    # Helps reduce the bond dimension
-    weights = T.(weights)
     rhs     = T(rhs)
-    g       = gcd(rhs, weights...)
-    @. weights = div(weights, g)
-    rhs        = div(rhs, g)
+    weights = Dict{Int,T}(k => v for (k, v) in weights if !iszero(v))
+    g       = gcd(rhs, values(weights)...)
 
-    weight_map = Dict{Int,T}(zip(sites, weights))
-    filter!(p -> !iszero(p.second), weight_map)
+    rhs = div(rhs, g)
+    map!(w -> div(w, g), values(weights))
 
-    return new{T}(weight_map, relation, rhs)
+    return new{T}(weights, relation, rhs)
   end
+end
+
+function SumConstraint{T}(sites::Vector{Int}, weights, relation, rhs) where {T<:Integer}
+  @argcheck allunique(sites)
+  @argcheck all(>(0), sites)
+  @argcheck length(weights) == length(sites) DimensionMismatch
+  @argcheck all(>=(0), weights)
+  return SumConstraint{T}(Dict{Int,T}(zip(sites, T.(weights))), relation, rhs)
+end
+
+function SumConstraint(weights::Dict{Int,T}, relation, rhs) where {T<:Integer}
+  return SumConstraint{T}(weights, relation, rhs)
 end
 
 function SumConstraint(sites, weights, relation, rhs)
@@ -95,32 +105,36 @@ struct SumModConstraint{T<:Integer} <: AbstractConstraint
   rhs::T
   mod::T
 
-  function SumModConstraint{T}(sites, weights, rhs; mod) where {T<:Integer}
-    @argcheck all(>(0), sites)
-    @argcheck allunique(sites)
-    @argcheck length(weights) == length(sites) DimensionMismatch
+  function SumModConstraint{T}(weights, rhs; mod) where {T<:Integer}
     @argcheck mod >= 1
 
-    # Helps reduce the bond dimension
-    weights = T.(weights)
-    rhs     = T(rhs)
     mod     = T(mod)
-    g       = gcd(mod, rhs, weights...)
+    rhs     = Base.mod(T(rhs), mod)
+    weights = Dict{Int,T}(k => Base.mod(v, mod) for (k, v) in weights if !iszero(Base.mod(v, mod)))
+    g       = gcd(mod, rhs, values(weights)...)
 
-    mod        = div(mod, g)
-    @. weights = Base.mod(div(weights, g), mod)
-    rhs        = Base.mod(div(rhs, g), mod)
+    mod = div(mod, g)
+    rhs = Base.mod(div(rhs, g), mod)
+    map!(w -> Base.mod(div(w, g), mod), values(weights))
 
-    weight_map = Dict{Int,T}(zip(sites, weights))
-    filter!(p -> !iszero(p.second), weight_map)
-
-    return new{T}(weight_map, rhs, mod)
+    return new{T}(weights, rhs, mod)
   end
+end
+
+function SumModConstraint{T}(sites::Vector{Int}, weights, rhs; mod) where {T<:Integer}
+  @argcheck all(>(0), sites)
+  @argcheck allunique(sites)
+  @argcheck length(weights) == length(sites) DimensionMismatch
+  return SumModConstraint{T}(Dict{Int,T}(zip(sites, T.(weights))), rhs; mod)
 end
 
 function SumModConstraint(sites, weights, rhs; mod)
   T = integer(promote_type(typeof(rhs), typeof(mod), eltype(weights)))
   return SumModConstraint{T}(sites, T.(weights), convert(T, rhs); mod=convert(T, mod))
+end
+
+function SumModConstraint(weights::Dict{Int,T}, rhs; mod) where {T<:Integer}
+  return SumModConstraint{T}(weights, rhs; mod=mod)
 end
 
 """
@@ -136,19 +150,24 @@ Equivalently, the partial assignment `x[sites] == values` is forbidden.
 struct NotEqualsConstraint{T<:Real} <: AbstractConstraint
   values::Dict{Int, T}
 
-  function NotEqualsConstraint{T}(sites, values::AbstractVector{T}) where {T<:Real}
-    @argcheck all(>(0), sites)
-    @argcheck allunique(sites)
-    @argcheck length(values) == length(sites) DimensionMismatch
-
-    value_map = Dict{Int,T}(zip(sites, values))
-
-    return new{T}(value_map)
+  function NotEqualsConstraint{T}(values::Dict{Int,T}) where {T<:Real}
+    return new{T}(Dict{Int,T}(values))
   end
+end
+
+function NotEqualsConstraint{T}(sites, values::AbstractVector{T}) where {T<:Real}
+  @argcheck all(>(0), sites)
+  @argcheck allunique(sites)
+  @argcheck length(values) == length(sites) DimensionMismatch
+  return NotEqualsConstraint{T}(Dict{Int,T}(zip(sites, values)))
 end
 
 function NotEqualsConstraint(sites, values)
   return NotEqualsConstraint{eltype(values)}(sites, values)
+end
+
+function NotEqualsConstraint(values::Dict{Int,T}) where {T<:Real}
+  return NotEqualsConstraint{T}(values)
 end
 
 """
@@ -286,6 +305,30 @@ end
 
 function constraint_sites(constraint::RelationConstraint)
   return [constraint.left_site, constraint.right_site]
+end
+
+###
+### Required for model preprocessing.
+###
+function permute(c::SumConstraint, p)
+  return SumConstraint(permute(c.weights, p), c.relation, c.rhs)
+end
+
+function permute(c::SumModConstraint, p)
+  return SumModConstraint(permute(c.weights, p), c.rhs; mod = c.mod)
+end
+
+function permute(c::NotEqualsConstraint, p)
+  return NotEqualsConstraint(permute(c.values, p))
+end
+
+function permute(c::AssignmentConstraint, p)
+  return AssignmentConstraint(invperm(p)[c.sites], c.values, c.relation, c.rhs)
+end
+
+function permute(c::RelationConstraint, p)
+  invp = invperm(p)
+  return RelationConstraint(invp[c.left_site], c.relation, invp[c.right_site])
 end
 
 #----------------------------------------------------------#

@@ -14,7 +14,7 @@ function check_qubo_dimensions(Q::AbstractMatrix, l)
 end
 
 function check_ising_dimensions(J::AbstractMatrix, h::AbstractVector)
-  issquare(J) || throw(DimensionMismatch("The Ising coupling matrix must be square. Encountered dimensions $(size(J))."))
+  LinearAlgebra.checksquare(J)
   size(J, 1) == length(h) || throw(DimensionMismatch("The Ising field vector length must match the coupling matrix size. Encountered dimensions $(size(J)) and length $(length(h))."))
 end
 

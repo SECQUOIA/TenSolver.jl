@@ -58,14 +58,19 @@ function minimize(::DMRGBackend, Q::AbstractMatrix, l::AbstractVector, c::Real
   ; cutoff=1e-8
   , preprocess::Bool=false
   , domain::Domains
+  , constraints::AbstractVector{<:AbstractConstraint}
   , kwargs...
 )
-  Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  domain = permute!(domain, permutation)
-  H      = tensorize(Qp, lp; cutoff, domain)
+  if preprocess
+    Q, l, c, domain, constraints, permutation = preprocess_model(Q, l, c; domain, constraints, cutoff)
+  else
+    permutation = collect(1:length(l))
+  end
+
+  H      = tensorize(Q, l; cutoff, domain)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, constraints, kwargs...)
 end
 
 """
@@ -91,7 +96,9 @@ function minimize(
   obj(x) = real(p(vs => x))
   H      = tensorize(p; cutoff, domain)
 
-  return minimize_mpo(H, cte, obj ; cutoff, domain, kwargs...)
+  permutation = collect(1:length(vs))
+
+  return minimize_mpo(H, cte, obj ; cutoff, domain, permutation, kwargs...)
 end
 
 
@@ -226,7 +233,7 @@ function minimize_mpo( H_obj :: MPO
                      ; device      = cpu
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
                      , verbosity   = 1
-                     , constraints = AbstractConstraint[]
+                     , constraints :: AbstractVector{<:AbstractConstraint}
                      , domain     :: Domains
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
@@ -244,7 +251,7 @@ function minimize_mpo( H_obj :: MPO
                      # Iteration callback
                      , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
-                     , permutation :: Vector{Int} = collect(1:length(H_obj))
+                     , permutation :: Vector{Int}
                      ) where {T}
   @argcheck callback_every >= 1
   @argcheck check_variance_every_iteration >= 1
@@ -257,7 +264,7 @@ function minimize_mpo( H_obj :: MPO
   # Constraints
   projections = map(
     device,
-    projection_mpos(T, constraints, sites; permutation, domain),
+    projection_mpos(T, constraints, sites; domain),
   )
 
   # Hamiltonian construction
@@ -362,8 +369,8 @@ function minimize_mpo( H_obj :: MPO
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
+    optimal = obj([dom[x] for (dom, x) in zip(domain, ITensorMPS.sample!(psi))])
     dist = Solution{T}(psi, domain, permutation, stats)
-    optimal = obj(sample(dist))
   end
 
   elapsed_time = time() - initial_time

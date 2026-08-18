@@ -70,14 +70,18 @@ end
 
 Base.in(x, dom::Domains) = all(insorted.(x, dom))
 
+Random.Sampler(::Type{<:AbstractRNG}, dom::Domains, ::Repetition) = SamplerTrivial(dom)
+
+function Random.rand(rng::AbstractRNG, sp::SamplerTrivial{<:Domains})
+  return [rand(rng, d) for d in sp[]]
+end
+
 function Base.permute!(dom::Domains, permutation::AbstractVector)
   @argcheck length(dom) == length(permutation)
   dom.ds .= dom.ds[permutation]
   return dom
 end
 
-Random.Sampler(::Type{<:AbstractRNG}, dom::Domains, ::Repetition) = SamplerTrivial(dom)
-
-function Random.rand(rng::AbstractRNG, sp::SamplerTrivial{<:Domains})
-  return [rand(rng, d) for d in sp[]]
+function permute(dom::Domains{T}, permutation::AbstractVector) where T
+  return Domains{T}(dom.ds[permutation], length(dom))
 end

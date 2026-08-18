@@ -108,7 +108,7 @@ since there is no solution to query.
 """
 function sample(psi::Solution)
   if is_feasible(psi)
-    keys = ITensorMPS.sample!(psi.tensor)
+    keys = ITensorMPS.sample(psi.tensor)
     bs   = [psi.domain[i][k] for (i, k) in pairs(keys)]
     return original_order(bs, psi.permutation)
   else

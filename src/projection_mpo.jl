@@ -69,16 +69,6 @@ end
 alphabet(dfa::DFA, i) = dfa.alphabets[i]
 states(dfa::DFA, i)   = dfa.states
 
-function permute_dfa!(dfa::DFA, permutation::AbstractVector{<:Integer})
-  if length(permutation) != length(dfa.transitions)
-    throw(DimensionMismatch("DFA permutation length must match the number of transition tables"))
-  end
-
-  permute!(dfa.transitions, permutation)
-  permute!(dfa.alphabets, permutation)
-  return dfa
-end
-
 """
     dfa_to_mpo([T], dfa, sites)
 
@@ -155,11 +145,9 @@ function projection_mpo end
 function projection_mpo(::Type{T}
                        , constraint::AbstractConstraint
                        , sites
-                       ; permutation = 1:length(sites)
-                       , domain) where {T}
+                       ; domain) where {T}
   dfa = constraint_to_dfa(constraint, length(sites), domain)
-  dfa_perm = permute_dfa!(dfa, permutation)
-  return dfa_to_mpo(T, dfa_perm, sites)
+  return dfa_to_mpo(T, dfa, sites)
 end
 
 projection_mpo(constraint::AbstractConstraint, sites; kws...) =

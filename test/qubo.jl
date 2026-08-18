@@ -199,7 +199,7 @@
 
       scramble = [1, 3, 5, 2, 4]
       Q = path[scramble, scramble]
-      permutation = TenSolver.qmatrix_permutation(Q)
+      permutation = TenSolver.qmatrix_permutation(Q; cutoff = 0)
       original_bandwidth = bandwidth(Q)
       permuted_bandwidth = bandwidth(Q[permutation, permutation])
 
