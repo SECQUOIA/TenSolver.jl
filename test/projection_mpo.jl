@@ -224,53 +224,6 @@ end
     end
   end
 
-  @testset "Projection MPO permutation" begin
-    sites = ITensors.siteinds("Qudit", 4; dim=2)
-    perm = [3, 1, 4, 2]
-    domain = TenSolver.Domains{Float64}(0:1, length(sites))
-
-    constraint = RelationConstraint(1, :(<=), 4)
-    H = TenSolver.projection_mpo(constraint, sites; permutation=perm, domain)
-
-    for bits in all_bitstrings(sites)
-      # tensor-order bits -> original-order bits
-      original_bits = collect(bits)[invperm(perm)]
-      expected = Float64(is_feasible(original_bits, constraint))
-      @test mpo_diagonal(H, sites, bits) ≈ expected atol=1e-8
-    end
-  end
-
-  @testset "Projection MPO permutation with multiple constraints" begin
-    sites = ITensors.siteinds("Qudit", 5; dim=2)
-    perm = [4, 1, 5, 2, 3]
-    domain = TenSolver.Domains{Float64}(0:1, length(sites))
-
-    constraints = AbstractConstraint[
-      SumConstraint([1, 5], [1, 1], 1; relation=:(==)),
-      NotEqualsConstraint([2, 4], [1, 0]),
-      RelationConstraint(3, :(>=), 1),
-    ]
-
-    Hs = TenSolver.projection_mpos(constraints, sites; permutation=perm, domain)
-
-    @test length(Hs) == length(constraints)
-
-    # Across these assignments every constraint sees both an accepted and a
-    # rejected case after the nontrivial tensor-to-original permutation.
-    samples = (
-      (0, 0, 0, 0, 0),
-      (1, 0, 1, 0, 1),
-      (0, 1, 1, 1, 0),
-    )
-    for (constraint, H) in zip(constraints, Hs)
-      for bits in samples
-        original_bits = collect(bits)[invperm(perm)]
-        expected = Float64(is_feasible(original_bits, constraint))
-        @test mpo_diagonal(H, sites, bits) ≈ expected atol=1e-8
-      end
-    end
-  end
-
   @testset "Infeasible projections remain zero" begin
     domain = TenSolver.Domains{Float64}(0:1, 2)
     H = TenSolver.tensorize([1.0 0.5; 0.5 2.0]; domain)

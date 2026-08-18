@@ -74,7 +74,7 @@ Notice: As unexported method and types, they are subject to change without warni
 ```@docs
 TenSolver.tensorize
 TenSolver.qmatrix_permutation
-TenSolver.preprocess_qubo
+TenSolver.preprocess_model
 ```
 
 ### MPO Construction

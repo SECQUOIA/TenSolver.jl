@@ -156,6 +156,7 @@ function minimize(
   ;
   backend=default_backend,
   domain = 0:1,
+  constraints = AbstractConstraint[],
   kwargs...,
 )
   nvars = length(MP.effective_variables(p))
@@ -165,7 +166,7 @@ function minimize(
 
   domain = Domains{T}(domain, nvars)
   p      = domain_residue(p, domain)
-  return minimize(normalize_backend(backend), p; domain, kwargs...)
+  return minimize(normalize_backend(backend), p; domain, constraints, kwargs...)
 end
 
 function minimize(
@@ -175,6 +176,7 @@ function minimize(
   ;
   backend = default_backend,
   domain = 0:1,
+  constraints = AbstractConstraint[],
   kwargs...,
 )
   @argcheck length(l) == size(Q, 1)
@@ -188,7 +190,7 @@ function minimize(
   domain  = Domains{T}(domain, nvars)
   Q, l, c = domain_residue(Q, l, c, domain)
   @assert allequal([eltype(Q), eltype(l), typeof(c), eltype(domain)]) # Sanity check / debug-only
-  return minimize(normalize_backend(backend), Q, l, c; domain, kwargs...)
+  return minimize(normalize_backend(backend), Q, l, c; domain, constraints, kwargs...)
 end
 
 function minimize(l :: AbstractVector{<:Real}, c :: Real = zero(eltype(l)); kwargs...)
