@@ -289,9 +289,9 @@ The `domain` parameter represents the (finite) domain for each of the `n` variab
 function constraint_to_dfa end
 
 function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domains::Domains) where {S}
-  for domain in domains
-    @argcheck all(isinteger, domain)
-    @argcheck all(>=(0), domain)
+  for i in constraint_sites(constraint)
+    @argcheck all(isinteger, domains[i])
+    @argcheck all(>=(0), domains[i])
   end
 
   (; weights, rhs, relation) = constraint
@@ -310,9 +310,9 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domain
   )
 end
 
-function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, domains) where {S}
-  for domain in domains
-    @argcheck all(isinteger, domain)
+function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, domains::Domains) where {S}
+  for i in constraint_sites(constraint)
+    @argcheck all(isinteger, domains[i])
   end
 
   (; weights, rhs) = constraint
@@ -331,7 +331,7 @@ function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, dom
   )
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, domains) where {S}
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, domains::Domains) where {S}
   (; values) = constraint
 
   return mapreduce_dfa(
@@ -347,7 +347,7 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   )
 end
 
-function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, domains) where {S}
+function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, domains::Domains) where {S}
   (; values, rhs, relation) = constraint
   beyond = rhs + 1
 
@@ -364,7 +364,7 @@ function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer,
   )
 end
 
-function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, domains)
+function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, domains::Domains)
   # Assumes left_site < right_site, as enforced by RelationConstraint
   (; left_site, right_site, relation) = constraint
 

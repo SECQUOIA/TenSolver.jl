@@ -27,7 +27,7 @@ function Domains{T}(dom::Domains, nvariables::Integer) where T
 end
 
 function canonicalize_variable_domain(T::Type, vdomain)
-  vdomain = convert(Vector{T}, vdomain)
+  vdomain = Vector{T}(vdomain)
 
   @argcheck (!isempty)(vdomain)
   @argcheck eltype(vdomain) <: Real
@@ -54,6 +54,8 @@ Base.IndexStyle(::Type{<:Domains}) = IndexLinear()
 
 Base.eltype(dom::Domains{T})  where T = T
 Base.valtype(dom::Domains{T}) where T = T
+
+Base.IteratorEltype(::Type{<:Domains}) = Base.EltypeUnknown()
 
 function Base.iterate(dom::Domains, state::Int=1)
   if state <= length(dom)

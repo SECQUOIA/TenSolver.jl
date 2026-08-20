@@ -67,7 +67,7 @@ function reverse_cuthill_mckee(adjacency, weights)
 end
 
 """
-    qmatrix_permutation(Q; cutoff=0)
+    qmatrix_permutation(Q; cutoff)
 
 Return a deterministic permutation that places coupled QUBO variables closer
 together in the one-dimensional MPS ordering.
@@ -87,7 +87,7 @@ Q = [0.0 0.0 1.0;
      0.0 0.0 0.0;
      1.0 0.0 0.0]
 
-permutation = qmatrix_permutation(Q)
+permutation = qmatrix_permutation(Q; cutoff=0)
 Q[permutation, permutation]
 
 # output
