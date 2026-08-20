@@ -342,4 +342,30 @@ end
     @test TenSolver.prob(psi1, [0]) ≈ 0.5
     @test TenSolver.prob(psi1, [1]) ≈ 0.5
   end
+
+  @testset "Feasible model with all-positive spectrum does not collapse" begin
+    # Regression for #132: the projected Hamiltonian assigns the infeasible
+    # kernel energy zero, so when every feasible objective value is positive
+    # the kernel is the DMRG attractor and the solve used to die with
+    # "zero feasible amplitude" on most runs. The spectral shift in
+    # minimize_mpo keeps the feasible minimum below the kernel.
+    Q = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+
+    # x1 >= x3 over {1, 2}: feasible minimum 3 at [1, 1, 1].
+    rel = AbstractConstraint[RelationConstraint(1, :(>=), 3)]
+    for _ in 1:8
+      E, psi = minimize(Q; domain = [1, 2], constraints = rel, verbosity = 0)
+      @test E ≈ 3.0
+      @test is_feasible(TenSolver.sample(psi), rel)
+    end
+
+    # Forbidding the unconstrained optimum [1, 1, 1] over {1, 2, 3}:
+    # feasible minimum 6 at permutations of [2, 1, 1].
+    noteq = AbstractConstraint[NotEqualsConstraint([1, 2, 3], [1, 1, 1])]
+    for _ in 1:4
+      E, psi = minimize(Q; domain = [1, 2, 3], constraints = noteq, verbosity = 0)
+      @test E ≈ 6.0
+      @test is_feasible(TenSolver.sample(psi), noteq)
+    end
+  end
 end
