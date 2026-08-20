@@ -19,6 +19,7 @@ Any concrete subtype is expected to implement
 - [`is_feasible`](@ref)
 - [`constraint_sites`](@ref)
 - [`constraint_to_dfa`](@ref)
+- [`permute`](@ref)
 
 Constraint types are experimental. They currently provide TenSolver's
 Julia lowering target for projection-MPO constrained solves; future JuMP/MOI
@@ -310,6 +311,14 @@ end
 ###
 ### Required for model preprocessing.
 ###
+
+"""
+    permute(c::AbstractContraint, p)
+
+Reorder the constraint sites of a constraint according to a permutation `p`.
+This effectively converts the constraint to one with the same semantics but
+applied to an optimization model with reordered variables.
+"""
 function permute(c::SumConstraint, p)
   return SumConstraint(permute(c.weights, p), c.relation, c.rhs)
 end

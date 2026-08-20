@@ -61,6 +61,7 @@ TenSolver.constraint_sites
 
 ```@docs
 Base.in(::AbstractVector, ::TenSolver.Solution)
+TenSolver.permute
 ```
 
 ## Internal Functions

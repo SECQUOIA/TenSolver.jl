@@ -110,7 +110,7 @@ end
     domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
     for constraint in TEST_CONSTRAINTS
-      dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
+      dfa = TenSolver.constraint_to_dfa(constraint, domain)
 
       for bits in all_bitstrings(sites)
         expected = is_feasible(collect(bits), constraint)
@@ -284,7 +284,7 @@ end
     domain = TenSolver.Domains{Float64}(0:2, 3)
 
     for constraint in generalized_cases
-      dfa = TenSolver.constraint_to_dfa(constraint, 3, domain)
+      dfa = TenSolver.constraint_to_dfa(constraint, domain)
 
       for assignment in Iterators.product(domain...)
         @test dfa_accepts(dfa, assignment) == is_feasible(collect(assignment), constraint)
@@ -299,13 +299,12 @@ end
 
     @test_throws BoundsError TenSolver.constraint_to_dfa(
       AssignmentConstraint([4], [1], :(==), 2),
-      3,
       domain,
     )
 
     domain = TenSolver.Domains{Float64}(0:2, 4)
     bool_assignment = AssignmentConstraint([1, 3, 4], Bool[true], :(==), 2)
-    bool_dfa = @inferred TenSolver.constraint_to_dfa(bool_assignment, 4, domain)
+    bool_dfa = @inferred TenSolver.constraint_to_dfa(bool_assignment, domain)
     for bits in all_bitstrings(4)
       @test dfa_accepts(bool_dfa, bits) == is_feasible(collect(bits), bool_assignment)
     end
@@ -315,14 +314,14 @@ end
     domain = TenSolver.Domains{Float64}(0:1, 5)
     for relation in (:(==), :(<=), :(>=))
       exact_one = AssignmentConstraint(1:5, [1], relation, 1)
-      dfa = @inferred TenSolver.constraint_to_dfa(exact_one, 5, domain)
+      dfa = @inferred TenSolver.constraint_to_dfa(exact_one, domain)
       H = assert_projection_matches_feasibility(exact_one, exact_one_sites)
 
       @test ITensorMPS.maxlinkdim(H) <= 2
     end
 
     not_exactly_one = AssignmentConstraint(1:5, [1], :(!=), 1)
-    not_equal_dfa = @inferred TenSolver.constraint_to_dfa(not_exactly_one, 5, domain)
+    not_equal_dfa = @inferred TenSolver.constraint_to_dfa(not_exactly_one, domain)
     @test length(not_equal_dfa.states) <= 3
   end
 
@@ -337,7 +336,7 @@ end
     domain = TenSolver.Domains{Float64}(0:1, length(sites))
 
     for constraint in relation_cases
-      dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
+      dfa = TenSolver.constraint_to_dfa(constraint, domain)
       @test length(dfa.states) <= 2
 
       for bits in all_bitstrings(sites)
@@ -350,16 +349,20 @@ end
   end
 
   @testset "SumModConstraint projection" begin
-    sites = ITensors.siteinds("Qudit", 4; dim=3)
-    domain = TenSolver.Domains{Float64}(-1:1, length(sites))
-
     constraint = SumModConstraint([1, 3], [-1, 2], -1; mod = 3)
-    dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
-    H = assert_projection_matches_feasibility(constraint, sites; domain)
 
-    @test length(dfa.states) <= 3
-    @test ITensorMPS.maxlinkdim(H) <= constraint.mod
-    @test_throws ArgumentError TenSolver.constraint_to_dfa(constraint, length(sites), [[0, 0.5]])
+    @testset let sites   = ITensors.siteinds("Qudit", 4; dim=3),
+                 domains = TenSolver.Domains{Float64}(-1:1, length(sites))
+      dfa = TenSolver.constraint_to_dfa(constraint, domains)
+      H = assert_projection_matches_feasibility(constraint, sites; domain = domains)
+
+      @test length(dfa.states) <= 3
+      @test ITensorMPS.maxlinkdim(H) <= constraint.mod
+    end
+
+    @testset let domains = TenSolver.Domains{Float64}([0, 0.5], 3)
+      @test_throws ArgumentError TenSolver.constraint_to_dfa(constraint, domains)
+    end
   end
 
   @testset "SumConstraint floating-point lowering" begin
@@ -373,7 +376,7 @@ end
       SumConstraint([1, 2], [1.0, 2.0], 1.0; relation=:(!=)),
     ]
     for constraint in constraints
-      dfa = TenSolver.constraint_to_dfa(constraint, length(sites), domain)
+      dfa = TenSolver.constraint_to_dfa(constraint, domain)
       assert_projection_spot_checks(constraint, sites)
 
       for bits in all_bitstrings(sites)
@@ -438,14 +441,14 @@ end
   end
 
   @testset "Integrality checks for SumConstraint and SumModConstraint" begin
-    domains = [[0, 1], [0.1, 1.5], [-1, 1], [1, 5]]
+    domains = TenSolver.Domains{Float64}([[0, 1], [0.1, 1.5], [-1, 1], [1, 5]], 4)
     constraints = [
       SumConstraint([1, 4], [1, 1], 1; relation = :(==)),
       SumModConstraint([1, 3, 4], [1, 1, 1], 1; mod = 3),
      ]
 
     for c in constraints
-      @test constraint_to_dfa(c, length(domains), domains) isa TenSolver.DFA
+      @test TenSolver.constraint_to_dfa(c, domains) isa TenSolver.DFA
     end
 
     bad_constraints = [
@@ -454,8 +457,8 @@ end
       SumModConstraint([1, 2, 3], [1, 1, 1], 1; mod = 3),
      ]
 
-    for c in constraints
-      @test_throws ArgumentError constraint_to_dfa(c, length(domains), domains)
+    for c in bad_constraints
+      @test_throws ArgumentError TenSolver.constraint_to_dfa(c, domains)
     end
   end
 end
