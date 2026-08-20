@@ -426,13 +426,36 @@ end
        0.0  0.0   0.0 -1.0  0.25
        0.0  0.0   0.0  0.0  2.0
     ]
-    domain = TenSolver.Domains{Float64}(0:1, 5)
-    H = TenSolver.tensorize(Q, diag(Q); domain)
-    sites = ITensorMPS.siteinds(first, H; plev=0)
+    domain         = TenSolver.Domains{Float64}(0:1, 5)
+    H              = TenSolver.tensorize(Q, diag(Q); domain)
+    sites          = ITensorMPS.siteinds(first, H; plev=0)
     sum_constraint = SumConstraint([1, 2, 3, 4, 5], ones(Int, 5), 2; relation=:(<=))
-    projections = TenSolver.projection_mpos([sum_constraint], sites; domain)
+    projections    = TenSolver.projection_mpos([sum_constraint], sites; domain)
+    H_eff          = TenSolver.project_hamiltonian(H, projections; cutoff=1e-12)
+
     @test ITensorMPS.maxlinkdim(projections[1]) <= 2 + 2
-    H_eff = TenSolver.project_hamiltonian(H, projections; cutoff=1e-12)
     @test ITensorMPS.maxlinkdim(H_eff) <= ITensorMPS.maxlinkdim(H) * (2 + 2)
+  end
+
+  @testset "Integrality checks for SumConstraint and SumModConstraint" begin
+    domains = [[0, 1], [0.1, 1.5], [-1, 1], [1, 5]]
+    constraints = [
+      SumConstraint([1, 4], [1, 1], 1; relation = :(==)),
+      SumModConstraint([1, 3, 4], [1, 1, 1], 1; mod = 3),
+     ]
+
+    for c in constraints
+      @test constraint_to_dfa(c, length(domains), domains) isa TenSolver.DFA
+    end
+
+    bad_constraints = [
+      SumConstraint([2, 4], [1, 1], 1; relation = :(==)),
+      SumConstraint([3, 4], [1, 1], 1; relation = :(==)),
+      SumModConstraint([1, 2, 3], [1, 1, 1], 1; mod = 3),
+     ]
+
+    for c in constraints
+      @test_throws ArgumentError constraint_to_dfa(c, length(domains), domains)
+    end
   end
 end
