@@ -146,7 +146,7 @@ function projection_mpo(::Type{T}
                        , constraint::AbstractConstraint
                        , sites
                        ; domain) where {T}
-  dfa = constraint_to_dfa(constraint, length(sites), domain)
+  dfa = constraint_to_dfa(constraint, domain)
   return dfa_to_mpo(T, dfa, sites)
 end
 
@@ -255,7 +255,7 @@ end
 ##############################################
 
 """
-    mapreduce_dfa(f, op, constraint, nsites, alphabet; initial, predicate, states)
+    mapreduce_dfa(f, op, constraint, alphabets; initial, predicate, states)
 
 Build a DFA by mapping each constrained site symbol through `f` and combining
 the result in a state accumulator with `op`.
@@ -266,10 +266,10 @@ The predicate must be a Boolean-valued function deciding whether a state is acce
 
 This is an internal method encapsulating a common pattern for constraint representation.
 """
-function mapreduce_dfa(f, op, constraint, nsites, domains; initial, predicate, states)
+function mapreduce_dfa(f, op, constraint, domains; initial, predicate, states)
   accepting = Set(q for q in states if predicate(q))
 
-  transitions = [Dict((q, a) => q for q in states for a in domains[i]) for i in 1:nsites]
+  transitions = [Dict((q, a) => q for q in states for a in dom) for dom in domains]
 
   for i in constraint_sites(constraint)
     transitions[i] = Dict((q, a) => op(i)(q, f(i)(a)) for q in states, a in domains[i])
@@ -281,14 +281,16 @@ function mapreduce_dfa(f, op, constraint, nsites, domains; initial, predicate, s
 end
 
 """
-    constraint_to_dfa(constraint, n, domain)
+    constraint_to_dfa(constraint, domains)
 
-Build a [`DFA`](@ref) recognizing `constraint` with transitions for `n` steps.
-The `domain` parameter represents the (finite) domain for each of the `n` variables.
+Build a [`DFA`](@ref) recognizing an [`AbstractConstraint`](@ref)
+for variables with fixed finite [`Domains`](@ref).
+
+The transitions length is derived from the domains length.
 """
 function constraint_to_dfa end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domains::Domains) where {S}
+function constraint_to_dfa(constraint::SumConstraint{S}, domains::Domains) where {S}
   for i in constraint_sites(constraint)
     @argcheck all(isinteger, domains[i])
     @argcheck all(>=(0), domains[i])
@@ -301,7 +303,6 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domain
     i -> a -> weights[i] * S(a),
     i -> (x, y) -> min(x + y, beyond),
     constraint,
-    nsites,
     domains,
     ;
     states    = zero(S):beyond,
@@ -310,7 +311,7 @@ function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, domain
   )
 end
 
-function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, domains::Domains) where {S}
+function constraint_to_dfa(constraint::SumModConstraint{S}, domains::Domains) where {S}
   for i in constraint_sites(constraint)
     @argcheck all(isinteger, domains[i])
   end
@@ -322,7 +323,6 @@ function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, dom
     i -> a -> mod(weights[i] * a, modulus),
     i -> (x, y) -> mod(x + y, modulus),
     constraint,
-    nsites,
     domains,
     ;
     states    = zero(S):(modulus-one(S)),
@@ -331,14 +331,13 @@ function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, dom
   )
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, domains::Domains) where {S}
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, domains::Domains) where {S}
   (; values) = constraint
 
   return mapreduce_dfa(
     i -> a -> S(a) != values[i],
     i -> (|),
     constraint,
-    nsites,
     domains,
     ;
     states    = Bool[0, 1],
@@ -347,7 +346,7 @@ function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, 
   )
 end
 
-function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, domains::Domains) where {S}
+function constraint_to_dfa(constraint::AssignmentConstraint{S}, domains::Domains) where {S}
   (; values, rhs, relation) = constraint
   beyond = rhs + 1
 
@@ -355,7 +354,6 @@ function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer,
     i -> in(values),
     i -> (x, y) -> min(x + y, beyond),
     constraint,
-    nsites,
     domains,
     ;
     states    = 0:beyond,
@@ -364,7 +362,7 @@ function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer,
   )
 end
 
-function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, domains::Domains)
+function constraint_to_dfa(constraint::RelationConstraint, domains::Domains)
   # Assumes left_site < right_site, as enforced by RelationConstraint
   (; left_site, right_site, relation) = constraint
 
@@ -372,7 +370,7 @@ function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, doma
   initial   = last(states)
   accepting = Set(states)
 
-  transitions = [Dict((q, a) => q for q in states for a in domains[k]) for k in 1:nsites]
+  transitions = [Dict((q, a) => q for q in states for a in dom) for dom in domains]
 
   transitions[left_site] = Dict((q, a) => a for q in states, a in domains[left_site])
 
