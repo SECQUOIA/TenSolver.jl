@@ -1,49 +1,6 @@
 import DynamicPolynomials as DP
 using LinearAlgebra
 
-@testset "Domain Simplification" begin
-  domains = [[0, 1], [-1, 1], [-3, 4, 5.7]]
-  dim = 3
-
-  @testset "Quadratic Objectives" begin
-    Q, l, c = TenSolver.simplify_polynomial([1 0; 0 1.0], [0.0, 0.0], 0.0, [-1, 1])
-    @test iszero(Q)
-    @test iszero(l)
-    @test c ≈ 2
-
-    for domain in domains
-      Q, l, c    = randn(dim, dim), randn(dim), randn()
-      Qr, lr, cr = TenSolver.simplify_polynomial(Q, l, c, domain)
-      obj(x)   = dot(x, Q, x) + dot(l, x) + c
-      obj_r(x) = dot(x, Qr, x) + dot(lr, x) + cr
-
-      if length(domain) == 2
-        @test iszero(Diagonal(Qr))
-      end
-      for a in domain, b in domain, c in domain
-        @test obj([a, b, c]) ≈ obj_r([a, b, c])
-      end
-    end
-  end
-
-  @testset "Polynomial Objectives" begin
-    DP.@polyvar x[1:3]
-
-    for (deg, domain) in Iterators.product([2, 3, 5], domains)
-      p = randpoly(x, deg)
-      q = TenSolver.simplify_polynomial(p, domain)
-
-      for v in DP.effective_variables(q)
-        @test DP.maxdegree(q, v) <= length(domain)
-      end
-
-      for a in domain, b in domain, c in domain
-        @test p(a, b, c) ≈ q(a, b, c)
-      end
-    end
-  end
-end
-
 @testset "Non-binary domains" begin
   @testset "Unconstrained quadratic" begin
     Q = [
@@ -165,7 +122,6 @@ end
     E_ordered, psi_ordered = minimize([1.0]; domain = [1, -1], verbosity = 0)
     @test E_ordered ≈ -1.0
     @test sample(psi_ordered) == [-1.0]
-    @test psi_ordered.domain == [-1.0, 1.0]
     @test [-1] in psi_ordered
     @test [1] ∉ psi_ordered
     @test_throws DomainError [2] in psi_ordered
@@ -178,12 +134,103 @@ end
     )
 
     @test E_sparse ≈ -18.0
-    @test psi_sparse.domain == [-2.0, 0.0, 3.0]
     @test sample(psi_sparse) == [-2.0, 3.0, -2.0]
     @test [-2.0, 3.0, -2.0] in psi_sparse
     @test [0.0, 0.0, 0.0] ∉ psi_sparse
 
     @test_throws ArgumentError minimize(Q; domain = Int[], verbosity = 0)
-    @test_throws ArgumentError minimize(Q; domain = ["0", "1"], verbosity = 0)
+    @test_throws MethodError minimize(Q; domain = ["0", "1"], verbosity = 0)
+  end
+end
+
+@testset "Fractional domains" begin
+  @testset "Unconstrained objective" begin
+    domain = [0.0, 0.5, 1.0]
+    l = [-2.0, 3.0]
+
+    E, psi = minimize(l; domain, verbosity=0)
+    x = sample(psi)
+
+    @test E ≈ -2.0
+    @test x == [1.0, 0.0]
+    @test [1.0, 0.0] in psi
+  end
+
+  @testset "SumConstraint fails fast" begin
+    capacity = SumConstraint([1], [1], 1; relation=:(<=))
+    @test_throws ArgumentError minimize([0.0]; domain=[0.0, 0.5, 1.0], constraints=[capacity], verbosity=0)
+  end
+end
+
+@testset "Per-variable domains" begin
+  @testset "Linear Unconstrained Model" begin
+    domain = [0:1, 0:2, [-1, 1, 3.5]]
+    l = [-1.0, 3.0, -5.0]
+
+    E, psi = minimize(l; domain, verbosity=0)
+    x = sample(psi)
+
+    @test E ≈ -18.5
+    @test x == [1.0, 0.0, 3.5]
+    @test [1.0, 0.0, 3.5] in psi
+  end
+
+  @testset "Per-variable Float32 domains" begin
+    domain = [[0, 1], [0, 2, 5], [0, 1, 3, 4]]
+    Q = Float32[
+      2.0  0.5  0.75
+      0.0  1.5  0.0
+      0.0  0.0  3.0
+    ]
+    l = Float32[1.0, 2.0, 3.0]
+
+    E, psi = minimize(Q, l; domain, preprocess=false, verbosity=0)
+    x = TenSolver.sample(psi)
+
+    @test E isa Float32
+    @test eltype(x) === Float32
+    @test E ≈ 0.0f0
+    @test [0.0f0, 0.0f0, 0.0f0] in psi
+  end
+
+  @testset "NotEqualsConstraint with preprocess" begin
+    domain = [0:1, [0.0, 2.0, 5.0], [0.25, 1.75, 4.0, 8.0]]
+    Q = [
+      2.0  0.5  0.75
+      0.0  1.5  0.0
+      0.0  0.0  3.0
+    ]
+    l = [1.0, 2.0, 3.0]
+    constraints = AbstractConstraint[NotEqualsConstraint([2], [0])]
+
+    E0, psi0 = minimize(Q, l; domain, constraints, preprocess=false, verbosity=0)
+    E1, psi1 = minimize(Q, l; domain, constraints, preprocess=true, verbosity=0)
+
+    @test E0 ≈ 10.9375
+    @test E1 ≈ 10.9375
+    @test [0.0, 2.0, 0.25] in psi0
+    @test [0.0, 2.0, 0.25] in psi1
+    @test is_feasible(sample(psi0), constraints)
+    @test is_feasible(sample(psi1), constraints)
+  end
+
+  @testset "RelationConstraint with per-variable domains" begin
+    domain = [[0, 2], [-1, 0], [1, 3, 4]]
+    Q = [
+      1.0  0.0  0.0
+      0.0 -1.0  0.0
+      0.0  0.0  1.0
+    ]
+    constraints = [RelationConstraint(1, :(>=), 3)]
+
+    E0, psi0 = minimize(Q; domain, constraints, preprocess=false, verbosity=0)
+    E1, psi1 = minimize(Q; domain, constraints, preprocess=true, verbosity=0)
+
+    @test E0 ≈ 4.0
+    @test E1 ≈ 4.0
+    @test [2.0, -1.0, 1.0] in psi0
+    @test [2.0, -1.0, 1.0] in psi1
+    @test is_feasible(sample(psi0), constraints)
+    @test is_feasible(sample(psi1), constraints)
   end
 end

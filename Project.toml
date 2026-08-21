@@ -1,9 +1,10 @@
 name = "TenSolver"
 uuid = "cfd60579-01bf-4b47-9b3b-7c8dc91a23e2"
-authors = ["Iago Leal de Freitas <iago@iagoleal.com>", "David E. Bernal Neira <dbernaln@purdue.edu>"]
 version = "0.3.0"
+authors = ["Iago Leal de Freitas <iago@iagoleal.com>", "David E. Bernal Neira <dbernaln@purdue.edu>"]
 
 [deps]
+ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 Combinatorics = "861a8166-3701-5b0c-9a16-15d98fcdc6aa"
 ITensorMPS = "0d1a4710-d33b-49a5-8f18-73bdf49b47e2"
 ITensors = "9136182c-28ba-11e9-034c-db9fb085ebd5"
@@ -12,6 +13,7 @@ MultivariatePolynomials = "102ac46a-7ee4-5c85-9060-abc95bfdeaa3"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 QUBODrivers = "a3f166f7-2cd3-47b6-9e1e-6fbfe0449eb0"
 QUBOTools = "60eb5b62-0a39-4ddc-84c5-97d2adff9319"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [weakdeps]
@@ -23,6 +25,7 @@ SpinGlassTensors = "7584fc6a-5a23-4eeb-8277-827aab0146ea"
 TenSolverSpinGlassPEPSExt = ["SpinGlassEngine", "SpinGlassNetworks", "SpinGlassTensors"]
 
 [compat]
+ArgCheck = "2.5.0"
 Combinatorics = "1"
 ITensorMPS = "0.3, 0.4"
 ITensors = "0.9"
@@ -31,6 +34,7 @@ MultivariatePolynomials = "0.5.9"
 Printf = "1"
 QUBODrivers = "0.6.1"
 QUBOTools = "0.13, 0.14, 0.15, 0.16"
+Random = "1.10"
 SparseArrays = "1.10"
 SpinGlassEngine = "1.6"
 SpinGlassNetworks = "1.4"

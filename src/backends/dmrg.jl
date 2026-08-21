@@ -1,10 +1,3 @@
-import ITensors: inner
-import ITensorMPS: MPS, MPO, OpSum, siteinds, @OpName_str, @SiteType_str, @StateName_str
-
-import ITensors, ITensorMPS
-
-import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
-
 # Diagonal matrix whose eigenvalues are the ordered feasible values for a variable.
 # For Spin variables, this is the Pauli σ_z matrix.
 # For Boolean variables, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -54,7 +47,7 @@ statistics vectors; check with [`is_feasible`](@ref) before sampling.
 """
 struct DMRGSolution{T <: Real} <: Solution
   tensor      :: Union{MPS,Nothing}
-  domain      :: Vector{T}
+  domain      :: Domains{T}
   permutation :: Vector{Int}
   stats       :: SolverStatistics{T}
 
@@ -92,7 +85,8 @@ query.
 """
 function sample(psi::DMRGSolution)
   if is_feasible(psi)
-    bs = psi.domain[ITensorMPS.sample!(psi.tensor)]
+    keys = ITensorMPS.sample(psi.tensor)
+    bs   = [psi.domain[i][k] for (i, k) in pairs(keys)]
     return original_order(bs, psi.permutation)
   else
     throw(DomainError("the model is infeasible; there is no solution to sample"))
@@ -103,21 +97,18 @@ function prob(psi::DMRGSolution{T}, bs) where {T}
   return is_feasible(psi) ? abs2(coeff(psi, bs)) : zero(T)
 end
 
-function coeff(psi::DMRGSolution, bs)
-  tn    = psi.tensor
-  sites = siteinds(tn)
-  bs    = bs[psi.permutation]
-  positions = map(bs) do value
-    position = findfirst(==(value), psi.domain)
-    if isnothing(position)
-      throw(DomainError(value, "value is outside the solution domain $(psi.domain)"))
-    end
-    return position - 1
+function coeff(psi::DMRGSolution, assignment)
+  (; domain, permutation, tensor) = psi
+  assignment = assignment[permutation]
+  if assignment in domain
+    positions = [searchsortedfirst(d, v) - 1 for (v, d) in zip(assignment, domain)]
+  else
+    throw(DomainError(assignment, "Value not in domain $(repr(domain))"))
   end
   # Qudit state names are zero-based basis positions, not physical domain values.
-  psi0  = MPS(sites, string.(positions))
+  psi0  = MPS(ITensorMPS.siteinds(tensor), string.(positions))
 
-  return inner(psi0,  tn)
+  return inner(psi0, tensor)
 end
 
 """
@@ -148,17 +139,23 @@ Backend-specific keyword arguments:
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
 """
-function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::T
+function minimize(::DMRGBackend, Q::AbstractMatrix, l::AbstractVector, c::Real
   ; cutoff=1e-8
   , preprocess::Bool=false
-  , domain::AbstractVector = 0:1
+  , domain::Domains
+  , constraints::AbstractVector{<:AbstractConstraint}
   , kwargs...
-) where T
-  Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, lp; cutoff, domain)
+)
+  if preprocess
+    Q, l, c, domain, constraints, permutation = preprocess_model(Q, l, c; domain, constraints, cutoff)
+  else
+    permutation = collect(1:length(l))
+  end
+
+  H      = tensorize(Q, l; cutoff, domain)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, constraints, kwargs...)
 end
 
 """
@@ -173,18 +170,20 @@ See also [`maximize`](@ref).
 """
 function minimize(
   ::DMRGBackend,
-  p::AbstractPolynomial{T}
+  p::AbstractPolynomial
   ;
   cutoff=1e-8,
-  domain::AbstractVector = 0:1,
+  domain::Domains,
   kwargs...,
-) where {T}
+)
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
   H      = tensorize(p; cutoff, domain)
 
-  return minimize_mpo(H, cte, obj ; cutoff, domain, kwargs...)
+  permutation = collect(1:length(vs))
+
+  return minimize_mpo(H, cte, obj ; cutoff, domain, permutation, kwargs...)
 end
 
 
@@ -253,7 +252,7 @@ function tensorize(
   Q::AbstractArray{T},
   rest::Vararg{AbstractArray{T}};
   cutoff = zero(T),
-  domain,
+  domain::Domains,
 ) where T
   Qs = [Q, rest...]
   if !allequal(Iterators.flatmap(size, Qs))
@@ -261,7 +260,7 @@ function tensorize(
   end
 
   N = size(Q, 1)
-  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
+  sites = [ITensors.siteind("Qudit"; dim = length(domain[k])) for k in 1:N]
   os = OpSum{T}()
 
   for t in Qs
@@ -272,7 +271,7 @@ function tensorize(
       coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
 
       if abs(coeff) > cutoff
-        op   = Iterators.flatmap(v -> ("D", (domain = domain,), v), idx)
+        op   = Iterators.flatmap(k -> ("D", (domain = domain[k],), k), idx)
         os .+= (coeff, op...)
       end
     end
@@ -284,10 +283,10 @@ end
 function tensorize(
   p::AbstractPolynomial{T};
   cutoff = zero(T),
-  domain,
+  domain::Domains,
 ) where T
   N = length(effective_variables(p))
-  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
+  sites = [ITensors.siteind("Qudit"; dim = length(domain[k])) for k in 1:N]
   os = OpSum{T}()
 
   # Map: var name => index
@@ -300,8 +299,9 @@ function tensorize(
       op = Iterators.flatten(
         map(powers(t)) do p
           v, e = p
+          k = indices[v]
           Iterators.flatten(
-            Iterators.repeated(("D", (domain = domain,), indices[v]), e),
+            Iterators.repeated(("D", (domain = domain[k],), k), e),
           )
         end
       )
@@ -318,8 +318,8 @@ function minimize_mpo( H_obj :: MPO
                      ; device      = cpu
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
                      , verbosity   = 1
-                     , constraints = AbstractConstraint[]
-                     , domain
+                     , constraints :: AbstractVector{<:AbstractConstraint}
+                     , domain     :: Domains
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
@@ -336,12 +336,11 @@ function minimize_mpo( H_obj :: MPO
                      # Iteration callback
                      , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
-                     , permutation :: Vector{Int} = collect(1:length(H_obj))
+                     , permutation :: Vector{Int}
                      ) where {T}
-  callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  check_variance_every_iteration >= 1 || throw(ArgumentError(
-    "`check_variance_every_iteration` must be >= 1, got $check_variance_every_iteration",
-  ))
+  @argcheck callback_every >= 1
+  @argcheck check_variance_every_iteration >= 1
+
   initial_time = time()
 
   # Quantization
@@ -350,7 +349,7 @@ function minimize_mpo( H_obj :: MPO
   # Constraints
   projections = map(
     device,
-    projection_mpos(T, constraints, sites; permutation, domain),
+    projection_mpos(T, constraints, sites; domain),
   )
 
   # Hamiltonian construction
@@ -455,8 +454,8 @@ function minimize_mpo( H_obj :: MPO
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
+    optimal = obj([dom[x] for (dom, x) in zip(domain, ITensorMPS.sample!(psi))])
     dist = DMRGSolution{T}(psi, domain, permutation, stats)
-    optimal = obj(sample(dist))
   end
 
   elapsed_time = time() - initial_time

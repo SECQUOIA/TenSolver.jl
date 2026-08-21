@@ -64,9 +64,16 @@ function peps_options(;
   )
 end
 
-function check_spin_domain(domain)
-  return domain == [-1, 1] ||
-         throw(ArgumentError("PEPSBackend requires domain = [-1, 1]. Got $(repr(domain)).",),)
+function check_spin_domain(domain::TenSolver.Domains)
+  return all(d == [-1, 1] for d in domain) ||
+         throw(ArgumentError("PEPSBackend requires domain = [-1, 1] for every variable. " *
+                             "Got $(repr(domain)).",),)
+end
+
+function check_no_constraints(constraints)
+  return isempty(constraints) ||
+         throw(ArgumentError("PEPSBackend does not support native constraints. " *
+                             "Got $(length(constraints)) constraint(s).",),)
 end
 
 peps_float_type(::Type{T}) where {T} = float(T)
@@ -325,7 +332,7 @@ end
 function TenSolver.minimize(
   backend::PEPSBackend,
   p::AbstractPolynomial;
-  domain::AbstractVector,
+  domain::TenSolver.Domains,
   kwargs...,
 )
   check_spin_domain(domain)
@@ -338,13 +345,15 @@ function TenSolver.minimize(
   J::AbstractMatrix{T},
   h::AbstractVector{T},
   offset::T;
-  domain::AbstractVector,
+  domain::TenSolver.Domains,
+  constraints::AbstractVector = TenSolver.AbstractConstraint[],
   cutoff = nothing,
   preprocess::Bool = false,
   verbosity::Integer = 1,
   kwargs...,
 ) where {T<:Real}
   check_spin_domain(domain)
+  check_no_constraints(constraints)
   if preprocess
     throw(ArgumentError("PEPSBackend does not support preprocess=true because the topology " *
                         "fixes the variable order.",),)

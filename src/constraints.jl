@@ -1,3 +1,11 @@
+integer(::Type{T}) where {T<:Integer} = T
+integer(::Type) = Int
+
+function permute(d::Dict{K,V}, p) where {K, V}
+  invp = invperm(p)
+  return Dict{K,V}(invp[k] => v for (k, v) in d)
+end
+
 """
     AbstractConstraint
 
@@ -11,6 +19,7 @@ Any concrete subtype is expected to implement
 - [`is_feasible`](@ref)
 - [`constraint_sites`](@ref)
 - [`constraint_to_dfa`](@ref)
+- [`permute`](@ref)
 
 Constraint types are experimental. They currently provide TenSolver's
 Julia lowering target for projection-MPO constrained solves; future JuMP/MOI
@@ -36,28 +45,40 @@ and `relation` must be one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`.
 
 Warning: The `==` and `!=` relations use exact arithmetic comparison.
 """
-struct SumConstraint{T<:Real} <: AbstractConstraint
+struct SumConstraint{T<:Integer} <: AbstractConstraint
   weights::Dict{Int,T}
   relation::Symbol
   rhs::T
 
-  function SumConstraint{T}(sites, weights, relation, rhs) where {T<:Real}
-    site_vec   = validate_sites(sites)
-    weight_vec = validate_weights(weights)
-    validate_same_length(site_vec, weight_vec, "sites", "weights")
-    relation   = validate_relation(relation)
-    rhs        = validate_rhs(rhs)
+  function SumConstraint{T}(weights, relation, rhs) where {T<:Integer}
+    @argcheck relation in VALID_RELATIONS
+    @argcheck rhs >= 0
 
-    weight_map = Dict{Int,T}(zip(site_vec, weight_vec))
+    rhs     = T(rhs)
+    weights = Dict{Int,T}(k => v for (k, v) in weights if !iszero(v))
+    g       = gcd(rhs, values(weights)...)
 
-    return new{T}(weight_map, relation, rhs)
+    rhs = div(rhs, g)
+    map!(w -> div(w, g), values(weights))
+
+    return new{T}(weights, relation, rhs)
   end
 end
 
-function SumConstraint(sites, weights, relation, rhs)
-  weight_types = map(typeof, weights)
-  T = promote_type(weight_types..., typeof(rhs))
+function SumConstraint{T}(sites::Vector{Int}, weights, relation, rhs) where {T<:Integer}
+  @argcheck allunique(sites)
+  @argcheck all(>(0), sites)
+  @argcheck length(weights) == length(sites) DimensionMismatch
+  @argcheck all(>=(0), weights)
+  return SumConstraint{T}(Dict{Int,T}(zip(sites, T.(weights))), relation, rhs)
+end
 
+function SumConstraint(weights::Dict{Int,T}, relation, rhs) where {T<:Integer}
+  return SumConstraint{T}(weights, relation, rhs)
+end
+
+function SumConstraint(sites, weights, relation, rhs)
+  T = integer(promote_type(typeof(rhs), eltype(weights)))
   return SumConstraint{T}(sites, weights, relation, rhs)
 end
 
@@ -80,30 +101,41 @@ and `mod` must be a positive integer.
 
 Weights and the rhs are stored as their least nonnegative residues modulo `mod`.
 """
-struct SumModConstraint{T<:Real} <: AbstractConstraint
+struct SumModConstraint{T<:Integer} <: AbstractConstraint
   weights::Dict{Int,T}
   rhs::T
   mod::T
 
-  function SumModConstraint{T}(sites, weights, rhs; mod) where {T<:Real}
-    site_vec    = validate_sites(sites)
-    raw_weights = validate_integer_values(collect(weights), "weights")
-    validate_same_length(site_vec, raw_weights, "sites", "weights")
-    modulus = validate_modulus(mod)
-    raw_rhs = validate_integer_value(rhs, "rhs")
+  function SumModConstraint{T}(weights, rhs; mod) where {T<:Integer}
+    @argcheck mod >= 1
 
-    weight_vec     = Base.mod.(raw_weights, modulus)
-    normalized_rhs = Base.mod(raw_rhs, modulus)
-    weight_map     = Dict{Int,T}(zip(site_vec, weight_vec))
+    mod     = T(mod)
+    rhs     = Base.mod(T(rhs), mod)
+    weights = Dict{Int,T}(k => Base.mod(v, mod) for (k, v) in weights if !iszero(Base.mod(v, mod)))
+    g       = gcd(mod, rhs, values(weights)...)
 
-    return new{T}(weight_map, normalized_rhs, modulus)
+    mod = div(mod, g)
+    rhs = Base.mod(div(rhs, g), mod)
+    map!(w -> Base.mod(div(w, g), mod), values(weights))
+
+    return new{T}(weights, rhs, mod)
   end
 end
 
-function SumModConstraint(sites, weights, rhs; mod)
-  T = promote_type(map(typeof, weights)..., typeof(rhs), typeof(mod))
+function SumModConstraint{T}(sites::Vector{Int}, weights, rhs; mod) where {T<:Integer}
+  @argcheck all(>(0), sites)
+  @argcheck allunique(sites)
+  @argcheck length(weights) == length(sites) DimensionMismatch
+  return SumModConstraint{T}(Dict{Int,T}(zip(sites, T.(weights))), rhs; mod)
+end
 
+function SumModConstraint(sites, weights, rhs; mod)
+  T = integer(promote_type(typeof(rhs), typeof(mod), eltype(weights)))
   return SumModConstraint{T}(sites, T.(weights), convert(T, rhs); mod=convert(T, mod))
+end
+
+function SumModConstraint(weights::Dict{Int,T}, rhs; mod) where {T<:Integer}
+  return SumModConstraint{T}(weights, rhs; mod=mod)
 end
 
 """
@@ -119,21 +151,24 @@ Equivalently, the partial assignment `x[sites] == values` is forbidden.
 struct NotEqualsConstraint{T<:Real} <: AbstractConstraint
   values::Dict{Int, T}
 
-  function NotEqualsConstraint{T}(sites, values::AbstractVector{T}) where {T<:Real}
-    site_vec = validate_sites(sites)
-    validate_same_length(site_vec, values, "sites", "values")
-
-    value_map = Dict{Int,T}(zip(site_vec, values))
-
-    return new{T}(value_map)
+  function NotEqualsConstraint{T}(values::Dict{Int,T}) where {T<:Real}
+    return new{T}(Dict{Int,T}(values))
   end
 end
 
-function NotEqualsConstraint(sites, values)
-  isempty(values) && throw(ArgumentError("values must not be empty"))
-  T = promote_type(map(typeof, values)...)
+function NotEqualsConstraint{T}(sites, values::AbstractVector{T}) where {T<:Real}
+  @argcheck all(>(0), sites)
+  @argcheck allunique(sites)
+  @argcheck length(values) == length(sites) DimensionMismatch
+  return NotEqualsConstraint{T}(Dict{Int,T}(zip(sites, values)))
+end
 
-  return NotEqualsConstraint{T}(sites, T.(values))
+function NotEqualsConstraint(sites, values)
+  return NotEqualsConstraint{eltype(values)}(sites, values)
+end
+
+function NotEqualsConstraint(values::Dict{Int,T}) where {T<:Real}
+  return NotEqualsConstraint{T}(values)
 end
 
 """
@@ -160,11 +195,12 @@ struct AssignmentConstraint{T<:Real} <: AbstractConstraint
   rhs      :: Int
 
   function AssignmentConstraint{T}(sites, values, relation, rhs) where {T<:Real}
-    site_vec = validate_sites(sites)
-    relation = validate_relation(relation)
-    rhs      = Int(validate_rhs(rhs))
+    @argcheck all(>(0), sites)
+    @argcheck allunique(sites)
+    @argcheck rhs >= 0
+    @argcheck relation in VALID_RELATIONS
 
-    return new{T}(site_vec, Set(values), relation, rhs)
+    return new{T}(sites, Set(values), relation, Int(rhs))
   end
 end
 
@@ -187,12 +223,17 @@ struct RelationConstraint <: AbstractConstraint
   relation::Symbol
   right_site::Int
 
-  function RelationConstraint(left_site, relation, right_site)
-    left  = validate_site(left_site, "left_site")
-    right = validate_site(right_site, "right_site")
-    left == right && throw(ArgumentError("relation constraint sites must be distinct"))
+  function RelationConstraint(left, relation, right)
+    @argcheck left  > 0
+    @argcheck right > 0
+    @argcheck left != right
+    @argcheck relation in VALID_RELATIONS
 
-    return new(left, validate_relation(relation), right)
+    return if left < right
+      new(left, relation, right)
+    else
+      new(right, relation_swap(relation), left)
+    end
   end
 end
 
@@ -267,8 +308,40 @@ function constraint_sites(constraint::RelationConstraint)
   return [constraint.left_site, constraint.right_site]
 end
 
+###
+### Required for model preprocessing.
+###
+
+"""
+    permute(c::AbstractContraint, p)
+
+Reorder the constraint sites of a constraint according to a permutation `p`.
+This effectively converts the constraint to one with the same semantics but
+applied to an optimization model with reordered variables.
+"""
+function permute(c::SumConstraint, p)
+  return SumConstraint(permute(c.weights, p), c.relation, c.rhs)
+end
+
+function permute(c::SumModConstraint, p)
+  return SumModConstraint(permute(c.weights, p), c.rhs; mod = c.mod)
+end
+
+function permute(c::NotEqualsConstraint, p)
+  return NotEqualsConstraint(permute(c.values, p))
+end
+
+function permute(c::AssignmentConstraint, p)
+  return AssignmentConstraint(invperm(p)[c.sites], c.values, c.relation, c.rhs)
+end
+
+function permute(c::RelationConstraint, p)
+  invp = invperm(p)
+  return RelationConstraint(invp[c.left_site], c.relation, invp[c.right_site])
+end
+
 #----------------------------------------------------------#
-# Constraint Validation
+# Valid relations
 #----------------------------------------------------------#
 
 const VALID_RELATIONS = (
@@ -278,101 +351,20 @@ const VALID_RELATIONS = (
   Symbol(">="),
 )
 
-function validate_site(site, name)
-  site isa Integer || throw(ArgumentError("$name must be an integer"))
-  site > 0 || throw(ArgumentError("$name must be a positive integer"))
-
-  return Int(site)
-end
-
-function validate_sites(sites)
-  if isempty(sites)
-    throw(ArgumentError("sites must not be empty"))
-  end
-
-  validated = [validate_site(site, "sites") for site in sites]
-  if !allunique(validated)
-    throw(ArgumentError("sites must be unique"))
-  end
-
-  return validated
-end
-
-function validate_same_length(left, right, left_name, right_name)
-  if length(left) != length(right)
-    throw(DimensionMismatch("$left_name and $right_name must have the same length"))
-  end
-end
-
-function validate_weights(weights)
-  if isempty(weights)
-    throw(ArgumentError("weights must not be empty"))
-  end
-  # Nonnegativity is a deliberate v1 contract (issue #56 acceptance criteria):
-  # it keeps the predicate aligned with the nonnegative projection targets used
-  # by the constraint/MPO work tracked in #57. Signed weights (e.g. encoding a
-  # difference `x1 - x2 == 0`) are intentionally out of scope here and should be
-  # revisited together with that lowering, not relaxed in isolation.
-  for (i, weight) in enumerate(weights)
-    if weight < 0
-      throw(ArgumentError("Found negative weight w[$(i)] = $(repr(weight)). Weights must be nonnegative."))
-    end
-    if !isinteger(weight)
-      throw(ArgumentError("Found noninteger weight w[$(i)] = $(repr(weight)). Weights must be integer."))
-    end
-  end
-
-  return weights
-end
-
-function validate_integer_value(value, name)
-  if !isinteger(value)
-    throw(ArgumentError("Found noninteger $name = $(repr(value)). $name must be integer."))
-  end
-
-  return value
-end
-
-function validate_integer_values(values, name)
-  isempty(values) && throw(ArgumentError("$name must not be empty"))
-
-  for (i, value) in enumerate(values)
-    validate_integer_value(value, "$name[$(i)]")
-  end
-
-  return values
-end
-
-function validate_modulus(modulus)
-  validate_integer_value(modulus, "mod")
-  modulus >= 1 || throw(ArgumentError("mod must be a positive integer"))
-
-  return modulus
-end
-
-function validate_rhs(rhs)
-  if rhs < 0
-    throw(ArgumentError("Found negative rhs = $(repr(rhs)). rhs must be nonnegative."))
-  end
-  if !isinteger(rhs)
-    throw(ArgumentError("Found noninteger rhs = $(repr(rhs)). rhs must be integer."))
-  end
-
-  return rhs
-end
-
-function validate_relation(relation)
-  relation in VALID_RELATIONS ||
-    throw(ArgumentError("relation must be one of: $(join(string.(VALID_RELATIONS), ", "))"))
-
-  return relation
-end
-
 function relation_holds(lhs, relation, rhs)
-  relation === Symbol("==") && return lhs == rhs
-  relation === Symbol("!=") && return lhs != rhs
-  relation === Symbol("<=") && return lhs <= rhs
-  relation === Symbol(">=") && return lhs >= rhs
+  relation === :(==) && return lhs == rhs
+  relation === :(!=) && return lhs != rhs
+  relation === :(<=) && return lhs <= rhs
+  relation === :(>=) && return lhs >= rhs
+
+  error("unsupported relation: $relation")
+end
+
+function relation_swap(relation)
+  relation === :(==) && return :(==)
+  relation === :(!=) && return :(!=)
+  relation === :(<=) && return :(>=)
+  relation === :(>=) && return :(<=)
 
   error("unsupported relation: $relation")
 end

@@ -15,218 +15,117 @@
 """
     DFA{S, A}
 
-Step-dependent deterministic finite automaton.
+Deterministic finite automaton with step-dependent and partial transitions.
 
 Fields:
 - `states`: DFA states, used to define the MPO bond dimension.
-- `alphabet`: local symbols, ordered to match the physical basis positions.
+- `alphabet`: Per-stage DFA alphabet.
 - `initial`: start state.
 - `accepting`: set of accepting states.
-- `transitions`: one transition table per site; each table maps `(state, symbol)` to
+- `transitions`: one transition table per step; each table maps `(state, symbol)` to
   the next state. Missing entries are rejected.
 """
 struct DFA{S,A}
   states::Vector{S}
-  alphabet::Vector{A}
+  alphabets::Vector{Vector{A}}
   initial::S
   accepting::Set{S}
   transitions::Vector{Dict{Tuple{S,A},S}}
-  function DFA{S,A}(states, alphabet, initial, accepting, transitions) where {S,A}
-    state_vec      = collect(S, states)
-    alphabet_vec   = collect(A, alphabet)
-    transition_vec = collect(transitions)
-    accepting_set  = Set{S}(accepting)
-    initial_state  = convert(S, initial)
+  function DFA{S,A}(states, alphabets, initial, accepting, transitions) where {S,A}
+    accepting = Set{S}(accepting)
 
-    alphabet_set   = Set(alphabet_vec)
-    state_set      = Set(state_vec)
+    @argcheck (!isempty)(states)
+    @argcheck allunique(states)
+    @argcheck initial in states
+    @argcheck issubset(accepting, states)
 
-    # Validate here so all downstream code can assume these invariants.
-    if isempty(state_vec)
-      throw(ArgumentError("states must not be empty"))
-    end
-    if isempty(alphabet_vec)
-      throw(ArgumentError("alphabet must not be empty"))
-    end
-    if isempty(transition_vec)
-      throw(ArgumentError("transitions must not be empty"))
-    end
-    if !allunique(state_vec)
-      throw(ArgumentError("states must be unique"))
-    end
-    if !(initial_state in state_vec)
-      throw(ArgumentError("initial must be one of the DFA states"))
-    end
-    if !issubset(accepting_set, state_set)
-      throw(ArgumentError("accepting must be a subset of states"))
-    end
+    @argcheck (!isempty)(alphabets)
+    @argcheck all(!isempty, alphabets)
+    @argcheck length(alphabets) == length(transitions)
 
-    for (i, table) in enumerate(transition_vec), ((s, a), ns) in table
-      if !(s in state_set)
-        throw(ArgumentError("transition table $(i): unknown source state $(repr(s))"))
-      end
-
-      if !(a in alphabet_set)
-        throw(ArgumentError("transition table $(i): symbol $(repr(a)) is not in the alphabet"))
-      end
-
-      if !(ns in state_set)
-        throw(ArgumentError("transition table $(i): unknown target state $(repr(ns))"))
+    @argcheck (!isempty)(transitions)
+    let states_set = Set(states)
+      for (i, table) in enumerate(transitions), ((s, a), ns) in table
+        @argcheck s  in states_set   "transitions[$(i)]: unknown source state"
+        @argcheck a  in alphabets[i] "transitions[$(i)]: symbol not in alphabet"
+        @argcheck ns in states_set   "transitions[$(i)]: unknown target state"
       end
     end
 
-    return new{S,A}(state_vec, alphabet_vec, initial_state, accepting_set, transition_vec)
+    return new{S,A}(states, alphabets, initial, accepting, transitions)
   end
 end
 
-function DFA(states, alphabet, initial, accepting, transitions)
+function DFA(states, alphabets, initial, accepting, transitions)
   S = eltype(states)
-  A = eltype(alphabet)
-  return DFA{S,A}(states, alphabet, initial, accepting, transitions)
+  A = eltype(first(alphabets))
+  return DFA{S,A}(states, alphabets, initial, accepting, transitions)
 end
 
-function DFA(; states, alphabet, initial, accepting, transitions)
-  return DFA(states, alphabet, initial, accepting, transitions)
+function DFA(; states, alphabets, initial, accepting, transitions)
+  return DFA(states, alphabets, initial, accepting, transitions)
 end
 
-function permute_dfa!(dfa::DFA, permutation::AbstractVector{<:Integer})
-  if length(permutation) != length(dfa.transitions)
-    throw(DimensionMismatch("DFA permutation length must match the number of transition tables"))
-  end
-
-  permute!(dfa.transitions, permutation)
-  return dfa
-end
-
-function tensor_from_nonzeros(::Type{T}, inds, nonzeros) where {T}
-  ind_tuple = Tuple(inds)
-  tensor = ITensors.ITensor(T, ind_tuple...)
-
-  for (coordinate, value) in nonzeros
-    coordinate_tuple = Tuple(coordinate)
-    length(coordinate_tuple) == length(ind_tuple) ||
-      throw(DimensionMismatch("nonzero coordinate length must match tensor order"))
-
-    selector = map(i -> ind_tuple[i] => coordinate_tuple[i], eachindex(ind_tuple))
-    tensor[selector...] = tensor[selector...] + convert(T, value)
-  end
-
-  return tensor
-end
-
-function tensor_indices(site, left_link, right_link)
-  return filter(!isnothing, (left_link, site, ITensors.prime(site), right_link))
-end
-
-function tensor_coordinate(symbol_pos::Integer, left_pos, right_pos, left_link, right_link)
-  coordinate = Int[]
-  !isnothing(left_link) && push!(coordinate, left_pos)
-  push!(coordinate, symbol_pos, symbol_pos)
-  !isnothing(right_link) && push!(coordinate, right_pos)
-  return coordinate
-end
-
-function dfa_site_tensor(
-  ::Type{T},
-  site,
-  left_link,
-  right_link,
-  dfa::DFA,
-  step::Integer,
-  state_positions,
-) where {T}
-  inds = tensor_indices(site, left_link, right_link)
-  nonzeros = Tuple{Vector{Int},T}[]
-  table = dfa.transitions[step]
-
-  source_states = isnothing(left_link) ? (dfa.initial,) : dfa.states
-  for source_state in source_states
-    left_pos = isnothing(left_link) ? nothing : state_positions[source_state]
-
-    for (symbol_pos, symbol) in enumerate(dfa.alphabet)
-      next_state = get(table, (source_state, symbol), nothing)
-      isnothing(next_state) && continue
-
-      if isnothing(right_link)
-        next_state in dfa.accepting || continue
-        push!(
-          nonzeros,
-          (tensor_coordinate(symbol_pos, left_pos, nothing, left_link, right_link), one(T)),
-        )
-      else
-        right_pos = state_positions[next_state]
-        push!(
-          nonzeros,
-          (tensor_coordinate(symbol_pos, left_pos, right_pos, left_link, right_link), one(T)),
-        )
-      end
-    end
-  end
-
-  return tensor_from_nonzeros(T, inds, nonzeros)
-end
-
-function validate_dfa_sites(dfa::DFA, sites)
-  if isempty(sites)
-    throw(ArgumentError("sites must not be empty"))
-  end
-  if any(site -> ITensors.dim(site) != length(dfa.alphabet), sites)
-    throw(DimensionMismatch("each site dimension must match the DFA alphabet size"))
-  end
-  if length(sites) != length(dfa.transitions)
-    throw(DimensionMismatch("DFA transition tables must match the number of sites"))
-  end
-end
+alphabet(dfa::DFA, i) = dfa.alphabets[i]
+states(dfa::DFA, i)   = dfa.states
 
 """
     dfa_to_mpo([T], dfa, sites)
 
 Build an exact diagonal projection MPO from a step-dependent DFA.
 
-The physical index basis positions are matched against `dfa.alphabet` in order:
-`alphabet[k]` corresponds to local basis state `k`.
-
-The MPO bond dimension equals `length(dfa.states)`.
+The MPO bond dimension is at most the number of states.
 """
-function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where {T}
-  validate_dfa_sites(dfa, sites)
-
-  state_positions = Dict(state => i for (i, state) in enumerate(dfa.states))
-  links = [
-    ITensors.Index(length(dfa.states), "Link,DFA,l=$i")
-    for i in 1:max(length(sites) - 1, 0)
-  ]
-
-  tensors = Vector{ITensors.ITensor}(undef, length(sites))
-  for site_position in eachindex(sites)
-    left_link  = site_position == firstindex(sites) ? nothing : links[site_position - 1]
-    right_link = site_position == lastindex(sites)  ? nothing : links[site_position]
-
-    tensors[site_position] = dfa_site_tensor(
-      T,
-      sites[site_position],
-      left_link,
-      right_link,
-      dfa,
-      site_position,
-      state_positions,
-    )
+function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where T
+  for (k, site) in pairs(sites)
+    @argcheck ITensors.dim(site) == length(alphabet(dfa, k))
   end
-
-  return ITensorMPS.truncate!(ITensorMPS.MPO(tensors); cutoff = eps(T))
+  tensors = transition_tensors(T, dfa)
+  return arrays_to_itensor_mpo( tensors, sites)
 end
 
-dfa_to_mpo(dfa::DFA, sites) = dfa_to_mpo(Float64, dfa, sites)
+# Turn a stepwise DFA into a sequence of 3-tensors or 4-tensors
+# representing its transition matrices.
+function transition_tensors(::Type{T}, dfa::DFA) where T
+  (; transitions, initial, accepting) = dfa
+
+  # initial -> states -> states -> ... -> states -> accepting
+  sources(i) = i == firstindex(transitions) ? (initial,)   : states(dfa, i)
+  targets(i) = i == lastindex(transitions)  ? (accepting,) : tuple.(states(dfa, i))
+
+  # Turn a 1xkxnxn or kx1xnxn tensor into a kxnxn tensor (used on the boundaries)
+  proper_shape(A) = dropdims(A; dims = Tuple(filter(d -> size(A, d) == 1, (1, 2))))
+
+  return [
+    proper_shape(T[
+      a == b && haskey(transitions[i], (s, a)) && transitions[i][(s, a)] in ts
+      for s  in sources(i),
+          ts in targets(i),
+          a  in alphabet(dfa, i),
+          b  in alphabet(dfa, i)
+    ])
+    for (i, t) in pairs(transitions)
+  ]
+end
+
+# Turn a homebrew MPO into an appropriate ITensor.
+# This is the only bridge between ITensor and this module.
+function arrays_to_itensor_mpo(arrays, sites) :: MPO
+  links = [
+    ITensors.Index(size(A, 1), "Link,l=$i")
+    for (i, A) in pairs(arrays) if i != lastindex(arrays)
+  ]
+  wires(i) = filter(!isnothing, (get(links, i-1, nothing), get(links, i, nothing), sites[i]', sites[i]))
+  itensors = [ ITensors.itensor(A, wires(i)...) for (i, A) in pairs(arrays) ]
+
+  return ITensorMPS.truncate!(ITensorMPS.MPO(itensors); cutoff = eps(real(eltype(first(arrays)))))
+end
 
 """
     projection_mpo([T], constraint, sites; domain)
 
 Build a projection MPO representing a `constraint` applicable to any MPS over `sites`.
-
-The diagonal entry is `one(T)` for computational basis states
-satisfying `constraint`, and `zero(T)` otherwise.
-The current construction is exact and uncompressed.
-Constraint site numbers use the same 1-based register indexing as `sites`.
+Constraint site numbers must use the same 1-based register indexing as `sites`.
 
 # Known constraints
 
@@ -238,8 +137,7 @@ Constraint site numbers use the same 1-based register indexing as `sites`.
   independently of the rhs.
 - [`AssignmentConstraint`](@ref) uses a membership counting automaton.
   For rhs `k`, the maximum bond dimension is `k+2`.
-- [`RelationConstraint`](@ref) uses a MPO with bond dimension `2`,
-  independently of the compared site positions.
+- [`RelationConstraint`](@ref) uses a MPO with bond dimension equal to the first variable's domain size.
 """
 function projection_mpo end
 
@@ -247,11 +145,9 @@ function projection_mpo end
 function projection_mpo(::Type{T}
                        , constraint::AbstractConstraint
                        , sites
-                       ; permutation = 1:length(sites)
-                       , domain) where {T}
-  dfa = constraint_to_dfa(constraint, length(sites), domain)
-  dfa_perm = permute_dfa!(dfa, permutation)
-  return dfa_to_mpo(T, dfa_perm, sites)
+                       ; domain) where {T}
+  dfa = constraint_to_dfa(constraint, domain)
+  return dfa_to_mpo(T, dfa, sites)
 end
 
 projection_mpo(constraint::AbstractConstraint, sites; kws...) =
@@ -266,14 +162,14 @@ This is a convenience wrapper around [`projection_mpo`](@ref).
 `T` controls the numeric element type of the assembled MPO tensors.
 """
 function projection_mpos(::Type{T}, constraints::AbstractVector{<:AbstractConstraint}, sites; kws...) where {T}
-  return [projection_mpo(T, constraint, sites; kws...) for constraint in constraints]
+  return MPO[projection_mpo(T, constraint, sites; kws...) for constraint in constraints]
 end
 
 projection_mpos(constraints::AbstractVector{<:AbstractConstraint}, sites; kws...) =
   projection_mpos(Float64, constraints, sites; kws...)
 
 """
-    project_hamiltonian(H, projections; formulation=:commuting, cutoff=1e-8, kwargs...)
+    project_hamiltonian(H, projections; formulation=:commuting, cutoff, kwargs...)
 
 Project a Hamiltonian MPO with one or more projection MPOs.
 
@@ -314,7 +210,7 @@ function project_hamiltonian(
 end
 
 """
-    project_state(psi, projections; cutoff=1e-8, kwargs...)
+    project_state(psi, projections; kwargs...)
 
 Apply one or more diagonal projection MPOs to an MPS.
 
@@ -322,17 +218,13 @@ The result has zero amplitude on basis states rejected by any projection,
 while keeping the original unprimed site indices
 so it can be used as a DMRG input state.
 """
-function project_state(psi::ITensorMPS.MPS, projections; cutoff=1e-8, kwargs...)
+function project_state(psi::ITensorMPS.MPS, projections; kwargs...)
   projection_tuple = projection_sequence(projections)
-  target_sites = projection_target_sites(psi)
+  target_sites     = projection_target_sites(psi)
   validate_projection_sequence(target_sites, projection_tuple)
 
-  projected = psi
-  for P in projection_tuple
-    projected = ITensors.apply(P, projected; cutoff, kwargs...)
-  end
-
-  return projected
+  op = (x, y) -> ITensors.apply(x, y; kwargs...)
+  return foldr(op, projection_tuple; init = psi)
 end
 
 projection_sequence(projection::ITensorMPS.MPO) = (projection,)
@@ -363,128 +255,130 @@ end
 ##############################################
 
 """
-    constraint_to_dfa(constraint, n, alphabet)
+    mapreduce_dfa(f, op, constraint, alphabets; initial, predicate, states)
 
-Build a [`DFA`](@ref) recognizing `constraint` with transitions for `n` steps.
-The `alphabet` parameter represents the domain for a constraint's variables.
+Build a DFA by mapping each constrained site symbol through `f` and combining
+the result in a state accumulator with `op`.
+
+The function `f` is assumed to take the `states` to a set where `op`
+acts as a monoid operation, i.e., its associative and `initial` is the identity element.
+The predicate must be a Boolean-valued function deciding whether a state is accepting or not.
+
+This is an internal method encapsulating a common pattern for constraint representation.
+"""
+function mapreduce_dfa(f, op, constraint, domains; initial, predicate, states)
+  accepting = Set(q for q in states if predicate(q))
+
+  transitions = [Dict((q, a) => q for q in states for a in dom) for dom in domains]
+
+  for i in constraint_sites(constraint)
+    transitions[i] = Dict((q, a) => op(i)(q, f(i)(a)) for q in states, a in domains[i])
+  end
+
+  S = eltype(states)
+  A = eltype(first(domains))
+  return DFA{S,A}(states, [domains...], initial, accepting, transitions)
+end
+
+"""
+    constraint_to_dfa(constraint, domains)
+
+Build a [`DFA`](@ref) recognizing an [`AbstractConstraint`](@ref)
+for variables with fixed finite [`Domains`](@ref).
+
+The transitions length is derived from the domains length.
 """
 function constraint_to_dfa end
 
-function constraint_to_dfa(constraint::SumConstraint{S}, nsites::Integer, alphabet) where {S}
-  if !all(a -> isinteger(a) && a >= 0, alphabet)
-    throw(ArgumentError("SumConstraint only supports nonnegative integer domains."))
+function constraint_to_dfa(constraint::SumConstraint{S}, domains::Domains) where {S}
+  for i in constraint_sites(constraint)
+    @argcheck all(isinteger, domains[i])
+    @argcheck all(>=(0), domains[i])
   end
 
   (; weights, rhs, relation) = constraint
-  beyond    = rhs + one(S)
+  beyond = rhs + one(S)
 
-  states    = zero(S):beyond
-  initial   = zero(S)
-  accepting = Set(q for q in states if relation_holds(q, relation, rhs))
-
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
-
-  for site in constraint_sites(constraint)
-    transitions[site] = Dict(
-      (q, a) => min(q + weights[site] * a, beyond)
-      for q in states, a in alphabet
-    )
-  end
-
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return mapreduce_dfa(
+    i -> a -> weights[i] * S(a),
+    i -> (x, y) -> min(x + y, beyond),
+    constraint,
+    domains,
+    ;
+    states    = zero(S):beyond,
+    initial   = zero(S),
+    predicate = q -> relation_holds(q, relation, rhs),
+  )
 end
 
-function constraint_to_dfa(constraint::SumModConstraint{S}, nsites::Integer, alphabet) where {S}
-  if !all(isinteger, alphabet)
-    throw(ArgumentError("SumModConstraint only supports integer domains."))
+function constraint_to_dfa(constraint::SumModConstraint{S}, domains::Domains) where {S}
+  for i in constraint_sites(constraint)
+    @argcheck all(isinteger, domains[i])
   end
 
   (; weights, rhs) = constraint
   modulus = constraint.mod
 
-  states    = zero(S):(modulus-one(S))
-  initial   = zero(S)
-  accepting = Set(rhs)
-
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
-
-  for site in constraint_sites(constraint)
-    transitions[site] = Dict(
-      (q, a) => mod(q + weights[site] * a, modulus)
-      for q in states, a in alphabet
-    )
-  end
-
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return mapreduce_dfa(
+    i -> a -> mod(weights[i] * a, modulus),
+    i -> (x, y) -> mod(x + y, modulus),
+    constraint,
+    domains,
+    ;
+    states    = zero(S):(modulus-one(S)),
+    initial   = zero(S),
+    predicate = ==(rhs),
+  )
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, nsites::Integer, alphabet) where {S}
-  states    = [:mismatch, :all_matched]
-  initial   = :all_matched
-  accepting = Set([:mismatch])
+function constraint_to_dfa(constraint::NotEqualsConstraint{S}, domains::Domains) where {S}
+  (; values) = constraint
 
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
-
-  for site in constraint_sites(constraint)
-    target = constraint.values[site]
-
-    transitions[site] = Dict(
-      (q, a) => S(a) == target ? q : :mismatch
-      for q in states, a in alphabet
-    )
-  end
-
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return mapreduce_dfa(
+    i -> a -> S(a) != values[i],
+    i -> (|),
+    constraint,
+    domains,
+    ;
+    states    = Bool[0, 1],
+    initial   = false,
+    predicate = identity,
+  )
 end
 
-function constraint_to_dfa(constraint::AssignmentConstraint{S}, nsites::Integer, alphabet) where {S}
+function constraint_to_dfa(constraint::AssignmentConstraint{S}, domains::Domains) where {S}
   (; values, rhs, relation) = constraint
-  beyond    = rhs + one(S)
+  beyond = rhs + 1
 
-  states    = zero(S):beyond
-  initial   = zero(S)
-  accepting = Set(q for q in states if relation_holds(q, relation, rhs))
-
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
-
-  f(_, a) = S(a in values)
-  for site in constraint_sites(constraint)
-    transitions[site] = Dict(
-      (q, a) => min(q + f(site, a), beyond)
-      for q in states, a in alphabet
-    )
-  end
-
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return mapreduce_dfa(
+    i -> in(values),
+    i -> (x, y) -> min(x + y, beyond),
+    constraint,
+    domains,
+    ;
+    states    = 0:beyond,
+    initial   = 0,
+    predicate = q -> relation_holds(q, relation, rhs),
+  )
 end
 
-function constraint_to_dfa(constraint::RelationConstraint, nsites::Integer, alphabet)
-  left  = constraint.left_site
-  right = constraint.right_site
+function constraint_to_dfa(constraint::RelationConstraint, domains::Domains)
+  # Assumes left_site < right_site, as enforced by RelationConstraint
+  (; left_site, right_site, relation) = constraint
 
-  first_site    = min(left, right)
-  second_site   = max(left, right)
-  left_is_first = left == first_site
-
-  states    = alphabet
+  states    = domains[left_site]
   initial   = last(states)
   accepting = Set(states)
 
-  id_dict = Dict((q, a) => q for q in states for a in alphabet)
-  transitions = fill(id_dict, nsites)
+  transitions = [Dict((q, a) => q for q in states for a in dom) for dom in domains]
 
-  transitions[first_site] = Dict((q, a) => a for q in states, a in alphabet)
+  transitions[left_site] = Dict((q, a) => a for q in states, a in domains[left_site])
 
-  transitions[second_site] = Dict(
+  transitions[right_site] = Dict(
     (q, a) => q
-    for q in states, a in alphabet
-    if left_is_first ? relation_holds(q, constraint.relation, a) :
-                       relation_holds(a, constraint.relation, q)
+    for q in states, a in domains[right_site]
+    if relation_holds(q, constraint.relation, a)
   )
 
-  return DFA(states, alphabet, initial, accepting, transitions)
+  return DFA{eltype(states), eltype(states)}(states, [domains...], initial, accepting, transitions)
 end
