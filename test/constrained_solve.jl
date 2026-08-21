@@ -367,5 +367,17 @@ end
       @test E ≈ 6.0
       @test is_feasible(TenSolver.sample(psi), noteq)
     end
+
+    # The model from issue #132: per-variable domains, mixed-sign objective,
+    # every feasible value positive. Brute-force optimum 0.3 at [0, -1, 1].
+    dom132 = [[0.0, 2.0], [-1.0, 0.0], [1.0, 3.0, 4.0]]
+    Q132 = [1.0 0.3 0.0; 0.0 -1.0 0.2; 0.0 0.0 1.0]
+    l132 = [0.1, -0.2, 0.3]
+    rel132 = AbstractConstraint[RelationConstraint(1, :(<=), 3)]
+    for _ in 1:4
+      E, psi = minimize(Q132, l132; domain = dom132, constraints = rel132, verbosity = 0)
+      @test E ≈ 0.3
+      @test is_feasible(TenSolver.sample(psi), rel132)
+    end
   end
 end

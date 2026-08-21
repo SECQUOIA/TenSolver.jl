@@ -129,24 +129,30 @@ function constant_term(p::AbstractPolynomial{T}) where T
   return isnothing(idx) ? zero(T) : coefficient(ts[idx])
 end
 
-# Upper bound on the objective magnitude over the domain box (every |x_i| below
-# max |domain value|), excluding the constant term, which `tensorize` also
-# excludes. Constrained solves shift the Hamiltonian spectrum down by more than
-# this bound so the projection kernel cannot undercut the feasible spectrum;
-# see the shift construction in `minimize_mpo` and issue #132.
-function objective_box_bound(Q::AbstractMatrix, l::AbstractVector, domain)
-  M = maximum(abs, domain)
-  return M^2 * sum(abs, Q) + M * sum(abs, l)
+# Strict upper bound on the objective magnitude over the domain box: each
+# variable is bounded by its own domain's largest magnitude, and the one-unit
+# margin keeps the bound strictly above every attainable value. The constant
+# term is excluded, matching `tensorize`. Constrained solves use this value
+# directly as the spectral shift in `minimize_mpo`.
+function objective_box_bound(Q::AbstractMatrix, l::AbstractVector, domain::Domains)
+  M = [maximum(abs, d) for d in domain]
+  return M' * abs.(Q) * M + dot(abs.(l), M) + one(eltype(M))
 end
 
-function objective_box_bound(p::AbstractPolynomial{T}, domain) where T
-  M = maximum(abs, domain)
-  bound = zero(abs(one(T)) * M)
+function objective_box_bound(p::AbstractPolynomial{T}, domain::Domains) where T
+  M       = [maximum(abs, d) for d in domain]
+  indices = Dict(v => i for (i, v) in enumerate(effective_variables(p)))
+
+  bound = zero(real(T))
   for t in terms(p)
     isconstant(t) && continue
-    bound += abs(coefficient(t)) * M^sum(last, powers(t))
+    term_bound = abs(coefficient(t))
+    for (v, e) in powers(t)
+      term_bound *= M[indices[v]]^e
+    end
+    bound += term_bound
   end
-  return bound
+  return bound + one(bound)
 end
 
 # Returns `nothing` when the projected state has no feasible amplitude,
@@ -255,7 +261,7 @@ function minimize_mpo( H_obj :: MPO
                      , verbosity   = 1
                      , constraints :: AbstractVector{<:AbstractConstraint}
                      , domain      :: Domains
-                     , objective_bound :: Union{Nothing, Real} = nothing
+                     , objective_bound :: T
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
@@ -288,24 +294,19 @@ function minimize_mpo( H_obj :: MPO
     projection_mpos(T, constraints, sites; domain),
   )
 
-  # Hamiltonian construction
   zero_objective = is_zero_tensor(H_obj; cutoff)
 
   # The projected Hamiltonian P'HP assigns energy zero to the infeasible
   # subspace (the kernel of the projections). When every feasible objective
   # value is positive, that kernel is the ground space, so the DMRG sweep is
   # attracted into it and the solve collapses with zero feasible amplitude
-  # (issue #132). Shifting the objective spectrum below zero by more than its
-  # magnitude bound makes the feasible minimum the true ground state again;
-  # the shift is added back to every reported energy.
-  shift = if zero_objective || isempty(projections) || isnothing(objective_bound)
-    zero(real(T))
-  else
-    real(T)(objective_bound) + one(real(T))
-  end
-  H_solve = iszero(shift) ? H_obj : H_obj - shift * ITensorMPS.MPO(T, sites, "Id")
+  # ([issue #132](https://github.com/SECQUOIA/TenSolver.jl/issues/132)). Shifting the objective spectrum below zero by more than its
+  # magnitude bound makes the feasible minimum the true ground state again.
+  shift = zero_objective || isempty(projections) ? zero(real(T)) : real(T)(objective_bound)
 
-  H_obj = device(H_obj)
+  # Hamiltonian construction
+  H_solve = iszero(shift) ? H_obj : H_obj - shift * ITensorMPS.MPO(T, sites, "Id")
+  H_obj   = device(H_obj)
   H = zero_objective ? H_obj : device(project_hamiltonian(device(H_solve), projections; cutoff))
 
   # Initial state
@@ -348,8 +349,6 @@ function minimize_mpo( H_obj :: MPO
                       , eigsolve_maxiter
                       , eigsolve_verbosity = 0
                  )
-    # The solve ran on the shifted spectrum; report objective-scale energies.
-    energy += shift
 
     # Get metadata #
     checked_variance = nothing
@@ -364,10 +363,14 @@ function minimize_mpo( H_obj :: MPO
 
     bond_dim = ITensorMPS.maxlinkdim(psi)
 
+    # The solve runs on the shifted spectrum; every reported value undoes the
+    # shift together with the constant, in one place.
+    objective = energy + shift + c
+
     # Per-iteration stats (always collected)
     record_stats!(
       stats;
-      energy = energy+c,
+      energy = objective,
       bond_dim,
       elapsed_time,
       variance = checked_variance,
@@ -376,7 +379,7 @@ function minimize_mpo( H_obj :: MPO
     iterlog_iteration(
       verbosity,
       i,
-      energy + c,
+      objective,
       bond_dim,
       checked_variance,
       elapsed_time,
@@ -384,7 +387,7 @@ function minimize_mpo( H_obj :: MPO
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
-      on_iteration(psi; iteration=i, objective=energy+c, bond_dim, elapsed_time)
+      on_iteration(psi; iteration=i, objective, bond_dim, elapsed_time)
     end
 
     # Stopping criteria #
@@ -425,10 +428,11 @@ function groundstate(H::MPO, psi0::MPS; projections, cutoff=1e-8, kwargs...)
     # In exact arithmetic the sweep keeps a feasible start feasible (the local
     # eigensolver only ever applies P'HP to a feasible state), but the injected
     # `noise` term and SVD truncation can leak amplitude into the infeasible
-    # subspace. That subspace is the kernel of the projections. With the
-    # spectral shift applied by `minimize_mpo` the kernel sits above every
-    # feasible energy, so the sweep itself penalizes leaked amplitude back out
-    # and this re-projection is only a numerical cleanup.
+    # subspace — the kernel of the projections. The spectral shift in
+    # `minimize_mpo` makes that kernel energetically unfavorable, which
+    # suppresses leakage but cannot forbid it (DMRG updates are local and noise
+    # is injected deliberately), so this re-projection remains the feasibility
+    # guarantee for the sampled state.
     psi = project_feasible_state(psi, projections; cutoff)
   else
     # ITensorMPS.dmrg does not support single-site systems, so solve the n=1
