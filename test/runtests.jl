@@ -22,6 +22,7 @@ include(filepath("variable_domains.jl"))
 
 # Ising <-> QUBO utilities
 include(filepath("ising_conversion.jl"))
+include(filepath("peps_backend.jl"))
 
 # Binary constraint API
 include(filepath("constraints.jl"))

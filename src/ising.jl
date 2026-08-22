@@ -166,3 +166,18 @@ end
 function ising_to_qubo(J::AbstractMatrix, h::AbstractVector, offset::Real=0)
   return ising_to_qubo(ising_form(J, h, offset))
 end
+
+"""
+    ising_energy(J, h, c, s)
+
+Evaluate an Ising Model at a spin vector `s_i in {-1, +1}`.
+"""
+
+function ising_energy(
+  J::AbstractMatrix,
+  h::AbstractVector,
+  offset::Real,
+  s::AbstractVector,
+)
+  return offset + dot(h, s) + dot(s, J, s)
+end

@@ -126,7 +126,7 @@
   end
 
   @testset "Iteration stats tracking" begin
-    @testset "Solution carries stats" begin
+    @testset "DMRGSolution carries stats" begin
       E, psi = minimize(
         [1.0 0; 0 -1.0];
         iterations=5,
@@ -135,6 +135,7 @@
         verbosity=0,
       )
       @test psi isa TenSolver.Solution
+      @test psi isa TenSolver.DMRGSolution
       @test length(psi.stats.energies)      == 5
       @test length(psi.stats.bond_dims)     == 5
       @test length(psi.stats.elapsed_times) == 5

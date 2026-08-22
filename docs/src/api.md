@@ -14,6 +14,7 @@ TenSolver.maximize
 ```@docs
 TenSolver.AbstractTenSolverBackend
 TenSolver.DMRGBackend
+TenSolver.PEPSBackend
 TenSolver.normalize_backend
 ```
 
@@ -21,6 +22,7 @@ TenSolver.normalize_backend
 
 ```@docs
 TenSolver.Solution
+TenSolver.DMRGSolution
 TenSolver.SolverStatistics
 ```
 
@@ -78,6 +80,7 @@ TenSolver.qmatrix_permutation
 TenSolver.preprocess_model
 ```
 
+
 ### MPO Construction
 
 ```@docs
@@ -101,6 +104,13 @@ TenSolver.project_state
 ```@docs
 TenSolver.Domains
 TenSolver.domain_residue
+```
+
+### PEPS Backend
+
+```@docs
+TenSolver.SquareGrid
+TenSolver.KingGrid
 ```
 
 ## Index
