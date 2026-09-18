@@ -114,6 +114,25 @@ Since ITensor's GPU platform support is always improving,
 be sure to check out their [documentation](https://itensor.github.io/ITensors.jl/stable/)
 to know which GPUs are accepted.
 
+### Optional exact backend
+
+TenSolver's default backend remains the approximate ITensors/DMRG solver. For QUBO/PUBO
+objectives already expressible through TenSolver, you can optionally load
+GenericTensorNetworks.jl and ProblemReductions.jl to compute exact solution-space properties:
+
+```julia
+using TenSolver
+using GenericTensorNetworks, ProblemReductions
+
+Q = [0.0 2.0; 0.0 0.0]
+l = [-1.0, -1.0]
+
+E, sol = TenSolver.minimize(Q, l, 3.0; backend = :gtn)
+```
+
+This integration does not re-export GenericTensorNetworks' native structured problem
+types; use GenericTensorNetworks directly for those.
+
 ## Citing TenSolver
 
 If you use TenSolver in your research, please cite our [NeurIPS 2025 Workshop paper](https://openreview.net/pdf?id=EL002DTBRA):

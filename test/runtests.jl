@@ -37,6 +37,7 @@ include(filepath("pubo.jl"))
 include(filepath("domains.jl"))
 include(filepath("spin_domains.jl"))
 include(filepath("constrained_solve.jl"))
+include(filepath("gtn.jl"))
 
 # JuMP interface
 include(filepath("jump.jl"))
