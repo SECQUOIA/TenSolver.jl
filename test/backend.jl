@@ -7,6 +7,25 @@ function TenSolver.minimize(::TestSymbolBackend, Q::AbstractMatrix{T}, l::Union{
 end
 
 @testset "Backend interface" begin
+  @testset "DMRG is the default backend" begin
+    Q = reshape([-2.0], 1, 1)
+
+    default_energy, default_solution = minimize(Q; verbosity=0)
+    object_energy, object_solution = minimize(Q; backend=DMRGBackend(), verbosity=0)
+    symbol_energy, symbol_solution = minimize(Q; backend=:dmrg, verbosity=0)
+
+    @test default_energy ≈ -2.0
+    @test object_energy ≈ default_energy
+    @test symbol_energy ≈ default_energy
+    @test TenSolver.sample(default_solution) == [1]
+    @test TenSolver.sample(object_solution) == [1]
+    @test TenSolver.sample(symbol_solution) == [1]
+  end
+
+  @test TenSolver.GTNBackend() isa TenSolver.AbstractTenSolverBackend
+  @test :GTNBackend ∉ names(TenSolver)
+  @test !isdefined(TenSolver, :solution_space)
+
   @testset "Maximize forwards backend selection" begin
     # The three-valued domain keeps the diagonal quadratic term in Q instead
     # of simplifying it into the linear term before it reaches the backend.
@@ -47,6 +66,14 @@ end
     @test occursin("backend :peps is not available", sprint(showerror, peps_error))
     @test occursin("PEPS extension", sprint(showerror, peps_error))
     @test occursin("backend = :dmrg", sprint(showerror, peps_error))
+
+    gtn_error = try
+      minimize(Q; backend=:gtn)
+    catch err
+      err
+    end
+    @test gtn_error isa ArgumentError
+    @test occursin("requires GenericTensorNetworks and ProblemReductions", sprint(showerror, gtn_error))
 
     unknown_symbol_error = try
       minimize(Q; backend=:foo, verbosity=0)
