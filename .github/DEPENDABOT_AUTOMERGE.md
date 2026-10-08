@@ -10,7 +10,8 @@ eligible only after that head passes the same gates.
 
 The workflow checks out trusted `main`, never PR code or artifacts, and uses the
 built-in Actions token. It re-reads identity and clean mergeability, verifies
-strict branch protection, and squash-merges with `--match-head-commit`, without
+enforced required checks and that the verified head contains current `main`,
+and squash-merges with `--match-head-commit`, without
 admin bypass or a deferred merge request. Existing review/conversation gates
 still apply. Errors are isolated per PR and reported after both merge and
 publication passes; one failure cannot starve the other PRs.
@@ -32,8 +33,11 @@ publication passes; one failure cannot starve the other PRs.
 ## Branch protection and activation
 
 Activation requires a maintainer to protect `main` with strict up-to-date required checks listed below. Until then, automatic merges fail closed. This PR does not change repository settings.
-The workflow verifies that `main` is protected, strict checking is enabled, and
-these contexts remain enforced before merging:
+The workflow verifies public branch-protection metadata and SHA ancestry.
+The public branch summary does not expose the admin-only `strict` field; strict
+up-to-date checking remains a maintainer activation prerequisite and GitHub
+enforces protection atomically when merging. The script refuses unprotected or
+un-enforced branches and verifies these contexts remain enforced:
 
 - `Julia lts - ubuntu-latest - x64 - pull_request`
 - `Julia lts - windows-latest - x64 - pull_request`
@@ -45,7 +49,7 @@ these contexts remain enforced before merging:
 - `Julia 1 - macOS-latest - aarch64 - pull_request`
 - `Julia pre - macOS-latest - aarch64 - pull_request`
 
-Review and merge this draft before activation. When `main` advances, update
+When `main` advances, update
 existing Dependabot branches with "Update branch" or `@dependabot rebase` and
 wait for new CI. The policy runs after configured workflow completions, every
 15 minutes, and through manual dispatch. Repository native auto-merge settings
@@ -54,10 +58,10 @@ verifying all gates.
 
 ## Publication and live verification
 
-`GITHUB_TOKEN` merges suppress ordinary push/PR-close workflows. Recent token merges are reconciled for seven days: documentation.yml. Dispatches run trusted `main`, wait for each successful publisher, and use named runs to avoid duplicates. Failed runs stay visible and require a manual rerun. All publishers share a queue across refs; preview cleanup is idempotent and uses a normal fast-forward push.
+`GITHUB_TOKEN` merges suppress ordinary push/PR-close workflows. Recent token merges are reconciled for seven days: documentation.yml. Dispatches run trusted `main`, wait for each successful publisher, and use named runs to avoid duplicates. Failed runs stay visible and require a manual rerun. The documentation publisher shares a queue across refs and retains deployment failures.
 Main push CI is also suppressed; CI badges and Codecov baselines stay at the last
 ordinary main run unless CI is run manually. The up-to-date PR CI remains required.
-Tag/release and explicitly requested data/sysimage publishing remain manual;
+Tag/release publishing remains manual;
 this policy does not invoke release workflows.
 
 After activation, verify the first real token merge and each dispatched publisher
