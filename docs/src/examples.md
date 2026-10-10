@@ -239,7 +239,8 @@ x = TenSolver.sample(psi)
 
 ## Tracking Optimization Progress
 
-The returned `Solution` always carries lightweight per-iteration statistics in the `stats` field.
+The default DMRG backend returns a [`TenSolver.DMRGSolution`](@ref) with
+lightweight per-iteration statistics in the `stats` field.
 See [`TenSolver.SolverStatistics`](@ref) for more details.
 
 `psi.stats.energies`, `psi.stats.bond_dims`, and `psi.stats.elapsed_times` contain
