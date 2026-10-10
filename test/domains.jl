@@ -130,6 +130,10 @@ using LinearAlgebra
       [1.0, -4.0, 2.0];
       domain = [-2, 0, 3],
       iterations = 4,
+      # This membership fixture needs a converged state, not four noisy sweeps.
+      # The full three-site space has 3^3 states; do not truncate its eigensolve.
+      noise = 0.0,
+      eigsolve_krylovdim = 27,
       verbosity = 0,
     )
 
