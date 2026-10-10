@@ -34,14 +34,10 @@ Pegasus, or Zephyr topology.
 
 ## Proposed PEPS Backend Boundary
 
-SpinGlassPEPS.jl targets a different solver boundary. The package itself is an
-umbrella package that reexports component packages including:
-
-- SpinGlassNetworks.jl for Ising graph construction and lattice/cluster rules.
-- SpinGlassEngine.jl for Potts Hamiltonians, branch-and-bound search, low-energy
-  spectra, and droplet reconstruction.
-- SpinGlassTensors.jl for PEPS construction and boundary-MPS contraction.
-- SpinGlassExhaustive.jl for exhaustive utilities.
+SpinGlassPEPS.jl targets a different solver boundary. Version 2 consolidates
+its graph, tensor, contraction, and search components in one registered package.
+TenSolver imports those APIs through `SpinGlassPEPS` rather than depending on
+separately versioned component packages.
 
 The algorithm builds a finite-temperature PEPS representation of a Boltzmann
 distribution for a clustered Ising/Potts Hamiltonian. It uses approximate
@@ -87,45 +83,42 @@ implementation steps.
 
 There are three reasons for this:
 
-- TenSolver currently supports Julia 1.10, while SpinGlassPEPS 1.5.0 declares
-  Julia 1.11 compatibility.
-- The SpinGlassPEPS component stack brings a larger numerical dependency
+- TenSolver currently supports Julia 1.10, while SpinGlassPEPS 2.x requires
+  Julia 1.11 or later.
+- SpinGlassPEPS brings a larger numerical dependency
   footprint, including packages used for tensor operations, truncated
   decompositions, CPU/GPU execution, and documentation/examples.
 - Most TenSolver users who call the existing DMRG backend should not pay load
   time, installation, or GPU compatibility costs for an optional structured
   backend.
 
-The preferred integration shape is a Julia package extension or a small bridge
-package that is loaded only when the SpinGlassPEPS component packages are
-available. The core TenSolver package should define the stable data and result
-interfaces that the bridge implements. The bridge should depend on the
-SpinGlassPEPS components directly when that is cleaner than depending on the
-umbrella reexport package.
+The integration uses the `TenSolverSpinGlassPEPSExt` Julia package extension.
+`SpinGlassPEPS` is a weak dependency with compatibility starting at version
+2.0.1; installing and loading it activates the extension on Julia 1.11 or later.
+The core package retains Julia 1.10 support and its existing DMRG dependencies.
 
 ## Data Model Boundary
 
-TenSolver's public inputs are Boolean optimization models. The PEPS solver
-expects structured spin-glass data. The bridge must therefore make the
-conversion explicit.
+TenSolver's direct API carries explicit variable domains. This bridge accepts
+native spin-domain inputs, `domain = [-1, 1]`, and returns native spins. It uses
+the shared `minimize` entry point without introducing an `IsingModel` wrapper
+or a separate `solve_ising` API.
 
-The expected data flow is:
+The data flow is:
 
-1. Normalize TenSolver input to a Boolean QUBO representation.
-2. Convert Boolean variables `x in {0, 1}` to Ising spins `s in {-1, +1}` using
-   one documented convention.
+1. Normalize domains and reduce spin-square terms to the objective offset.
+2. Read quadratic matrix or polynomial coefficients in the native spin domain.
 3. Build an Ising graph with local fields and pair couplings.
-4. Attach a supported layout or cluster assignment rule.
-5. Build the corresponding Potts Hamiltonian and PEPS network.
+4. Attach the explicitly supplied layout and cluster assignment rule.
+5. Build the Potts Hamiltonian and PEPS network.
 6. Run boundary-MPS contraction plus branch-and-bound search.
-7. Decode returned Potts/Ising states back to Boolean vectors.
-8. Adapt results to TenSolver and QUBOTools result types.
+7. Decode returned Potts states to native spin vectors.
+8. Evaluate those vectors in the original objective, including its offset, and
+   normalize the retained distribution through the shared solution interface.
 
-The QUBO-to-Ising conversion is important enough to land as its own PR before
-the backend bridge. It should include exact round-trip and energy-preservation
-tests for small instances. The implementation should make sign and constant
-offset conventions visible because mistakes there can silently return plausible
-but wrong energies.
+QUBO conversion utilities remain available for callers that need an explicit
+Boolean/spin conversion. The PEPS extension does not silently convert Boolean
+inputs or reinterpret their domain.
 
 TenSolver uses the Boolean/spin convention `x_i = (s_i + 1) / 2` and
 `s_i = 2x_i - 1`. The conversion utilities are adapters into QUBOTools forms,
@@ -164,7 +157,7 @@ internal types as the default public result. A practical result boundary is:
 
 The first bridge should preserve at least:
 
-- ranked Boolean states and their objective values;
+- ranked native spin states and their original objective values;
 - PEPS probabilities when available;
 - largest discarded probability when available;
 - chosen layout and lattice transformation;
@@ -185,35 +178,34 @@ learn the SpinGlassPEPS API. The current behavior is:
 - unavailable backend symbols error clearly without changing default DMRG
   behavior.
 
-This stack step keeps the direct PEPS path as non-public scaffolding. The core
-package contains internal backend, topology, and result boundaries, while
-`minimize(J, h, offset; domain = [-1, 1], backend = ...)` remains the only
-Ising solver entry point. `TenSolverSpinGlassPEPSExt` owns the PEPS-specific
-`minimize` methods, option validation, SpinGlass component imports, and calls.
-This keeps ordinary TenSolver installs on the existing dependency footprint
-and avoids documenting an activation path that cannot be tested from
-registered packages.
+The direct PEPS types remain unexported. The core package contains backend,
+topology, and result boundaries, while
+`minimize(J, h, offset; domain = [-1, 1], backend = ...)` is the shared Ising
+solver entry point. `TenSolverSpinGlassPEPSExt` owns PEPS-specific `minimize`
+methods, option validation, and calls to the registered `SpinGlassPEPS` 2.x API.
 
-The extension remains gated while the upstream dependency stack settles. In
-local checks against SpinGlassNetworks 1.4, SpinGlassEngine 1.6, and
-SpinGlassTensors 1.3, the current registered component compat bounds do not
-resolve with TenSolver's ITensors/QUBOTools environment. The source bridge and
-gated tests are kept in this stack step so the TenSolver boundary is concrete,
-but the PEPS backend types are not exported or listed in the public API until
-CI can exercise the SpinGlass component stack.
+The dedicated `test/peps` environment and Julia 1.11 CPU CI lane install
+SpinGlassPEPS with the exact TenSolver checkout. They require a loaded
+extension and execute a 2×2 solve through TenSolver for both matrix and
+polynomial inputs, checking a known optimum, decoded native spins, original
+objective values including the offset, and normalized retained probabilities.
+Ordinary tests also check the clear failure when the optional package is absent;
+a skipped optional solve in that environment is not integration evidence.
 
-Until that activation path is exercised, this stack step is scaffolding rather
-than the final completion of the PEPS backend issue. The closing PR should
-include a passing small structured-grid CPU solve through the optional
-SpinGlass component stack.
+The structured topology boundary covers square and king grids, with explicit
+spins per site. The extension requires the normalized `[-1, 1]` domain, builds
+an Ising graph directly from the quadratic and linear coefficients, clusters
+it with `super_square_lattice`, constructs the Potts Hamiltonian, runs
+`MpsContractor` plus `low_energy_spectrum`, and returns retained spin states
+through a `PEPSSolution`, a subtype of the shared `Solution` interface.
 
-The initial internal structured topology scaffolding covers one-spin-per-site
-and multi-spin-per-site square/king grids. The PEPS extension requires the
-normalized `[-1, 1]` domain, builds a SpinGlassNetworks Ising graph directly
-from the quadratic and linear coefficients, clusters it with
-`super_square_lattice`, constructs the Potts Hamiltonian, runs `MpsContractor`
-plus `low_energy_spectrum`, and returns retained spin states through a
-`PEPSSolution`.
+Upstream `solution.probabilities` are log probabilities. The bridge rescales
+and exponentiates them, combines duplicate states across transformations, and
+normalizes the resulting weights over the retained unique states. This is a
+conditional distribution over that set, not a claim that all Boltzmann mass was
+retained. `spin_glass_probabilities` and `largest_discarded_probability` in
+metadata preserve the upstream log values; `raw` preserves each search result
+and diagnostics. Contractor-owned caches need no global cache-clear call.
 
 Later PRs should add QUBODrivers/JuMP raw optimizer attributes for backend and
 PEPS parameters.
@@ -232,9 +224,9 @@ The integration should be implemented as a sequence of stacked PRs:
    energy-preservation tests.
 3. Introduce a backend interface while keeping the current DMRG backend as the
    default implementation.
-4. Add internal optional SpinGlassPEPS-backed structured solver scaffolding for
-   direct structured inputs, without closing the issue until the real extension
-   path is exercised.
+4. Add the optional SpinGlassPEPS-backed structured solver and CPU integration
+   tests for direct structured inputs, without closing the issue until the real
+   extension path is exercised.
 5. Expose the PEPS backend through QUBODrivers/JuMP attributes, including
    layout and contraction/search parameters.
 6. Add user documentation, examples, and benchmark scripts that compare the DMRG

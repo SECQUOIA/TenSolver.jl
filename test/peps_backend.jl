@@ -33,7 +33,7 @@ import DynamicPolynomials
   peps_error = TenSolver.backend_error(backend)
   @test peps_error isa ArgumentError
   @test occursin("PEPSBackend is not available", sprint(showerror, peps_error))
-  @test occursin("SpinGlassNetworks", sprint(showerror, peps_error))
+  @test occursin("SpinGlassPEPS", sprint(showerror, peps_error))
   @test !occursin("DMRG", sprint(showerror, peps_error))
 
   metadata = Dict{String,Any}("backend" => "SpinGlassPEPS")
@@ -98,20 +98,44 @@ import DynamicPolynomials
 end
 
 @testset "Optional SpinGlassPEPS extension" begin
-  has_spinglasspeps_components = all(
-    package -> !isnothing(Base.find_package(package)),
-    ("SpinGlassNetworks", "SpinGlassEngine", "SpinGlassTensors"),
-  )
-
-  if !has_spinglasspeps_components
-    @test_skip("SpinGlassPEPS component packages are not available in this environment.",)
+  if isnothing(Base.find_package("SpinGlassPEPS"))
+    @test isnothing(Base.get_extension(TenSolver, :TenSolverSpinGlassPEPSExt))
+    @test_throws r"Install/load SpinGlassPEPS 2.x" minimize(
+      zeros(1, 1),
+      zeros(1),
+      0.0;
+      domain = [-1, 1],
+      backend = TenSolver.PEPSBackend(TenSolver.SquareGrid(1, 1)),
+      verbosity = 0,
+    )
+    @test_skip "SpinGlassPEPS is not available in this environment."
   else
-    import SpinGlassEngine
-    import SpinGlassNetworks
-    import SpinGlassTensors
+    import SpinGlassPEPS
+    extension = Base.get_extension(TenSolver, :TenSolverSpinGlassPEPSExt)
+    @test !isnothing(extension)
+
+    @testset "Retained log probability normalization" begin
+      # A repeated state has twice the weight of the other state, despite weights
+      # being too small to exponentiate directly in Float64.
+      records = [
+        (; state = [1, -1], energy = -2.0, log_probability = -1000.0),
+        (; state = [-1, 1], energy = -1.0, log_probability = -1000.0),
+        (; state = [1, -1], energy = -2.0, log_probability = -1000.0),
+        (; state = [1, 1], energy = 0.0, log_probability = -Inf),
+      ]
+      normalized = extension.normalized_records(records)
+      @test getproperty.(normalized, :state) == [[1, -1], [-1, 1], [1, 1]]
+      @test getproperty.(normalized, :probability) ≈ [2 / 3, 1 / 3, 0.0]
+      @test_throws ArgumentError extension.normalized_records([(;
+        state = [1],
+        energy = 0.0,
+        log_probability = -Inf,
+      ),])
+    end
 
     backend = TenSolver.PEPSBackend(TenSolver.SquareGrid(2, 2))
     peps_kwargs = (
+      device = TenSolver.cpu,
       beta = 2.0,
       maxdim = 4,
       max_states = 4,
@@ -129,28 +153,75 @@ end
     h = [-1.0, -0.25, 0.25, -0.75]
     offset = 0.125
     objective(spins) = dot(spins, J, spins) + dot(h, spins) + offset
-    exact_energy, _ = brute_force(objective, 4; domain = [-1, 1])
+    exact_energy = -2.375
+    optimum = [1, -1, -1, 1]
+    @test objective(optimum) == exact_energy
+    @test first(brute_force(objective, 4; domain = [-1, 1])) == exact_energy
 
     energy, solution =
       minimize(J, h, offset; domain = [-1, 1], backend, verbosity = 0, peps_kwargs...)
     state = sample(solution)
 
     @test energy ≈ exact_energy atol = 1e-6
-    @test objective(state) ≈ energy atol = 1e-6
+    @test optimum in solution.states
+    @test TenSolver.prob(solution, optimum) > 0
+    @test all(isfinite, solution.probabilities)
+    @test all(>=(0), solution.probabilities)
+    @test sum(solution.probabilities) ≈ 1.0
+    @test all(isapprox(objective(xs), value; atol = 1e-6) for
+              (xs, value) in zip(solution.states, solution.energies))
+    @test state in solution.states
+    @test objective(state) ≈ solution.energies[findfirst(==(state), solution.states)] atol =
+      1e-6
     @test all(in((-1, 1)), state)
     @test solution.metadata["backend"] == "SpinGlassPEPS"
     @test solution.metadata["topology"] == "square"
-    @test solution.metadata["selected_transformation"] ==
-          string(SpinGlassEngine.rotation(0))
+    @test solution.metadata["selected_transformation"] == string(SpinGlassPEPS.rotation(0))
     @test haskey(solution.metadata, "raw")
+    @test all(<=(0), solution.metadata["spin_glass_probabilities"])
+    @test first(solution.metadata["spin_glass_probabilities"]) < 0
     @test first(solution.energies) ≈ energy atol = 1e-6
 
     DynamicPolynomials.@polyvar s[1:4]
     polynomial = 0.5s[1] * s[2] + 0.25s[3] * s[4] + dot(h, s) + offset
-    polynomial_energy, polynomial_solution =
-      minimize(polynomial; domain = [-1, 1], backend, verbosity = 0, peps_kwargs...)
+    quadratic, linear, constant = extension.quadratic_form(polynomial)
+    @test quadratic == J
+    @test linear == h
+    @test constant == offset
+    polynomial_energy, polynomial_solution = minimize(
+      polynomial;
+      domain = [-1, 1],
+      backend,
+      verbosity = 0,
+      peps_kwargs...,
+      transformations = :all,
+    )
     polynomial_state = sample(polynomial_solution)
-    @test polynomial_energy ≈ objective(polynomial_state) atol = 1e-6
+    @test polynomial_energy ≈ exact_energy atol = 1e-6
+    @test optimum in polynomial_solution.states
+    @test all(isapprox(objective(xs), value; atol = 1e-6) for
+              (xs, value) in zip(polynomial_solution.states, polynomial_solution.energies))
+    @test polynomial_state in polynomial_solution.states
+    @test sum(polynomial_solution.probabilities) ≈ 1.0
+    @test allunique(polynomial_solution.states)
+    @test length(polynomial_solution.metadata["raw"]) == 8
+
+    # Symmetrization keeps the same quadratic form; spin squares contribute
+    # a constant 0.375, including negative diagonal coefficients.
+    diagonal_J = (J + J') / 2 + Diagonal([0.25, -0.5, 0.75, -0.125])
+    diagonal_energy, diagonal_solution = minimize(
+      diagonal_J,
+      h,
+      offset;
+      domain = [-1, 1],
+      backend,
+      verbosity = 0,
+      peps_kwargs...,
+    )
+    @test diagonal_energy ≈ -2.0 atol = 1e-6
+    @test optimum in diagonal_solution.states
+    @test all(isapprox(dot(xs, diagonal_J, xs) + dot(h, xs) + offset, value; atol = 1e-6)
+              for (xs, value) in zip(diagonal_solution.states, diagonal_solution.energies))
 
     cubic = polynomial + s[1] * s[2] * s[3]
     @test_throws ArgumentError minimize(

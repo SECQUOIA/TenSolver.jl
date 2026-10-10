@@ -9,7 +9,7 @@ abstract type AbstractStructuredTopology end
 
 Structured square-grid topology for optional PEPS solves.
 
-Variables are assumed to be ordered according to SpinGlassNetworks'
+Variables are assumed to be ordered according to SpinGlassPEPS'
 `super_square_lattice((m, n, spins_per_site))` convention.
 """
 struct SquareGrid <: AbstractStructuredTopology
@@ -73,19 +73,19 @@ Select the optional SpinGlassPEPS structured backend for Ising problems whose
 couplings fit the given `topology` (`SquareGrid` or `KingGrid`).
 
 The solve is provided by the `TenSolverSpinGlassPEPSExt` package extension and
-requires `SpinGlassNetworks`, `SpinGlassEngine`, and `SpinGlassTensors` to be
-installed and loaded; without them, solves with this backend error clearly.
+requires `SpinGlassPEPS` 2.x to be installed and loaded on Julia 1.11 or later.
+Without it, solves with this backend error clearly.
 """
 struct PEPSBackend{T<:AbstractStructuredTopology} <: AbstractTenSolverBackend
   topology::T
 end
 
 function backend_error(::PEPSBackend)
-  return ArgumentError("PEPSBackend is not available. Install/load SpinGlassNetworks, " *
-                       "SpinGlassEngine, and SpinGlassTensors to activate the PEPS extension.",)
+  return ArgumentError("PEPSBackend is not available. Install/load SpinGlassPEPS 2.x " *
+                       "on Julia 1.11 or later to activate the PEPS extension.",)
 end
 
-# Internal result scaffold for the optional SpinGlassPEPS extension.
+# Retained-state result for the optional SpinGlassPEPS extension.
 struct PEPSSolution{T<:Real} <: Solution
   states        :: Vector{Vector{Int}}
   energies      :: Vector{T}
