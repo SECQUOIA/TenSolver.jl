@@ -184,7 +184,7 @@ function minimize_peps_qubo(
   form = qubo_to_ising(Q, l, c)
   _, h, J, scale, offset, _, _ = form
   isone(scale) || error("Internal QUBO-to-Ising conversion returned a non-unit scale.")
-  energy, solution = minimize(backend, J, h, offset; domain = [-1, 1], kwargs...)
+  energy, solution = minimize(J, h, offset; backend, domain = [-1, 1], kwargs...)
   return energy, boolean_peps_solution(solution)
 end
 
@@ -373,6 +373,8 @@ function tensolver_metadata(
     "no_cache"            => peps_parameters.no_cache,
   )
   peps = copy(solution.metadata)
+  peps["states"] = copy.(solution.states)
+  peps["probabilities"] = copy(solution.probabilities)
   peps["candidate_states"] = length(solution.states)
   peps["effective_time"] = effective_time
   peps["parameters"] = parameters

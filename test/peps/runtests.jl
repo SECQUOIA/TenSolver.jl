@@ -7,3 +7,4 @@ import SpinGlassPEPS
 @test !isnothing(Base.get_extension(TenSolver, :TenSolverSpinGlassPEPSExt))
 include("../utils.jl")
 include("../peps_backend.jl")
+include("jump.jl")

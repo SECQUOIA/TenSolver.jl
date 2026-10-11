@@ -13,7 +13,8 @@ function TenSolver.minimize(
   J::AbstractMatrix{T},
   h::AbstractVector{T},
   offset::T;
-  domain,
+  domain::TenSolver.Domains,
+  constraints,
   cutoff,
   preprocess,
   verbosity,
@@ -30,7 +31,9 @@ function TenSolver.minimize(
   no_cache,
 ) where {T}
   @test backend.topology.variables == length(h)
-  @test domain == [-1, 1]
+  @test length(domain) == length(h)
+  @test all(==([-1.0, 1.0]), domain)
+  @test isempty(constraints)
   @test J == zeros(2, 2)
   @test h ≈ [-0.5, -1.0]
   @test offset ≈ -1.5
@@ -126,14 +129,7 @@ end
   end
 
   @testset "Unavailable PEPS extension errors clearly" begin
-    has_spinglasspeps_components = all(
-      package -> !isnothing(Base.find_package(package)),
-      ("SpinGlassNetworks", "SpinGlassEngine", "SpinGlassTensors"),
-    )
-
-    if has_spinglasspeps_components
-      @test_skip "SpinGlassPEPS components are available; this error path does not apply."
-    else
+    if isnothing(Base.get_extension(TenSolver, :TenSolverSpinGlassPEPSExt))
       model = JuMP.Model(TenSolver.Optimizer)
       JuMP.set_silent(model)
       JuMP.set_attribute(model, "backend", :peps)
@@ -150,57 +146,8 @@ end
 
       @test error isa ArgumentError
       @test occursin("PEPSBackend is not available", sprint(showerror, error))
-      @test occursin("SpinGlassNetworks", sprint(showerror, error))
-    end
-  end
-
-  @testset "Optional PEPS optimizer solve" begin
-    has_spinglasspeps_components = all(
-      package -> !isnothing(Base.find_package(package)),
-      ("SpinGlassNetworks", "SpinGlassEngine", "SpinGlassTensors"),
-    )
-
-    if !has_spinglasspeps_components
-      @test_skip "SpinGlassPEPS component packages are not available in this environment."
-    else
-      import SpinGlassEngine
-      import SpinGlassNetworks
-      import SpinGlassTensors
-
-      Q = [
-        -1.0 0.5 0.0 0.0
-         0.0 -0.5 0.0 0.0
-         0.0 0.0 -0.25 0.25
-         0.0 0.0 0.0 -0.75
-      ]
-      l = [0.0, 0.25, -0.25, 0.0]
-      c = 0.125
-      objective(state) = dot(state, Q, state) + dot(l, state) + c
-      exact_energy, _ = brute_force(objective, Float64, 4)
-
-      model = JuMP.Model(TenSolver.Optimizer)
-      JuMP.set_silent(model)
-      JuMP.set_attribute(model, "backend", :peps)
-      JuMP.set_attribute(model, "peps_layout", :square)
-      JuMP.set_attribute(model, "peps_topology", (2, 2))
-      JuMP.set_attribute(model, "peps_bond_dim", 4)
-      JuMP.set_attribute(model, "peps_max_states", 4)
-      JuMP.set_attribute(model, "peps_cutoff_prob", 0.0)
-      JuMP.set_attribute(model, "peps_strategy", :svd)
-      JuMP.set_attribute(model, "peps_transformations", :identity)
-      @JuMP.variable(model, x[1:4], Bin)
-      @JuMP.objective(
-        model,
-        Min,
-        sum(Q[i, j] * x[i] * x[j] for i in 1:4, j in 1:4) +
-        sum(l[i] * x[i] for i in 1:4) + c,
-      )
-
-      JuMP.optimize!(model)
-
-      state = round.(Int, JuMP.value.(x))
-      @test JuMP.objective_value(model) ≈ exact_energy atol = 1e-6
-      @test objective(state) ≈ JuMP.objective_value(model) atol = 1e-6
+      @test occursin("SpinGlassPEPS 2.x", sprint(showerror, error))
+      @test occursin("Julia 1.11", sprint(showerror, error))
     end
   end
 
@@ -246,9 +193,23 @@ end
     @test metadata["reads"]["final_number_of_reads"] == 5
     @test peps_metadata["topology"] == "fake"
     @test peps_metadata["candidate_states"] == 2
+    @test peps_metadata["states"] == [[1, 1], [1, 0]]
+    @test peps_metadata["probabilities"] == [0.8, 0.2]
     @test peps_metadata["parameters"]["bond_dim"] == 3
     @test peps_metadata["parameters"]["strategy"] == "svd"
     @test peps_metadata["parameters"]["local_dimension"] == 2
+
+    # A state rounded to zero reads remains in the retained distribution.
+    JuMP.set_attribute(model, QUBODrivers.FinalNumberOfReads(), 1)
+    JuMP.optimize!(model)
+    one_read = QUBOTools.solution(JuMP.unsafe_backend(model))
+    retained = QUBOTools.metadata(one_read)["tensolver"]["peps"]
+    @test QUBOTools.reads(one_read) == 1
+    @test length(one_read) == 1
+    @test QUBOTools.state(one_read, 1) == [1, 1]
+    @test retained["candidate_states"] == 2
+    @test retained["states"] == [[1, 1], [1, 0]]
+    @test retained["probabilities"] == [0.8, 0.2]
   end
 
   @testset "PEPS SampleSet adaptation" begin
@@ -264,6 +225,9 @@ end
     samples = TenSolver.qubo_samples(Float64, solution, l, Q, 1.0, 0.0, 3)
 
     @test solution.states == [[1, 0], [0, 1]]
+    @test solution.energies == spin_solution.energies
+    @test solution.probabilities == spin_solution.probabilities
+    @test TenSolver.prob(solution, [1, 0]) == 0.75
     @test getfield.(samples, :state) == [[1, 0], [0, 1]]
     @test getfield.(samples, :value) == [0.0, -0.5]
     @test getfield.(samples, :reads) == [2, 1]

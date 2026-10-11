@@ -189,6 +189,9 @@ SpinGlassPEPS with the exact TenSolver checkout. They require a loaded
 extension and execute a 2×2 solve through TenSolver for both matrix and
 polynomial inputs, checking a known optimum, decoded native spins, original
 objective values including the offset, and normalized retained probabilities.
+The same lane runs actual JuMP PEPS solves in both objective senses on square
+and king grids, checking Boolean sample values, read-count conservation, and
+namespaced metadata.
 Ordinary tests also check the clear failure when the optional package is absent;
 a skipped optional solve in that environment is not integration evidence.
 
@@ -231,7 +234,10 @@ The optimizer converts its Boolean QUBO to the native spin-domain PEPS boundary,
 then converts retained states back to Boolean QUBOTools samples. PEPS runs store
 topology, contraction/search parameters, candidate-state count, effective time,
 selected transformation, and largest discarded probability (when available)
-under `metadata["tensolver"]["peps"]`.
+under `metadata["tensolver"]["peps"]`. Its `states` and `probabilities` retain
+the normalized distribution in Boolean coordinates even when read allocation
+rounds a state's count to zero. The optimizer uses the public `minimize` boundary
+to normalize spin domains before backend dispatch.
 
 Any PEPS selection API must validate that the problem includes enough topology
 metadata for the structured backend. If the topology is missing or unsupported,
