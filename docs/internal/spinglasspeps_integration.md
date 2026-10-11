@@ -189,6 +189,9 @@ SpinGlassPEPS with the exact TenSolver checkout. They require a loaded
 extension and execute a 2×2 solve through TenSolver for both matrix and
 polynomial inputs, checking a known optimum, decoded native spins, original
 objective values including the offset, and normalized retained probabilities.
+The same lane runs actual JuMP PEPS solves in both objective senses on square
+and king grids, checking Boolean sample values, read-count conservation, and
+namespaced metadata.
 Ordinary tests also check the clear failure when the optional package is absent;
 a skipped optional solve in that environment is not integration evidence.
 
@@ -207,8 +210,34 @@ retained. `spin_glass_probabilities` and `largest_discarded_probability` in
 metadata preserve the upstream log values; `raw` preserves each search result
 and diagnostics. Contractor-owned caches need no global cache-clear call.
 
-Later PRs should add QUBODrivers/JuMP raw optimizer attributes for backend and
-PEPS parameters.
+The QUBODrivers/JuMP optimizer interface can also select the backend through raw
+optimizer attributes. DMRG remains the default:
+
+```julia
+set_attribute(model, "backend", :dmrg)
+```
+
+The PEPS path is selected explicitly and requires topology metadata:
+
+```julia
+set_attribute(model, "backend", :peps)
+set_attribute(model, "peps_layout", :square)
+set_attribute(model, "peps_topology", (m, n))
+set_attribute(model, "peps_beta", 2.0)
+set_attribute(model, "peps_bond_dim", 16)
+set_attribute(model, "peps_max_states", 256)
+set_attribute(model, "peps_cutoff_prob", 1e-4)
+set_attribute(model, "peps_strategy", :svd)
+```
+
+The optimizer converts its Boolean QUBO to the native spin-domain PEPS boundary,
+then converts retained states back to Boolean QUBOTools samples. PEPS runs store
+topology, contraction/search parameters, candidate-state count, effective time,
+selected transformation, and largest discarded probability (when available)
+under `metadata["tensolver"]["peps"]`. Its `states` and `probabilities` retain
+the normalized distribution in Boolean coordinates even when read allocation
+rounds a state's count to zero. The optimizer uses the public `minimize` boundary
+to normalize spin domains before backend dispatch.
 
 Any PEPS selection API must validate that the problem includes enough topology
 metadata for the structured backend. If the topology is missing or unsupported,

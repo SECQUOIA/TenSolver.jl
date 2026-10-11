@@ -159,6 +159,51 @@ selected = assets[findall(>(0.5), value.(x))]
 (true, "Wind, Battery")
 ```
 
+### Selecting the PEPS Backend from JuMP
+
+The optional SpinGlassPEPS backend is experimental and intended for structured
+quasi-two-dimensional QUBOs. Select it explicitly and provide the variable layout;
+arbitrary dense QUBOs should remain on the default DMRG backend.
+
+```julia
+using JuMP, TenSolver
+import SpinGlassPEPS
+
+m, n = 2, 2
+model = Model(TenSolver.Optimizer)
+set_attribute(model, "verbosity", 0)
+set_attribute(model, "backend", :peps)
+set_attribute(model, "peps_layout", :square)
+set_attribute(model, "peps_topology", (m, n))
+set_attribute(model, "peps_beta", 2.0)
+set_attribute(model, "peps_bond_dim", 16)
+set_attribute(model, "peps_max_states", 256)
+set_attribute(model, "peps_cutoff_prob", 1e-4)
+set_attribute(model, "peps_strategy", :svd)
+set_attribute(model, "peps_transformations", :identity)
+
+@variable(model, x[1:(m * n)], Bin)
+# Add a structured objective whose variable order matches the square grid.
+@objective(model, Min, -sum(x))
+optimize!(model)
+```
+
+Install registered `SpinGlassPEPS` 2.x on Julia 1.11 or later, then load it
+with `import SpinGlassPEPS` to activate TenSolver's optional extension. If it is
+not installed and loaded, selecting `:peps` produces an actionable error. Leaving
+`"backend"` unset, or setting it to `:dmrg`, keeps the default DMRG path.
+`peps_strategy` names the direct API's `contraction` setting:
+`:auto`, `:svd`, and `:svd_truncate` select SVD truncation; `:zipper` selects
+zipper contraction. Both entry points default to `:auto`.
+
+PEPS details appear under `QUBOTools.metadata(solution)["tensolver"]["peps"]`,
+where `solution = QUBOTools.solution(unsafe_backend(model))`. The `states` are
+Boolean vectors, and `probabilities` are normalized over all retained states.
+Sample read counts use deterministic largest-remainder allocation of those
+weights to `FinalNumberOfReads`; states allocated zero reads remain in this
+metadata. This retained distribution does not claim that the search captured
+all Boltzmann probability mass.
+
 ### Passing Solver Parameters to JuMP
 
 You can pass solver-specific parameters to the optimizer using `set_attribute`:
