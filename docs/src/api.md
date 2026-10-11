@@ -63,6 +63,7 @@ TenSolver.constraint_sites
 
 ```@docs
 Base.in(::AbstractVector, ::TenSolver.Solution)
+TenSolver.permute
 ```
 
 ## Internal Functions
@@ -76,7 +77,7 @@ Notice: As unexported method and types, they are subject to change without warni
 ```@docs
 TenSolver.tensorize
 TenSolver.qmatrix_permutation
-TenSolver.preprocess_qubo
+TenSolver.preprocess_model
 ```
 
 
@@ -85,6 +86,7 @@ TenSolver.preprocess_qubo
 ```@docs
 TenSolver.DFA
 TenSolver.constraint_to_dfa
+TenSolver.mapreduce_dfa
 TenSolver.dfa_to_mpo
 TenSolver.projection_mpo
 TenSolver.projection_mpos
@@ -97,7 +99,39 @@ TenSolver.project_hamiltonian
 TenSolver.project_state
 ```
 
+### Variable Domains
+
+```@docs
+TenSolver.Domains
+TenSolver.domain_residue
+```
+
 ### PEPS Backend
+
+The optional structured backend requires Julia 1.11 or later and registered
+`SpinGlassPEPS` 2.x. Install it with `Pkg.add("SpinGlassPEPS")`, then load it
+alongside TenSolver to activate the extension. DMRG remains the default backend.
+The PEPS types are unexported and accessed through the `TenSolver` namespace.
+
+```julia
+using TenSolver
+import SpinGlassPEPS
+
+backend = TenSolver.PEPSBackend(TenSolver.SquareGrid(2, 2))
+J = [0.0 0.5 0.0 0.0; 0.0 0.0 0.0 0.0;
+     0.0 0.0 0.0 0.25; 0.0 0.0 0.0 0.0]
+h = [-1.0, -0.25, 0.25, -0.75]
+energy, solution = minimize(J, h, 0.125; domain = [-1, 1], backend,
+                            device = TenSolver.cpu, transformations = :identity,
+                            verbosity = 0)
+# energy ≈ -2.375; sample(solution) returns native spins in {-1, 1}.
+```
+
+Retained states use the shared solution interface (`sample`, `prob`, membership,
+and `is_feasible`). Their probabilities sum to one over the retained unique
+states. Raw upstream log probabilities and search diagnostics remain in result
+metadata. PEPS inputs must fit the specified topology and use the spin domain
+`[-1, 1]`; native constraints are unsupported.
 
 ```@docs
 TenSolver.SquareGrid

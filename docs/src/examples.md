@@ -63,11 +63,11 @@ l = [1.0, -4.0, 2.0]
 E, psi = TenSolver.minimize(l; domain = [-2, 0, 3], verbosity = 0)
 x = TenSolver.sample(psi)
 
-(E ≈ -18.0, x, psi.domain)
+(E ≈ -18.0, x)
 
 # output
 
-(true, [-2.0, 3.0, -2.0], [-2.0, 0.0, 3.0])
+(true, [-2.0, 3.0, -2.0])
 ```
 
 ## Fractional Domains
@@ -83,11 +83,11 @@ l = [-2.0, 3.0]
 E, psi = TenSolver.minimize(l; domain = [0.0, 0.5, 1.0], verbosity = 0)
 x = TenSolver.sample(psi)
 
-(E ≈ -2.0, x, psi.domain)
+(E ≈ -2.0, x)
 
 # output
 
-(true, [1.0, 0.0], [0.0, 0.5, 1.0])
+(true, [1.0, 0.0])
 ```
 
 Hard constraints can impose narrower domain requirements. In particular,

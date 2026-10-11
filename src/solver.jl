@@ -1,8 +1,3 @@
-using LinearAlgebra
-import Combinatorics: multiset_permutations
-
-import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, isconstant
-
 maybe(f::Function, mx::Nothing; default=nothing) = default
 maybe(f::Function, mx; default=nothing) = f(mx)
 
@@ -93,7 +88,9 @@ Keyword arguments:
   For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
   If the constraints admit no solution at all, the solve does not error: it logs a warning and
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
-- `domain` - Possible variable values. Defaults to `[0, 1]`.
+- `domain` - Allowed values per variable.
+   Can be either a vector of per-variable domains or a single uniform domain valid for all variables.
+   Defaults to `[0, 1]`.
   Unconstrained DMRG optimization accepts any finite collection of real values;
   individual constraint types can impose narrower requirements. Use `[-1, 1]`
   for Ising spins. Domains are sorted and deduplicated before solving.
@@ -157,48 +154,70 @@ function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
 end
 
 function minimize(
-  p::AbstractPolynomial{T}
+    p::AbstractPolynomial
   ;
   backend=default_backend,
-  domain::AbstractVector = 0:1,
+  domain = 0:1,
+  constraints = AbstractConstraint[],
   kwargs...,
-) where T
-  domain = validate_solve_domain(domain)
-  p      = simplify_polynomial(p, domain)
-  return minimize(normalize_backend(backend), p; domain, kwargs...)
+)
+  nvars = length(MP.effective_variables(p))
+
+  T = float(MP.coefficient_type(p))
+  p = MP.polynomial(p, T)
+
+  domain = Domains{T}(domain, nvars)
+  p      = domain_residue(p, domain)
+  return minimize(normalize_backend(backend), p; domain, constraints, kwargs...)
 end
 
 function minimize(
-  Q :: AbstractMatrix{T},
-  l :: AbstractVector{T} = zeros(T, size(Q, 1)),
-  c :: T = zero(T)
+  Q :: AbstractMatrix,
+  l :: AbstractVector = zeros(eltype(Q), size(Q, 1)),
+  c :: Real = zero(eltype(Q))
   ;
   backend = default_backend,
-  domain::AbstractVector = 0:1,
+  domain = 0:1,
+  constraints = AbstractConstraint[],
   kwargs...,
-) where {T<:Real}
-  domain  = validate_solve_domain(domain)
-  Q, l, c = simplify_polynomial(Q, l, c, domain)
-  return minimize(normalize_backend(backend), Q, l, c; domain, kwargs...)
+)
+  @argcheck length(l) == size(Q, 1)
+  nvars   = LinearAlgebra.checksquare(Q)
+
+  # SVD algos require float type.
+  # We can review this if a later backend asks for integer representation.
+  T = float(promote_type(eltype(Q), eltype(l), typeof(c)))
+  Q, l, c = T.(Q), T.(l), T(c)
+
+  domain  = Domains{T}(domain, nvars)
+  Q, l, c = domain_residue(Q, l, c, domain)
+  @assert allequal([eltype(Q), eltype(l), typeof(c), eltype(domain)]) # Sanity check / debug-only
+  return minimize(normalize_backend(backend), Q, l, c; domain, constraints, kwargs...)
 end
 
-function minimize(l :: AbstractVector{T}, c :: T = zero(T); kwargs...) where {T<:Real}
-  return minimize(zeros(T, size(l, 1), size(l, 1)), l, c; kwargs...)
+function minimize(l :: AbstractVector{<:Real}, c :: Real = zero(eltype(l)); kwargs...)
+  Q = zeros(eltype(l), size(l, 1), size(l, 1))
+  return minimize(Q, l, c; kwargs...)
 end
 
-function minimize(Q :: AbstractMatrix{T}, c :: T; kwargs...) where {T<:Real}
-  return minimize(Q, zeros(T, size(Q, 1)), c; kwargs...)
+function minimize(Q :: AbstractMatrix{<:Real}, c :: Real; kwargs...)
+  l = zeros(eltype(Q), size(Q, 1))
+  return minimize(Q, l, c; kwargs...)
 end
 
 """
-    maximize(Q::Matrix[, l::Vector[, c::Number; kwargs...)
-    maximize(p::AbstractPolynomial; kwargs...)
+    maximize([Q::Matrix], [l::Vector], [c::Number] ; domain, kwargs...)
+    maximize(p::AbstractPolynomial ; domain, kwargs...)
 
-Solve the Quadratic Unconstrained Binary Optimization problem
-for maximization.
+Solve a polynomial discrete optimization problem
 
-    max  b'Qb + l'b + c
-    s.t. b_i in {0, 1}
+    max  p(x)
+    s.t. x_i in domain
+         constraints
+
+In the matrix version, the objective is limited to quadratic forms x -> x'Qx + l'x + c.
+Missing arguments (quadratic, linear or constant term)
+are allowed and taken to be zero.
 
 All keywords accepted by [`minimize`](@ref) can also be used for maximization problems.
 Provably infeasible constrained models return `-Inf` (the supremum over an
@@ -219,50 +238,51 @@ end
 # Domain validation                                                   #
 #=====================================================================#
 
-function validate_solve_domain(domain)
-  # Preprocessing to dedeplicate domain values
-  domain = (ismutable(domain) ? unique! : unique)(sort(domain))
+"""
+    domain_residue(p, domains)
+    domain_residue(Q, l, c, domains)
 
-  if !applicable(iterate, domain)
-    throw(ArgumentError("`domain` must be an iterable collection of values."))
-  elseif !applicable(length, domain)
-    throw(ArgumentError("`domain` must have a finite length."))
-  elseif isempty(domain)
-    throw(ArgumentError("`domain` must contain at least one value."))
-  elseif !all(u -> u isa Real, domain)
-    throw(ArgumentError("`domain` values must be values of a real type."))
-  elseif !allunique(domain)
-    throw(ArgumentError("`domain` values must be unique."))
-  end
+Simplify a (polynomial) function representation
+given that its variables are restricted to finite [`Domains`](@ref).
 
-  return domain
+The function name stems from calculating
+the residual of a polynomial modulo the ideal generated by the domain.
+
+## Theory
+
+Each finite variable domain `x_i in U_i = {u1, ..., ud}`
+is equivalent to the root set of a single variable polynomial
+`q_i(x) = (x_i - u1)...(x_i - ud)`.
+
+By dividing `p // q_i`, we get
+
+    p(x) = m(x)q_i(x) + r(x).
+
+Notice that for any `a in U`, `q(a) = 0`, and
+
+    p(a) = m(a)*0 + r(a) = r(a).
+
+Thus, the transformation `p -> r` acts as degree reduction procedure.
+Performing it for all variables finds the residue.
+"""
+function domain_residue(p::AbstractPolynomial, domains::Domains)
+  rooted(x, dom) = prod(x - a for a in dom)
+  vars = effective_variables(p)
+  return mapfoldl(splat(rooted), rem, zip(vars, domains); init = p)
 end
 
-function simplify_polynomial(p::AbstractPolynomial, domain)
-  # A finite domain xi in U = {u1, ..., ud} is equivalent
-  # to the root set of a single variable polynomial
-  # q(x) = (xi - u1)...(xi - ud)
-  rooted(x) = prod(x - a for a in domain)
-  # By dividing p // q, we get
-  # p(x) = m(x)q(x) + r(x).
-  # Notice that for any a in U, q(a) = 0, and
-  # p(a) = m(a)*0 + r(a) = r(a).
-  # Thus, we transform p -> r as a degree reduction procedure.
-  return mapfoldl(rooted, rem, effective_variables(p); init = p)
-end
-
-function simplify_polynomial(Q::AbstractMatrix, l, c, domain)
+function domain_residue(Q::AbstractMatrix, l, c, domains::Domains)
   # A variable x in {a, b} satifies
   #   (x - a)(x - b) = 0
   #   x^2 = (a + b)x - ab
   #   Thus, we exchange the diagonal terms x^2 by linear and constant terms.
-  if length(domain) == 2
-    s, p = sum(domain), prod(domain)
+  Qd = Diagonal(view(Q, diagind(Q)))
+  ss = [length(dom) == 2 ? sum(dom)  : 0 for dom in domains]
+  ps = [length(dom) == 2 ? prod(dom) : 0 for dom in domains]
 
-    l = l .+ s .* diag(Q)
-    c = c  - p  * sum(diag(Q))
-    Q = Q .- Diagonal(view(Q, diagind(Q)))
-  end
+  l = l .+ Qd * ss
+  c = c  - dot(diag(Q), ps)
+  Q = Q .- Qd .* Diagonal([length(d) == 2 for d in domains])
 
   return Q, l, c
 end

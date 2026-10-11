@@ -1,5 +1,3 @@
-import Printf: @printf
-
 function iterlog_horizontal_rule()
   @printf("+-----------+-------------+----------+--------------+------------+\n")
 end

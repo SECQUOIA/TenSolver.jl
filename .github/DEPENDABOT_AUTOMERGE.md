@@ -1,0 +1,73 @@
+# Dependabot automatic merges
+
+All same-repository Dependabot-authored PRs to `main`, including major and grouped
+updates, are eligible when their current head passes the checks below and every
+additional reported check has finished successfully (neutral/skipped optional
+checks are allowed). Required checks cannot be skipped. Human PRs, drafts,
+forks, changed heads, conflicts, and behind branches are left to maintainers.
+Identity follows the PR author: maintainer commits on a Dependabot branch are
+eligible only after that head passes the same gates.
+
+The workflow checks out trusted `main`, never PR code or artifacts, and uses the
+built-in Actions token. It re-reads identity and clean mergeability, verifies
+enforced required checks and that the verified head contains current `main`,
+and squash-merges with `--match-head-commit`, without
+admin bypass or a deferred merge request. Existing review/conversation gates
+still apply. Errors are isolated per PR and reported after both merge and
+publication passes; one failure cannot starve the other PRs.
+
+## Required successful checks
+
+- `Julia lts - ubuntu-latest - x64 - pull_request`
+- `Julia lts - windows-latest - x64 - pull_request`
+- `Julia 1 - ubuntu-latest - x64 - pull_request`
+- `Julia 1 - windows-latest - x64 - pull_request`
+- `Julia pre - ubuntu-latest - x64 - pull_request`
+- `Julia pre - windows-latest - x64 - pull_request`
+- `Julia lts - macOS-latest - aarch64 - pull_request`
+- `Julia 1 - macOS-latest - aarch64 - pull_request`
+- `Julia pre - macOS-latest - aarch64 - pull_request`
+- `Dependabot policy`
+- `build`
+
+## Branch protection and activation
+
+Activation requires a maintainer to protect `main` with strict up-to-date required checks listed below. Until then, automatic merges fail closed. This PR does not change repository settings.
+The workflow verifies public branch-protection metadata and SHA ancestry.
+The public branch summary does not expose the admin-only `strict` field; strict
+up-to-date checking remains a maintainer activation prerequisite and GitHub
+enforces protection atomically when merging. The script refuses unprotected or
+un-enforced branches and verifies these contexts remain enforced:
+
+- `Julia lts - ubuntu-latest - x64 - pull_request`
+- `Julia lts - windows-latest - x64 - pull_request`
+- `Julia 1 - ubuntu-latest - x64 - pull_request`
+- `Julia 1 - windows-latest - x64 - pull_request`
+- `Julia pre - ubuntu-latest - x64 - pull_request`
+- `Julia pre - windows-latest - x64 - pull_request`
+- `Julia lts - macOS-latest - aarch64 - pull_request`
+- `Julia 1 - macOS-latest - aarch64 - pull_request`
+- `Julia pre - macOS-latest - aarch64 - pull_request`
+
+When `main` advances, update
+existing Dependabot branches with "Update branch" or `@dependabot rebase` and
+wait for new CI. The policy runs after configured workflow completions, every
+15 minutes, and through manual dispatch. Repository native auto-merge settings
+only control manually queued requests; this workflow merges immediately after
+verifying all gates.
+
+## Publication and live verification
+
+`GITHUB_TOKEN` merges suppress ordinary push/PR-close workflows. Recent token merges are reconciled for seven days: documentation.yml. Dispatches run trusted `main`, wait for each successful publisher, and use named runs to avoid duplicates. Failed runs stay visible and require a manual rerun. The documentation publisher shares a queue across refs and retains deployment failures.
+Main push CI is also suppressed; CI badges and Codecov baselines stay at the last
+ordinary main run unless CI is run manually. The up-to-date PR CI remains required.
+Tag/release publishing remains manual;
+this policy does not invoke release workflows.
+
+After activation, verify the first real token merge and each dispatched publisher
+at its merge SHA and public hosting route. GitHub documents Contents write access
+for the [PR merge API](https://docs.github.com/en/rest/pulls/pulls#merge-a-pull-request).
+Actions-file updates use the same path; token permissions and completion events
+still need live verification. If GitHub rejects such a merge, a maintainer merges
+that PR manually; its visible error does not block other PRs. No PAT or new secret
+is required. Do not force-push publication history or hide failures to obtain green CI.
