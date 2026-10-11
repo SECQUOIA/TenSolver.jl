@@ -13,18 +13,18 @@ higher-degree objectives, or models without a known layout.
 
 ## Availability
 
-The PEPS backend requires `SpinGlassNetworks`, `SpinGlassEngine`, and
-`SpinGlassTensors`. All three packages must be available and loaded before the
-first PEPS solve:
+The PEPS backend requires registered `SpinGlassPEPS` 2.x and Julia 1.11 or later.
+Install it in the same environment as TenSolver, then load it before solving:
 
 ```julia
-import SpinGlassEngine, SpinGlassNetworks, SpinGlassTensors
+using Pkg
+Pkg.add(PackageSpec(name = "SpinGlassPEPS", version = "2"))
+import SpinGlassPEPS
 ```
 
-These optional packages are not installed with TenSolver and are not currently
-available through TenSolver's ordinary registered-package environment. If the
-extension is unavailable, selecting PEPS raises an error that names the required
-packages. The default DMRG path remains usable.
+SpinGlassPEPS is optional and is not installed with TenSolver. Selecting PEPS
+without loading it raises an error with installation requirements. DMRG remains
+the default backend and supports Julia 1.10 or later.
 
 GPU support is optional. Small examples and the repository benchmarks use CPU
 execution by default.
@@ -73,7 +73,7 @@ The four-spin objective below matches a `2 × 2` square grid:
 
 ```julia
 using TenSolver
-import SpinGlassEngine, SpinGlassNetworks, SpinGlassTensors
+import SpinGlassPEPS
 
 J = [
     0.0  0.5  0.0  0.0
@@ -105,7 +105,11 @@ spins = sample(solution)
 ```
 
 Direct PEPS samples contain `-1` and `1`. The solution also retains ranked
-states, their objective values, probability weights, and backend metadata:
+states, their original objective values including the offset, normalized
+probabilities, and backend metadata. The probabilities describe the distribution
+conditioned on the states retained by the search; they do not measure the total
+Boltzmann mass captured. `max_states` is an upper bound, so fewer states may be
+returned even with `cutoff_prob = 0.0`:
 
 ```julia
 solution.states
@@ -115,13 +119,16 @@ solution.metadata["selected_transformation"]
 get(solution.metadata, "largest_discarded_probability", missing)
 ```
 
+The diagnostic `largest_discarded_probability` preserves the upstream log
+probability, which can be `-Inf` when nothing was discarded.
+
 ## JuMP and QUBODrivers
 
 JuMP models remain Boolean. Select PEPS explicitly and supply the layout:
 
 ```julia
 using JuMP, TenSolver
-import SpinGlassEngine, SpinGlassNetworks, SpinGlassTensors
+import SpinGlassPEPS
 
 m, n = 2, 2
 model = Model(TenSolver.Optimizer)
@@ -156,9 +163,18 @@ metadata = QUBOTools.metadata(samples)
 peps = metadata["tensolver"]["peps"]
 
 peps["candidate_states"]
+peps["states"]
+peps["probabilities"]
 peps["parameters"]
 peps["effective_time"]
 ```
+
+These metadata states are Boolean vectors, with normalized probabilities over
+the retained set. They include candidates whose allocated read count rounds to
+zero. SampleSet read counts sum to the requested final number of reads (or
+`num_reads` when no final number is supplied); integer allocation can differ
+slightly from probability times reads. Both `Min` and `Max` objectives retain
+their original sense and constant offset in the returned sample values.
 
 ## Parameters
 
@@ -195,6 +211,7 @@ configuration if chosen too aggressively.
   direct API.
 - `preprocess = true` is unsupported because preprocessing would change the
   declared variable layout.
+- Native constraints are unsupported by PEPS; use DMRG for constrained models.
 - Couplings outside the selected square/king graph are rejected.
 - Approximate contraction can fail or return poor probability estimates.
 - Runtime and memory grow with layout size, boundary bond dimension, retained
@@ -206,12 +223,12 @@ configuration if chosen too aggressively.
 Small deterministic comparison scripts live outside normal CI:
 
 ```bash
-julia --project=. benchmarks/peps_square.jl
-julia --project=. benchmarks/peps_king.jl
+julia --project=benchmarks benchmarks/peps_square.jl
+julia --project=benchmarks benchmarks/peps_king.jl
 ```
 
 Each script compares brute force, DMRG, and PEPS on a tiny structured instance.
 It reports objective value, exact gap, runtime, retained-state count, selected
-transformation, and largest discarded probability. When the optional packages
-are unavailable, only the PEPS row is skipped. See `benchmarks/README.md` for
-the intended scope.
+transformation, and the upstream largest-discarded log probability. When
+SpinGlassPEPS is unavailable, only the PEPS row is skipped. Load or solve failures
+appear as error rows. See `benchmarks/README.md` for environment setup and scope.

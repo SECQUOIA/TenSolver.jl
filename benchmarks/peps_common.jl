@@ -8,15 +8,13 @@ using TenSolver
 
 export BenchmarkProblem,
   brute_force,
-  has_peps_components,
+  has_peps,
   king_problem,
   objective_value,
   peps_form,
   print_results,
   run_benchmark,
   square_problem
-
-const PEPS_COMPONENTS = ("SpinGlassNetworks", "SpinGlassEngine", "SpinGlassTensors")
 
 struct BenchmarkProblem{T,B}
   name::String
@@ -117,25 +115,18 @@ function brute_force(problem::BenchmarkProblem; max_variables::Integer = 20)
   return (; value = best_value, state = best_state)
 end
 
-has_peps_components() = all(pkg -> !isnothing(Base.find_package(pkg)), PEPS_COMPONENTS)
+has_peps() = !isnothing(Base.find_package("SpinGlassPEPS"))
 
-function load_peps_components()
-  if !(has_peps_components())
+function load_peps()
+  if !has_peps()
     return false
   end
 
-  try
-    @eval import SpinGlassNetworks
-    @eval import SpinGlassEngine
-    @eval import SpinGlassTensors
-    return true
-  catch err
-    @warn(
-      "Could not load optional SpinGlassPEPS component packages",
-      exception = (err, catch_backtrace()),
-    )
-    return false
+  @eval import SpinGlassPEPS
+  if isnothing(Base.get_extension(TenSolver, :TenSolverSpinGlassPEPSExt))
+    error("Loading SpinGlassPEPS did not activate the TenSolver PEPS extension.")
   end
+  return true
 end
 
 function objective_gap(value, exact)
@@ -234,7 +225,7 @@ function dmrg_result(problem, exact; kwargs...)
 end
 
 function peps_result(problem, exact; kwargs...)
-  if !load_peps_components()
+  if !has_peps()
     return benchmark_result(
       "PEPS",
       "skipped",
@@ -244,16 +235,19 @@ function peps_result(problem, exact; kwargs...)
       missing,
       missing,
       missing,
-      "SpinGlassPEPS component stack unavailable or not importable",
+      "SpinGlassPEPS 2.x unavailable (requires Julia 1.11+)",
     )
   end
 
   try
+    load_peps()
     backend = TenSolver.PEPSBackend(problem.topology)
     (; J, h, offset) = peps_form(problem)
     energy = nothing
     solution = nothing
-    elapsed = @elapsed energy, solution = TenSolver.minimize(
+    # The extension may have been loaded above, after this function was compiled.
+    elapsed = @elapsed energy, solution = Base.invokelatest(
+      TenSolver.minimize,
       J,
       h,
       offset;
@@ -352,7 +346,7 @@ function print_results(run)
     "gap",
     "time_s",
     "states",
-    "discarded",
+    "discarded_log",
     "transform/note",
   )
   @printf(

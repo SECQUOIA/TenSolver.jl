@@ -194,6 +194,8 @@ and king grids, checking Boolean sample values, read-count conservation, and
 namespaced metadata.
 Ordinary tests also check the clear failure when the optional package is absent;
 a skipped optional solve in that environment is not integration evidence.
+The same optional lane executes lightweight benchmark-wrapper solves with an
+independently derived optimum. The full benchmark scripts remain outside CI.
 
 The structured topology boundary covers square and king grids, with explicit
 spins per site. The extension requires the normalized `[-1, 1]` domain, builds

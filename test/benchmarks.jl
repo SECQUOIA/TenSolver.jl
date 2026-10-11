@@ -23,4 +23,10 @@ using LinearAlgebra
 
   large = PEPSBenchmarks.square_problem(5, 5; seed = 13)
   @test PEPSBenchmarks.brute_force(large; max_variables = 4) === nothing
+
+  if !PEPSBenchmarks.has_peps()
+    result = PEPSBenchmarks.peps_result(square, Ref(exact))
+    @test result.status == "skipped"
+    @test occursin("SpinGlassPEPS 2.x", result.note)
+  end
 end
