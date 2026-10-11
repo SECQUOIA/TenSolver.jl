@@ -163,7 +163,9 @@ selected = assets[findall(>(0.5), value.(x))]
 
 The optional SpinGlassPEPS backend is experimental and intended for structured
 quasi-two-dimensional QUBOs. Select it explicitly and provide the variable layout;
-arbitrary dense QUBOs should remain on the default DMRG backend.
+arbitrary dense QUBOs should remain on the default DMRG backend. See
+[PEPS Backend](@ref peps-backend-guide) for the direct spin API, complete
+parameter mapping, restrictions, metadata, and local benchmarks.
 
 ```julia
 using JuMP, TenSolver

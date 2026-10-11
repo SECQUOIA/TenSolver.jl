@@ -8,6 +8,7 @@ The documentation is built using [Documenter.jl](https://github.com/JuliaDocs/Do
 
 - **Home** (`docs/src/index.md`): Overview, installation, quick start, and features
 - **Examples** (`docs/src/examples.md`): Practical examples showing how to use TenSolver.jl
+- **PEPS Backend** (`docs/src/peps_backend.md`): User guide for the optional structured PEPS backend, including topology, parameters, restrictions, and local benchmarks
 - **API Reference** (`docs/src/api.md`): Complete API documentation with docstrings
 
 Internal developer notes live outside the generated user documentation:
