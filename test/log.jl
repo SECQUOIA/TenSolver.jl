@@ -9,13 +9,13 @@ end
 
 @testset "Logging utilities" begin
   out0 = capture_stdout() do
-    minimize([1.0 0.0; 0.0 -1.0], 3.0; iterations = 1, verbosity = 0)
+    minimize([1.0 0.0; 0.0 -1.0], 3.0; domain = 0:1, iterations = 1, verbosity = 0)
   end
 
   @test isempty(out0)
 
   out1 = capture_stdout() do
-    minimize([1.0 0.0; 0.0 -1.0], 3.0; iterations = 1, verbosity = 1)
+    minimize([1.0 0.0; 0.0 -1.0], 3.0; domain = 0:1, iterations = 1, verbosity = 1)
   end
 
   @test !isempty(out1)

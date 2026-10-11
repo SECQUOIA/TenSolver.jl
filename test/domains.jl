@@ -112,11 +112,12 @@ using LinearAlgebra
   @testset "Domain API and validation" begin
     Q = [-1.0 0.0; 0.0 2.0]
 
-    E_default, psi_default = minimize(Q; iterations = 4, verbosity = 0)
+    E_range, psi_range = minimize(Q; domain = 0:1, iterations = 4, verbosity = 0)
     E_bool, psi_bool = minimize(Q; domain = [0, 1], iterations = 4, verbosity = 0)
 
-    @test E_default ≈ E_bool
-    @test sample(psi_default) == [1, 0]
+    @test E_range ≈ -1.0
+    @test E_bool ≈ -1.0
+    @test sample(psi_range) == [1, 0]
     @test [1, 0] in psi_bool
 
     E_ordered, psi_ordered = minimize([1.0]; domain = [1, -1], verbosity = 0)

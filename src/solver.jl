@@ -89,7 +89,8 @@ Keyword arguments:
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
 - `domain` - Allowed values per variable.
    Can be either a vector of per-variable domains or a single uniform domain valid for all variables.
-   Defaults to `[0, 1]`.
+   Required: use `domain = 0:1` for binary variables.
+  Omitting `domain` raises `UndefKeywordError(:domain)`.
   Unconstrained DMRG optimization accepts any finite collection of real values;
   individual constraint types can impose narrower requirements. Use `[-1, 1]`
   for Ising spins. Domains are sorted and deduplicated before solving.
@@ -137,10 +138,10 @@ and pass its accelerator as argument.
 
 ```julia
 import CUDA
-minimize(Q; device = CUDA.cu)
+minimize(Q; domain = 0:1, device = CUDA.cu)
 
 import Metal
-minimize(Q; device = Metal.mtl)
+minimize(Q; domain = 0:1, device = Metal.mtl)
 ```
 
 See also [`maximize`](@ref).
@@ -155,7 +156,7 @@ function minimize(
     p::AbstractPolynomial
   ;
   backend=default_backend,
-  domain = 0:1,
+  domain,
   constraints = AbstractConstraint[],
   kwargs...,
 )
@@ -175,7 +176,7 @@ function minimize(
   c :: Real = zero(eltype(Q))
   ;
   backend = default_backend,
-  domain = 0:1,
+  domain,
   constraints = AbstractConstraint[],
   kwargs...,
 )
@@ -193,14 +194,14 @@ function minimize(
   return minimize(normalize_backend(backend), Q, l, c; domain, constraints, kwargs...)
 end
 
-function minimize(l :: AbstractVector{<:Real}, c :: Real = zero(eltype(l)); kwargs...)
+function minimize(l :: AbstractVector{<:Real}, c :: Real = zero(eltype(l)); domain, kwargs...)
   Q = zeros(eltype(l), size(l, 1), size(l, 1))
-  return minimize(Q, l, c; kwargs...)
+  return minimize(Q, l, c; domain, kwargs...)
 end
 
-function minimize(Q :: AbstractMatrix{<:Real}, c :: Real; kwargs...)
+function minimize(Q :: AbstractMatrix{<:Real}, c :: Real; domain, kwargs...)
   l = zeros(eltype(Q), size(Q, 1))
-  return minimize(Q, l, c; kwargs...)
+  return minimize(Q, l, c; domain, kwargs...)
 end
 
 """
@@ -217,17 +218,18 @@ In the matrix version, the objective is limited to quadratic forms x -> x'Qx + l
 Missing arguments (quadratic, linear or constant term)
 are allowed and taken to be zero.
 
-All keywords accepted by [`minimize`](@ref) can also be used for maximization problems.
+The `domain` keyword is required. All keywords accepted by [`minimize`](@ref)
+can also be used for maximization problems.
 Provably infeasible constrained models return `-Inf` (the supremum over an
 empty feasible set) together with an infeasible [`Solution`](@ref).
 
 See also [`minimize`](@ref).
 """
-function maximize(qs... ; kwargs...)
+function maximize(qs... ; domain, kwargs...)
   # Flip the sign of all non-nothing elements
   # max p(x) = - min -p(x)
   mqs = map(q -> maybe(-, q), qs)
-  E, psi = minimize(mqs...; kwargs...)
+  E, psi = minimize(mqs...; domain, kwargs...)
 
   return -E, psi
 end

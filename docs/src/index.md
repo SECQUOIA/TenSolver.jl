@@ -25,6 +25,12 @@ Pkg.add("TenSolver")
 
 The simplest way to use this package is passing a matrix to the solver:
 
+Native `minimize` and `maximize` calls require an explicit `domain`.
+For binary problems, migrate `minimize(Q)` to `minimize(Q; domain = 0:1)`.
+This also applies to linear and polynomial objectives and calls selecting a backend.
+Omitting the keyword raises `UndefKeywordError(:domain)`. The JuMP QUBO interface
+gets its binary domain from the model representation.
+
 ```jldoctest quickstart
 using TenSolver
 
@@ -34,7 +40,7 @@ assets = ["Wind", "Solar", "Battery"]
 Q = [0.0 1.0 -1.5;
      1.0 0.0 -0.5;
      -1.5 -0.5 0.0]
-E, psi = TenSolver.minimize(Q; verbosity=0)
+E, psi = TenSolver.minimize(Q; domain = 0:1, verbosity=0)
 
 # Verify we found the minimum
 E ≈ -3.0

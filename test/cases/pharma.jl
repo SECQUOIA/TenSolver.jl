@@ -52,7 +52,7 @@ end
 @testset "Stuck in local minima (Issue #19)" begin
   Q, L, beta = build_model()
 
-  E, psi = minimize(Q, beta; cutoff=1e-10, mindim = 2)
+  E, psi = minimize(Q, beta; domain = 0:1, verbosity = 0, cutoff=1e-10, mindim = 2)
   x = TenSolver.sample(psi)
 
   true_opt = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0]

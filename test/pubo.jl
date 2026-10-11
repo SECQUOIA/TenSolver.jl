@@ -4,7 +4,7 @@ import MultivariatePolynomials: maxdegree
 
 function test_correctness(obj, expected_energy, expected_sample, args...)
     # TenSolver solution
-    e, psi = TenSolver.minimize(args...; verbosity = 0)
+    e, psi = TenSolver.minimize(args...; domain = 0:1, verbosity = 0)
     x = TenSolver.sample(psi)
 
     # Does the ground energy match solution?
