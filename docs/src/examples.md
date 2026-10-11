@@ -435,7 +435,8 @@ objective_value ≈ E
 true
 ```
 
-This interface automatically handles the conversion of polynomial expressions into the tensor network representation used internally by the solver. The variables in the polynomial are treated as binary variables taking values in {0, 1}.
+This interface automatically handles the conversion of polynomial expressions into the tensor network representation used internally by the solver. Variables take values in the selected `domain`; this example selects binary
+variables with `domain = 0:1`.
 
 ### Example: Graph Coloring
 
