@@ -119,6 +119,12 @@ Since ITensor's GPU platform support is always improving,
 be sure to check out their [documentation](https://itensor.github.io/ITensors.jl/stable/)
 to know which GPUs are accepted.
 
+The test suite includes a CUDA smoke test for explicit binary, spin, nonbinary,
+and per-variable domains. Run `julia +release --project=. -e 'using Pkg; Pkg.test(; coverage=false)'`
+from this repository. The test runs automatically when `CUDA.functional()` detects
+a usable NVIDIA GPU and reports a skip otherwise, including on CPU-only CI runners.
+CUDA is a test dependency; running TenSolver on CPU does not require it.
+
 ## Citing TenSolver
 
 If you use TenSolver in your research, please cite our [NeurIPS 2025 Workshop paper](https://openreview.net/pdf?id=EL002DTBRA):
