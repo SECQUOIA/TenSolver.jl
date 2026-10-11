@@ -36,11 +36,6 @@ Pkg.add("TenSolver")
 The simplest way to use this package is passing a matrix to the solver,
 while defining a finite domain of real values.
 
-Native `minimize` and `maximize` calls require the `domain` keyword.
-To migrate a binary problem, replace `minimize(Q)` with
-`minimize(Q; domain = 0:1)`. Use `[-1, 1]` for spins; the same requirement
-applies to linear and polynomial objectives.
-
 ```julia
 using TenSolver
 
@@ -90,7 +85,7 @@ begin
   @variable(m, x[1:dim], Bin)
   @objective(m, Min, x'Q*x)
 
-  optimize!(m)                   # <-- Equivalent to running TenSolver.minimize(Q; domain = 0:1)
+  optimize!(m)
 end
 ```
 
@@ -118,12 +113,6 @@ E, psi = minimize(Q; domain = 0:1, device = CUDA.cu)
 Since ITensor's GPU platform support is always improving,
 be sure to check out their [documentation](https://itensor.github.io/ITensors.jl/stable/)
 to know which GPUs are accepted.
-
-The test suite includes a CUDA smoke test for explicit binary, spin, nonbinary,
-and per-variable domains. Run `julia +release --project=. -e 'using Pkg; Pkg.test(; coverage=false)'`
-from this repository. The test runs automatically when `CUDA.functional()` detects
-a usable NVIDIA GPU and reports a skip otherwise, including on CPU-only CI runners.
-CUDA is a test dependency; running TenSolver on CPU does not require it.
 
 ## Citing TenSolver
 

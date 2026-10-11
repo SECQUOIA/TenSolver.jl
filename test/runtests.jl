@@ -19,8 +19,6 @@ include(filepath("utils.jl"))
 # Abstract Backend API
 include(filepath("backend.jl"))
 include(filepath("variable_domains.jl"))
-include(filepath("explicit_domains.jl"))
-include(filepath("gpu.jl"))
 
 # Ising <-> QUBO utilities
 include(filepath("ising_conversion.jl"))

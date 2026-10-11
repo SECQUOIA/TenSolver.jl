@@ -23,13 +23,7 @@ Pkg.add("TenSolver")
 
 ## Quick Start
 
-Native `minimize` and `maximize` calls require an explicit `domain`.
-For binary problems, migrate `minimize(Q)` to `minimize(Q; domain = 0:1)`.
-This also applies to linear and polynomial objectives and calls selecting a backend.
-Omitting the keyword raises `UndefKeywordError(:domain)`. The JuMP QUBO interface
-gets its binary domain from the model representation.
-
-The simplest way to use this package is passing a matrix to the solver:
+The simplest way to use this package is passing an objective and domain to the solver:
 
 ```jldoctest quickstart
 using TenSolver

@@ -34,8 +34,7 @@ by finding the ground state (least eigenspace) of the Hamiltonian
 
     H = Σ Q_ij D_iD_j + Σ l_i D_i
 
-where D_i is diagonal with the variable's explicitly selected domain values.
-Pass `domain = 0:1` for binary variables or `domain = [-1, 1]` for Ising spins.
+where D_i is diagonal with the variable's domain values.
 
 
 Backend-specific keyword arguments:
@@ -73,16 +72,6 @@ function minimize(::DMRGBackend, Q::AbstractMatrix, l::AbstractVector, c::Real
   return minimize_mpo(H, c, obj ; cutoff, permutation, domain, constraints, objective_bound = objective_box_bound(Q, l, domain), kwargs...)
 end
 
-"""
-    minimize(::DMRGBackend, p::AbstractPolynomial ; domain, kwargs...)
-
-Solve a polynomial discrete optimization problem over the selected domains
-
-    min p(x)
-    s.t. x_i in domain[i]
-
-See also [`maximize`](@ref).
-"""
 function minimize(
   ::DMRGBackend,
   p::AbstractPolynomial

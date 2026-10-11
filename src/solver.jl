@@ -89,8 +89,6 @@ Keyword arguments:
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
 - `domain` - Allowed values per variable.
    Can be either a vector of per-variable domains or a single uniform domain valid for all variables.
-   Required: use `domain = 0:1` for binary variables.
-  Omitting `domain` raises `UndefKeywordError(:domain)`.
   Unconstrained DMRG optimization accepts any finite collection of real values;
   individual constraint types can impose narrower requirements. Use `[-1, 1]`
   for Ising spins. Domains are sorted and deduplicated before solving.
@@ -194,14 +192,14 @@ function minimize(
   return minimize(normalize_backend(backend), Q, l, c; domain, constraints, kwargs...)
 end
 
-function minimize(l :: AbstractVector{<:Real}, c :: Real = zero(eltype(l)); domain, kwargs...)
+function minimize(l :: AbstractVector{<:Real}, c :: Real = zero(eltype(l)); kwargs...)
   Q = zeros(eltype(l), size(l, 1), size(l, 1))
-  return minimize(Q, l, c; domain, kwargs...)
+  return minimize(Q, l, c; kwargs...)
 end
 
-function minimize(Q :: AbstractMatrix{<:Real}, c :: Real; domain, kwargs...)
+function minimize(Q :: AbstractMatrix{<:Real}, c :: Real; kwargs...)
   l = zeros(eltype(Q), size(Q, 1))
-  return minimize(Q, l, c; domain, kwargs...)
+  return minimize(Q, l, c; kwargs...)
 end
 
 """
@@ -218,18 +216,18 @@ In the matrix version, the objective is limited to quadratic forms x -> x'Qx + l
 Missing arguments (quadratic, linear or constant term)
 are allowed and taken to be zero.
 
-The `domain` keyword is required. All keywords accepted by [`minimize`](@ref)
+All keywords accepted by [`minimize`](@ref)
 can also be used for maximization problems.
 Provably infeasible constrained models return `-Inf` (the supremum over an
 empty feasible set) together with an infeasible [`Solution`](@ref).
 
 See also [`minimize`](@ref).
 """
-function maximize(qs... ; domain, kwargs...)
+function maximize(qs... ; kwargs...)
   # Flip the sign of all non-nothing elements
   # max p(x) = - min -p(x)
   mqs = map(q -> maybe(-, q), qs)
-  E, psi = minimize(mqs...; domain, kwargs...)
+  E, psi = minimize(mqs...; kwargs...)
 
   return -E, psi
 end
