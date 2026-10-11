@@ -84,6 +84,7 @@ TenSolver.preprocess_model
 TenSolver.DFA
 TenSolver.constraint_to_dfa
 TenSolver.mapreduce_dfa
+TenSolver.minimize_dfa
 TenSolver.dfa_to_mpo
 TenSolver.projection_mpo
 TenSolver.projection_mpos
