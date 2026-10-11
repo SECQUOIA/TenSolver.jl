@@ -1,5 +1,5 @@
 # Diagonal matrix whose eigenvalues are the ordered feasible values for a variable.
-# For Spin variables, this is the Pauli σ_z matrix.
+# For Spin variables ordered as [-1, +1], this is minus the Pauli σ_z matrix.
 # For Boolean variables, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
 # This looks like type piracy,
 # but is, in fact, ITensors' way to extend the OpSum mechanism.
@@ -25,6 +25,8 @@ Select TenSolver's default ITensorMPS DMRG backend.
 struct DMRGBackend <: AbstractTenSolverBackend end
 
 normalize_backend(::Val{:dmrg}) = DMRGBackend()
+
+include("qaoa_initial_state.jl")
 
 """
     minimize(::DMRGBackend, Q::Matrix[, l::Vector[, c::Number ; kwargs...)
@@ -59,6 +61,7 @@ function minimize(::DMRGBackend, Q::AbstractMatrix, l::AbstractVector, c::Real
   , preprocess::Bool=false
   , domain::Domains
   , constraints::AbstractVector{<:AbstractConstraint}
+  , initial_state=nothing
   , kwargs...
 )
   if preprocess
@@ -67,10 +70,11 @@ function minimize(::DMRGBackend, Q::AbstractMatrix, l::AbstractVector, c::Real
     permutation = collect(1:length(l))
   end
 
+  initialize = dmrg_initializer(initial_state, Q, l; domain, constraints)
   H      = tensorize(Q, l; cutoff, domain)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, constraints, objective_bound = objective_box_bound(Q, l, domain), kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, constraints, initialize, objective_bound = objective_box_bound(Q, l, domain), kwargs...)
 end
 
 """
@@ -89,8 +93,11 @@ function minimize(
   ;
   cutoff=1e-8,
   domain::Domains,
+  initial_state=nothing,
   kwargs...,
 )
+  isnothing(initial_state) ||
+    throw(ArgumentError("QAOA initialization requires a matrix or linear objective."))
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
@@ -269,6 +276,7 @@ function minimize_mpo( H_obj :: MPO
                      , check_variance_every_iteration :: Int = 10
                      # DMRG keywords
                      , inidim     = 40
+                     , initialize = constrained_initial_state
                      , maxdim     = [10, 10, 10, 20, 50, 100, 100, 200, 300, 300, 400, 400, 800, 900, 1000]
                      , mindim     = 1
                      , noise      = [1e-5, 1e-6, 1e-7, 1e-8, 1e-10, 1e-12, 0.0] # 1E-5 is a lot of noise and 1E-12 is a minimal amount of noise that can still be considered non-zero.
@@ -310,7 +318,7 @@ function minimize_mpo( H_obj :: MPO
   H = zero_objective ? H_obj : device(project_hamiltonian(device(H_solve), projections; cutoff))
 
   # Initial state
-  psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
+  psi = initialize(T, sites, projections; cutoff, inidim)
   psi = device(psi)
 
   stats = SolverStatistics{T}(;
@@ -445,7 +453,8 @@ function groundstate(H::MPO, psi0::MPS; projections, cutoff=1e-8, kwargs...)
     Ht = only(H)
     pt = only(psi0)
 
-    feasible = filter(a -> !iszero(pt[s => a]), 1:ITensorMPS.dim(s))
+    feasible = isempty(projections) ? (1:ITensorMPS.dim(s)) :
+      filter(a -> !iszero(pt[s => a]), 1:ITensorMPS.dim(s))
 
     if isempty(feasible)
       energy = Inf

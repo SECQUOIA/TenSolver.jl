@@ -51,6 +51,52 @@ s = TenSolver.sample(psi)
 (true, [1.0, 1.0], true)
 ```
 
+## QAOA Initialization for Ising Models
+
+The DMRG backend can start from a depth-one QAOA state with supplied angles.
+The following uses fixed illustrative angles, without an angle search:
+
+```jldoctest qaoa-initialization
+using TenSolver
+
+Q = [0.0 -1.0 -0.25 1.25;
+     0.0  0.0  0.75 0.0;
+     0.0  0.0  0.0 -0.5;
+     0.0  0.0  0.0  0.0]
+h = [0.5, -0.75, 0.25, 1.0]
+start = TenSolver.QAOAInitialState(0.37, -0.29)
+E, psi = TenSolver.minimize(Q, h, 0.375;
+    domain = [-1, 1], initial_state = start,
+    inidim = 16, maxdim = 16, iterations = 6, verbosity = 0)
+
+(E ≈ -4.375, all(in((-1, 1)), TenSolver.sample(psi)))
+
+# output
+
+(true, true)
+```
+
+Preparation applies the objective phase gates before the X mixer. TenSolver's
+ordered spin basis is `[-1, +1]`: bit `b` decodes to `2b - 1`. Constant offsets
+affect reported energies but only a global phase during preparation.
+`inidim` caps preparation bonds, whereas `maxdim` controls subsequent DMRG sweeps.
+Truncation can change the prepared state. Random initialization remains the default.
+
+This option currently supports unconstrained spin matrix and linear objectives.
+For `maximize`, angles refer to the negated cost Hamiltonian. It does not optimize
+angles or imply an improvement over random starts. Returned `E` is a sampled
+assignment's objective; `psi.stats.energies` records DMRG expectation values
+(of the negated objective when maximizing).
+
+Adapted with permission from Filip B. Maciejewski's gate-based QAOA warm-start
+workflow (Copyright 2025 USRA), in
+[`quantum-approximate-optimization`](https://github.com/fbm2718-usra/quantum-approximate-optimization/blob/2d6296206ec7955f3a24392d05e7225860043c89/quapopt/optimization/QAOA/simulation/tensor_networks/mps/julia/jl/ws_qaoa.jl),
+revision `2d6296206ec7955f3a24392d05e7225860043c89` (access may be restricted).
+This port fixes the source's product-state bias to `0.5`, uses TenSolver's site
+basis and DMRG loop, and omits its Python, GPU, and angle-optimization paths.
+It applies fields first, then pairs in increasing column/row order. These cost
+gates commute exactly; finite-bond truncation can depend on their order.
+
 ## Non-consecutive Integer Domains
 
 Use any finite integer domain:
