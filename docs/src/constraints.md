@@ -30,19 +30,39 @@ A solve with `constraints` proceeds in three steps:
    or some semantically equivalent context-dependent MPO.
 
 
-Each of the four built-in constraint types has a specialized automaton with a
-compact bond dimension (see the table below).
+Each of the five built-in constraint types has a specialized automaton.
+Before allocating dense projection tensors, TenSolver minimizes its state space
+separately at each layer: it removes states unreachable through the prefix or
+unable to accept any suffix, then merges states accepting exactly the same
+remaining suffixes. This reduction is exact and handles all relations through
+the same DFA construction.
+
+A **raw layer width** counts these remaining equivalence classes and determines
+the corresponding pre-compression tensor bond. For example, the binary constraint
+`SumConstraint(collect(1:4), [1, 2, 3, 4], 5; relation = :(<=))` starts with seven
+partial-sum states and has minimized raw bond widths `[2, 3, 2]`.
+An infeasible constraint uses singleton bonds with zero tensors.
+
+The returned MPO then undergoes the existing numerical compression with cutoff
+`eps` of its real element type. Its **compressed bond dimensions** can be smaller
+than the raw layer widths: numerical tensor rank and the number of distinct DFA
+suffix languages are different quantities. Floating-point contractions of the
+returned projector agree with the exact feasibility mask up to rounding error.
+
+The table lists **upper bounds**, rather than widths attained at every bond.
+Sum and modular-sum bounds use the stored parameters after constructor
+normalization (including common-factor reduction).
 For TenSolver's current implementation,
 the effective Hamiltonian has bond dimension bounded by
 ``\chi(P' H P) \le \chi(H) \cdot \prod_i \chi(P_i)``.
 
-| Constraint | Enforces | Bond dimension of ``P`` |
+| Constraint | Enforces | Upper bound on each bond of ``P`` |
 |:-----------|:---------|:------------------------|
 | [`SumConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \lessgtr b`` | ``b + 2`` (independent of the number of variables) |
 | [`SumModConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \equiv b \pmod m`` | ``m`` |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
 | [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i \in G) \lessgtr b`` | ``b + 2`` |
-| [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
+| [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | Domain size of the earlier site (2 for binary variables) |
 
 ## Using constraints
 
@@ -99,7 +119,8 @@ when the variable domains are nonnegative integers.
 
 
 Its automaton tracks a capped partial sum,
-so the projection bond dimension is `rhs + 2` regardless of how many variables the sum touches.
+so each minimized raw layer width and compressed projection bond dimension is
+at most the normalized `rhs + 2`, regardless of how many variables the sum touches.
 
 ### Modular Sum Constraint
 
@@ -116,7 +137,8 @@ The modulus `m` must be a positive integer.
 Weights and the rhs are normalized to their least nonnegative residues modulo `m`,
 and variable domains may contain any integer values.
 
-Its MPO tracks a partial sum with bond dimension `m`.
+Its automaton tracks residues; each raw layer width and compressed MPO bond
+dimension is at most the normalized modulus `m`.
 
 ### NotEqualsConstraint
 
@@ -150,7 +172,8 @@ restricts how many selected sites take a value in `values`:
 \#\{\, s \in \texttt{sites} : x_s \in \texttt{values} \,\} \;\; \texttt{relation} \;\; \texttt{rhs}.
 ```
 
-For rhs `k`, its automaton has maximum bond dimension `k+2`.
+For rhs `k`, its counting automaton has `k+2` states, an upper bound on each
+minimized raw layer width and compressed MPO bond dimension.
 
 ```jldoctest onehot
 using TenSolver
@@ -171,7 +194,8 @@ E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; constraints = [one_
 
 `RelationConstraint(left_site, relation, right_site)` enforces the pairwise
 relation ``x_{\texttt{left}} \lessgtr x_{\texttt{right}}`` with the same four
-relations as `SumConstraint`.  Bond dimension 2.
+relations as `SumConstraint`. Each bond dimension is bounded by the domain size
+of the earlier site in register order, so the binary bound is 2.
 
 ```jldoctest relation
 using TenSolver
@@ -192,7 +216,7 @@ E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, 1.0]; constraints = [implies], v
 ## Combining constraints
 
 Passing several constraints applies their conjunction.
-All four types compose freely:
+All five types compose freely:
 
 ```jldoctest combined
 using TenSolver
