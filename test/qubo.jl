@@ -200,7 +200,7 @@
 
       scramble = [1, 3, 5, 2, 4]
       Q = path[scramble, scramble]
-      permutation = TenSolver.qmatrix_permutation(Q)
+      permutation = TenSolver.qmatrix_permutation(Q; cutoff = 0)
       original_bandwidth = bandwidth(Q)
       permuted_bandwidth = bandwidth(Q[permutation, permutation])
 
@@ -241,14 +241,12 @@
 
   @testset "Pure quadratic" begin
     Q = [
-       0.0  1.0  0.0  0.0 -0.5
-       0.0  0.0  0.75 0.0  0.0
-       0.0  0.0  0.0 -1.0  0.0
-       0.0  0.0  0.0  0.0  0.5
-       0.0  0.0  0.0  0.0  0.0
+       -2.0  1.0  0.0  0.0 -0.5
+        0.0  1.0  0.75 0.0  0.0
+        0.0  0.0 -3.0 -1.0  0.0
+        0.0  0.0  0.0  2.0  0.5
+        0.0  0.0  0.0  0.0 -1.0
     ]
-    l = [-2.0, 1.0, -3.0, 2.0, -1.0]
-    Q = Q + Diagonal(l)
 
     # TenSolver solution
     e, psi = TenSolver.minimize(Q; verbosity = 0)

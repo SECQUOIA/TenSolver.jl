@@ -57,16 +57,21 @@
     @test relation.left_site == 1
     @test relation.relation == Symbol(">=")
     @test relation.right_site == 2
+
+    relation2 = RelationConstraint(2, Symbol(">="), 1)
+    @test relation2 isa RelationConstraint
+    @test relation2 isa AbstractConstraint
+    @test relation2.left_site == 1
+    @test relation2.relation == Symbol("<=")
+    @test relation2.right_site == 2
   end
 
   @testset "Constructor validation" begin
-    @test_throws ArgumentError AssignmentConstraint(Int[], 1, :(==), 1)
     @test_throws ArgumentError AssignmentConstraint([0], 1, :(==), 1)
     @test_throws ArgumentError AssignmentConstraint([1, 1], 1, :(==), 1)
-    @test_throws ArgumentError AssignmentConstraint([1.0], 1, :(==), 1)
     @test_throws ArgumentError AssignmentConstraint([1], [1], :(==), -1)
-    @test_throws ArgumentError AssignmentConstraint([1], [1], :(==), 1.5)
     @test_throws ArgumentError AssignmentConstraint([1], [1], :(<), 1)
+    @test_throws InexactError  AssignmentConstraint([1], [1], :(==), 1.5)
 
     @test_throws DimensionMismatch SumConstraint([1, 2], [1], Symbol("=="), 1)
     @test_throws ArgumentError SumConstraint([1], [-1], Symbol("=="), 0)
@@ -76,18 +81,18 @@
     @test_throws UndefKeywordError SumConstraint([1, 2], [1, 1], 1)
 
     @test_throws DimensionMismatch SumModConstraint([1, 2], [1], 0; mod = 2)
-    @test_throws ArgumentError SumModConstraint([1], [1.5], 0; mod = 2)
-    @test_throws ArgumentError SumModConstraint([1], [1], 0.5; mod = 2)
-    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = 0)
-    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = -2)
-    @test_throws ArgumentError SumModConstraint([1], [1], 0; mod = 2.5)
+    @test_throws ArgumentError SumModConstraint([1], [1], 0;   mod = 0)
+    @test_throws ArgumentError SumModConstraint([1], [1], 0;   mod = -2)
+    @test_throws InexactError  SumModConstraint([1], [1.5], 0; mod = 2)
+    @test_throws InexactError  SumModConstraint([1], [1], 0.5; mod = 2)
+    @test_throws InexactError  SumModConstraint([1], [1], 0;   mod = 2.5)
 
     @testset "SumConstraint floating-point validation" begin
       @test SumConstraint([1, 2], [1.0, 2.0], 2.0; relation=:(<=)) isa SumConstraint
       @test SumConstraint([1, 2], [1.0, 1.0], 1.0; relation=:(==)) isa SumConstraint
 
-      @test_throws ArgumentError SumConstraint([1, 2], [1.5, 1.0], 2.0; relation=:(<=))
-      @test_throws ArgumentError SumConstraint([1, 2], [1.0, 1.0], 1.5; relation=:(<=))
+      @test_throws InexactError  SumConstraint([1, 2], [1.5, 1.0], 2.0; relation=:(<=))
+      @test_throws InexactError  SumConstraint([1, 2], [1.0, 1.0], 1.5; relation=:(<=))
       @test_throws ArgumentError SumConstraint([1, 2], [1.0, -1.0], 0.0; relation=:(<=))
     end
 

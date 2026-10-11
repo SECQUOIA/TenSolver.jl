@@ -7,9 +7,7 @@ import SparseArrays: findnz, sparse
 import TenSolver
 import TenSolver: KingGrid, PEPSBackend, PEPSSolution, SquareGrid
 
-import SpinGlassEngine
-import SpinGlassNetworks
-import SpinGlassTensors
+import SpinGlassPEPS
 
 function peps_options(;
   maxdim::Integer = 16,
@@ -64,9 +62,16 @@ function peps_options(;
   )
 end
 
-function check_spin_domain(domain)
-  return domain == [-1, 1] ||
-         throw(ArgumentError("PEPSBackend requires domain = [-1, 1]. Got $(repr(domain)).",),)
+function check_spin_domain(domain::TenSolver.Domains)
+  return all(d == [-1, 1] for d in domain) ||
+         throw(ArgumentError("PEPSBackend requires domain = [-1, 1] for every variable. " *
+                             "Got $(repr(domain)).",),)
+end
+
+function check_no_constraints(constraints)
+  return isempty(constraints) ||
+         throw(ArgumentError("PEPSBackend does not support native constraints. " *
+                             "Got $(length(constraints)) constraint(s).",),)
 end
 
 peps_float_type(::Type{T}) where {T} = float(T)
@@ -123,27 +128,27 @@ end
 
 function build_potts_hamiltonian(local_dimension, instance, lattice)
   if isnothing(local_dimension)
-    return SpinGlassNetworks.potts_hamiltonian(
+    return SpinGlassPEPS.potts_hamiltonian(
       instance;
-      spectrum = SpinGlassNetworks.full_spectrum,
+      spectrum = SpinGlassPEPS.full_spectrum,
       cluster_assignment_rule = lattice,
     )
   end
 
-  return SpinGlassNetworks.potts_hamiltonian(
+  return SpinGlassPEPS.potts_hamiltonian(
     instance,
     local_dimension;
-    spectrum = SpinGlassNetworks.full_spectrum,
+    spectrum = SpinGlassPEPS.full_spectrum,
     cluster_assignment_rule = lattice,
   )
 end
 
 function resolve_transformations(transformations)
   if transformations === :all
-    return SpinGlassEngine.all_lattice_transformations
+    return SpinGlassPEPS.all_lattice_transformations
   end
   if transformations === :identity
-    return (SpinGlassEngine.rotation(0),)
+    return (SpinGlassPEPS.rotation(0),)
   end
   if transformations isa Symbol
     throw(ArgumentError("Unsupported PEPS transformations $(repr(transformations)). Use " *
@@ -160,18 +165,18 @@ end
 
 function contraction_strategy(contraction::Symbol)
   if contraction in (:auto, :svd, :svd_truncate)
-    return SpinGlassEngine.SVDTruncate
+    return SpinGlassPEPS.SVDTruncate
   end
   if contraction === :zipper
-    return SpinGlassEngine.Zipper
+    return SpinGlassPEPS.Zipper
   end
   return throw(ArgumentError("Unsupported PEPS contraction $(repr(contraction)).",),)
 end
 
 function peps_network(topology::SquareGrid, potts_h, transform, ::Type{T}) where {T}
-  return SpinGlassEngine.PEPSNetwork{
-    SpinGlassEngine.SquareSingleNode{SpinGlassEngine.GaugesEnergy},
-    SpinGlassEngine.Dense,
+  return SpinGlassPEPS.PEPSNetwork{
+    SpinGlassPEPS.SquareSingleNode{SpinGlassPEPS.GaugesEnergy},
+    SpinGlassPEPS.Dense,
     T,
   }(
     topology.m,
@@ -182,9 +187,9 @@ function peps_network(topology::SquareGrid, potts_h, transform, ::Type{T}) where
 end
 
 function peps_network(topology::KingGrid, potts_h, transform, ::Type{T}) where {T}
-  return SpinGlassEngine.PEPSNetwork{
-    SpinGlassEngine.KingSingleNode{SpinGlassEngine.GaugesEnergy},
-    SpinGlassEngine.Dense,
+  return SpinGlassPEPS.PEPSNetwork{
+    SpinGlassPEPS.KingSingleNode{SpinGlassPEPS.GaugesEnergy},
+    SpinGlassPEPS.Dense,
     T,
   }(
     topology.m,
@@ -203,9 +208,10 @@ function solve_transformation(
   search_parameters,
   strategy,
   options,
+  show_progress,
 ) where {T}
   network = peps_network(topology, potts_h, transform, T)
-  contractor = SpinGlassEngine.MpsContractor(
+  contractor = SpinGlassPEPS.MpsContractor(
     strategy,
     network,
     parameters;
@@ -213,37 +219,54 @@ function solve_transformation(
     beta = T(options.beta),
     graduate_truncation = options.graduate_truncation,
   )
-  merge_strategy = SpinGlassEngine.merge_branches(contractor; merge_prob = :none)
-  solution, info = SpinGlassEngine.low_energy_spectrum(
+  merge_strategy = SpinGlassPEPS.merge_branches(contractor; merge_prob = :none)
+  solution, info = SpinGlassPEPS.low_energy_spectrum(
     contractor,
     search_parameters,
     merge_strategy;
     no_cache = options.no_cache,
+    show_progress,
   )
 
-  # SpinGlassEngine memoizes contraction state globally and clears it after
-  # each spectrum solve in its own benchmark and test runners.
-  SpinGlassEngine.clear_memoize_cache()
   return (; solution, info)
 end
 
 function decoded_records(J, h, offset, potts_h, solution, transform)
   records = NamedTuple[]
   for i in eachindex(solution.states)
-    decoded = SpinGlassNetworks.decode_potts_hamiltonian_state(potts_h, solution.states[i])
+    decoded = SpinGlassPEPS.decode_potts_hamiltonian_state(potts_h, solution.states[i])
     spins = [Int(decoded[j]) for j in eachindex(h)]
     push!(
       records,
       (;
         state = spins,
         energy = TenSolver.ising_energy(J, h, offset, spins),
-        probability = solution.probabilities[i],
+        log_probability = solution.probabilities[i],
         transformation = transform,
         raw_energy = solution.energies[i],
       ),
     )
   end
   return records
+end
+
+function normalized_records(records)
+  max_log_probability = maximum(record.log_probability for record in records)
+  if !isfinite(max_log_probability) || any(record -> isnan(record.log_probability), records)
+    throw(ArgumentError("SpinGlassPEPS returned invalid log probabilities."))
+  end
+
+  # Upstream weights are logarithms. Subtract a common maximum before exponentiating
+  # so even very small weights can be normalized over the retained, unique states.
+  weighted = [
+    (; record..., probability = exp(record.log_probability - max_log_probability)) for
+    record in records
+  ]
+  deduplicated = deduplicated_records(weighted)
+  total = sum(record.probability for record in deduplicated)
+  return [
+    (; record..., probability = record.probability / total) for record in deduplicated
+  ]
 end
 
 function deduplicated_records(records)
@@ -301,7 +324,7 @@ function quadratic_form(p::AbstractPolynomial{T}) where {T}
       continue
     end
 
-    term_powers = collect(powers(term))
+    term_powers = filter(pair -> !iszero(last(pair)), collect(powers(term)))
     degree = sum(last, term_powers)
     if degree == 1
       variable, _ = only(term_powers)
@@ -325,7 +348,7 @@ end
 function TenSolver.minimize(
   backend::PEPSBackend,
   p::AbstractPolynomial;
-  domain::AbstractVector,
+  domain::TenSolver.Domains,
   kwargs...,
 )
   check_spin_domain(domain)
@@ -338,13 +361,15 @@ function TenSolver.minimize(
   J::AbstractMatrix{T},
   h::AbstractVector{T},
   offset::T;
-  domain::AbstractVector,
+  domain::TenSolver.Domains,
+  constraints::AbstractVector = TenSolver.AbstractConstraint[],
   cutoff = nothing,
   preprocess::Bool = false,
   verbosity::Integer = 1,
   kwargs...,
 ) where {T<:Real}
   check_spin_domain(domain)
+  check_no_constraints(constraints)
   if preprocess
     throw(ArgumentError("PEPSBackend does not support preprocess=true because the topology " *
                         "fixes the variable order.",),)
@@ -363,16 +388,15 @@ function TenSolver.minimize(
 
   S = peps_float_type(T)
   instance = ising_instance(J, h)
-  ising_graph = SpinGlassNetworks.ising_graph(S, instance)
-  lattice =
-    SpinGlassNetworks.super_square_lattice(TenSolver.topology_tuple(backend.topology),)
+  ising_graph = SpinGlassPEPS.ising_graph(S, instance)
+  lattice = SpinGlassPEPS.super_square_lattice(TenSolver.topology_tuple(backend.topology),)
   check_layout_edges(backend.topology, J, lattice)
   potts_h = build_potts_hamiltonian(options.local_dimension, ising_graph, lattice)
-  parameters = SpinGlassEngine.MpsParameters{S}(;
+  parameters = SpinGlassPEPS.MpsParameters{S}(;
     bond_dim = options.maxdim,
     num_sweeps = options.iterations,
   )
-  search_parameters = SpinGlassEngine.SearchParameters(;
+  search_parameters = SpinGlassPEPS.SearchParameters(;
     max_states = options.max_states,
     cutoff_prob = options.cutoff_prob,
   )
@@ -390,6 +414,7 @@ function TenSolver.minimize(
       search_parameters,
       strategy,
       options,
+      verbosity > 0,
     )
     raw_results[transform] = result
     append!(records, decoded_records(J, h, offset, potts_h, result.solution, transform))
@@ -399,7 +424,7 @@ function TenSolver.minimize(
     throw(ArgumentError("SpinGlassPEPS did not return any states."),)
   end
 
-  records = deduplicated_records(records)
+  records = normalized_records(records)
   states = [record.state for record in records]
   energies = S[record.energy for record in records]
   probabilities = S[record.probability for record in records]

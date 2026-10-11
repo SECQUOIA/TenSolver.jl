@@ -1,13 +1,31 @@
 module TenSolver
 
-import ITensors, ITensorMPS
-using QUBODrivers: QUBODrivers, QUBOTools, MOI
-
 using LinearAlgebra
+using Printf: @printf
+using Random: Random, AbstractRNG, Repetition, Sampler, SamplerTrivial
+
+using ArgCheck: @argcheck
+using Combinatorics: multiset_permutations
+
+import ITensors, ITensorMPS
+using  ITensors: inner
+using  ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
+
+using MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, polynomial, terms, variables, effective_variables, powers, isconstant
+import MultivariatePolynomials as MP
+
+using QUBODrivers: QUBODrivers, QUBOTools, MOI
 
 const __VERSION__ = pkgversion(@__MODULE__)
 
+const cpu = identity
+
+include("domains.jl")
+
 include("preprocess.jl")
+
+include("solution.jl")
+export sample
 
 include("ising.jl")
 export bool_to_spin, spin_to_bool, qubo_to_ising, ising_to_qubo
@@ -19,17 +37,12 @@ export is_feasible
 
 include("projection_mpo.jl")
 
-include("solution.jl")
-export sample
+# Convergence logging
+include("log.jl")
 
 include("solver.jl")
 export minimize, maximize
 export AbstractTenSolverBackend, DMRGBackend
-
-# Convergence logging
-include("log.jl")
-
-cpu = identity
 
 
 ## ~:~ Welcome to the QUBOVerse ~:~ ##
@@ -171,7 +184,7 @@ function minimize_peps_qubo(
   form = qubo_to_ising(Q, l, c)
   _, h, J, scale, offset, _, _ = form
   isone(scale) || error("Internal QUBO-to-Ising conversion returned a non-unit scale.")
-  energy, solution = minimize(backend, J, h, offset; domain = [-1, 1], kwargs...)
+  energy, solution = minimize(J, h, offset; backend, domain = [-1, 1], kwargs...)
   return energy, boolean_peps_solution(solution)
 end
 
@@ -360,6 +373,8 @@ function tensolver_metadata(
     "no_cache"            => peps_parameters.no_cache,
   )
   peps = copy(solution.metadata)
+  peps["states"] = copy.(solution.states)
+  peps["probabilities"] = copy(solution.probabilities)
   peps["candidate_states"] = length(solution.states)
   peps["effective_time"] = effective_time
   peps["parameters"] = parameters
