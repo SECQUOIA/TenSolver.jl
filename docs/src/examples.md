@@ -53,8 +53,10 @@ s = TenSolver.sample(psi)
 
 ## QAOA Initialization for Ising Models
 
-The DMRG backend can start from a depth-one QAOA state with supplied angles.
-The following uses fixed illustrative angles, without an angle search:
+The DMRG backend can start from a depth-one QAOA state. The no-argument
+initializer uses `gamma = 0.01` and `beta = 0.1` radians, matching Filip's Python
+wrapper defaults at depth one. These angles prepare the starting MPS; DMRG
+then uses the usual sweep settings:
 
 ```jldoctest qaoa-initialization
 using TenSolver
@@ -64,7 +66,7 @@ Q = [0.0 -1.0 -0.25 1.25;
      0.0  0.0  0.0 -0.5;
      0.0  0.0  0.0  0.0]
 h = [0.5, -0.75, 0.25, 1.0]
-start = TenSolver.QAOAInitialState(0.37, -0.29)
+start = TenSolver.QAOAInitialState()
 E, psi = TenSolver.minimize(Q, h, 0.375;
     domain = [-1, 1], initial_state = start,
     inidim = 16, maxdim = 16, iterations = 6, verbosity = 0)
@@ -81,6 +83,15 @@ ordered spin basis is `[-1, +1]`: bit `b` decodes to `2b - 1`. Constant offsets
 affect reported energies but only a global phase during preparation.
 `inidim` caps preparation bonds, whereas `maxdim` controls subsequent DMRG sweeps.
 Truncation can change the prepared state. Random initialization remains the default.
+
+Use `TenSolver.QAOAInitialState(gamma, beta)` to supply other angles.
+The source's
+[`run_qaoa_juliaMPS`](https://github.com/fbm2718-usra/quantum-approximate-optimization/blob/2d6296206ec7955f3a24392d05e7225860043c89/quapopt/optimization/QAOA/simulation/tensor_networks/mps/julia/ws_qaoa.py)
+wrapper defaults to the linear schedule, which
+returns the supplied `gamma0` and `beta0` unchanged at depth one. Its benchmark
+notebook overrides those defaults with angles optimized separately for each
+instance. This example reproduces the wrapper's default angles; reproducing
+the notebook's preparation requires supplying its optimized angles explicitly.
 
 This option currently supports unconstrained spin matrix and linear objectives.
 For `maximize`, angles refer to the negated cost Hamiltonian. It does not optimize

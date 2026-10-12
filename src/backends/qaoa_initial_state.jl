@@ -3,12 +3,15 @@
 # revision 2d6296206ec7955f3a24392d05e7225860043c89, jl/ws_qaoa.jl.
 
 """
+    TenSolver.QAOAInitialState()
     TenSolver.QAOAInitialState(gamma, beta)
 
 Prepare a depth-one QAOA state before DMRG for an unconstrained matrix or linear
 objective with `domain = [-1, 1]`. Starting from the uniform superposition, apply
 `exp(-im * gamma * H)` followed by `exp(-im * beta * sum(X))`, where `H` is the
 objective Hamiltonian. Both angles must be finite real numbers, in radians.
+The no-argument constructor uses `gamma = 0.01`, `beta = 0.1`, matching the
+source Python wrapper's defaults at depth one. Explicit angles override them.
 The constant objective offset contributes only a global phase and is omitted
 from preparation; it remains included in reported objective values.
 
@@ -17,7 +20,8 @@ Pass this configuration as `initial_state` to [`minimize`](@ref) or
 objective. `inidim` caps the preparation's bond dimension; `cutoff` controls
 coefficient filtering and gate truncation. The state is normalized after
 preparation. DMRG's `maxdim` applies afterward.
-Angles are supplied by the caller; this configuration does not optimize them.
+These fixed defaults do not reproduce the source notebook's per-instance angle
+optimization or establish an improvement over random initialization.
 """
 struct QAOAInitialState
   gamma::Float64
@@ -31,6 +35,9 @@ struct QAOAInitialState
     return new(angles...)
   end
 end
+
+# run_qaoa_juliaMPS defaults; its linear schedule leaves both unchanged at p=1.
+QAOAInitialState() = QAOAInitialState(0.01, 0.1)
 
 dmrg_initializer(::Nothing, Q, l; domain, constraints) = constrained_initial_state
 

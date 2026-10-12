@@ -26,6 +26,9 @@ end
 @testset "QAOA initialization" begin
   gamma, beta = 0.37, -0.29
   start = TS.QAOAInitialState(gamma, beta)
+  default_start = TS.QAOAInitialState()
+  # Pinned Python run_qaoa_juliaMPS defaults; p=1 has schedule index i=0.
+  @test (default_start.gamma, default_start.beta) == (0.01, 0.1)
   constraints = AbstractConstraint[]
   # Predeclared tolerances: norm/Hamiltonian 1e-10, state ray 1e-8,
   # DMRG expectation 1e-8. These fixed angles do not reproduce angle searches.
@@ -85,6 +88,7 @@ end
     c = offset - 0.625
     energies, reference, wrong_order = qaoa_test_oracle(Q, l, c, gamma, beta)
     _, wrong_sign, _ = qaoa_test_oracle(Q, l, c, -gamma, beta)
+    _, default_reference, _ = qaoa_test_oracle(Q, l, c, 0.01, 0.1)
     @test extrema(energies) == exact
     @test qaoa_test_ray_error(reference, wrong_order) > 1e-3
     @test qaoa_test_ray_error(reference, wrong_sign) > 1e-3
@@ -112,6 +116,16 @@ end
       original_indices =
         [1 + sum(((k >> (j-1)) & 1) << (p[j]-1) for j in 1:n) for k in 0:(2 ^ n - 1)]
       @test qaoa_test_ray_error(v, reference[original_indices]) < 1e-8
+      default_prepare =
+        TS.dmrg_initializer(default_start, qp, lp; domain = dp, constraints = cons)
+      # Small angles give small Schmidt values: disable truncation for exact parity.
+      default_psi =
+        default_prepare(Float64, sites, ITensorMPS.MPO[]; cutoff = 0.0, inidim = 16)
+      @test norm(default_psi) ≈ 1 atol=1e-10
+      @test qaoa_test_ray_error(
+        qaoa_test_vector(default_psi, sites),
+        default_reference[original_indices],
+      ) < 1e-8
       # The dense oracle deliberately materializes up to sixteen physical axes.
       fullH = ITensors.@set_warn_order 18 reduce(*, H)
       denseH = reshape(Array(fullH, ITensors.prime.(sites)..., sites...), 2^n, 2^n)
@@ -168,7 +182,7 @@ end
     # Two trajectories, three sweeps each. No angle search or performance comparison.
     options = (;
       domain = [-1, 1],
-      initial_state = start,
+      initial_state = default_start,
       preprocess = true,
       inidim = 16,
       maxdim = 16,
