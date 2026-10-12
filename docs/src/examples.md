@@ -317,6 +317,30 @@ E, psi = TenSolver.minimize(Q; device = CUDA.cu)
 x = TenSolver.sample(psi)
 ```
 
+Native constraints use the same `device` keyword:
+
+```julia
+CUDA.allowscalar(false)
+constraint = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(==))
+E, psi = TenSolver.minimize(
+    zeros(3, 3), [3.0, 1.0, 2.0];
+    domain = 0:1, constraints = [constraint], device = CUDA.cu,
+    iterations = 3, inidim = 8, maxdim = 8, verbosity = 0,
+)
+```
+
+The initial state is transferred before constraint projection. Returned states and
+iteration callbacks stay on the selected device. Single-variable problems compare
+their local energies on the CPU and transfer the resulting state back to the device.
+`CUDA.cu` uses Float32 storage by default; use `x -> Adapt.adapt(CUDA.CuArray, x)`
+after importing `Adapt` to preserve the input precision.
+`minimize` samples the final state internally to calculate the returned objective.
+ITensorMPS 0.4.2 uses a normalization tolerance tighter than Float32 precision, so a
+Float32 superposition (for example, tied optima) can cause `minimize` itself to throw
+`sample: MPS is not normalized`. Use Float64 storage as above to avoid this limitation.
+Also, TenSolver's `prob` and membership queries currently construct CPU tensors;
+they do not support querying a GPU-resident solution.
+
 For Apple Silicon GPUs:
 
 ```julia

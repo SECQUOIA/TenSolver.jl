@@ -37,6 +37,10 @@ include(filepath("pubo.jl"))
 include(filepath("domains.jl"))
 include(filepath("spin_domains.jl"))
 include(filepath("constrained_solve.jl"))
+include(filepath("device_solve.jl"))
+@testset "CPU device solves" begin
+  test_device_solve(identity, t -> ITensors.data(t) isa Array)
+end
 
 # JuMP interface
 include(filepath("jump.jl"))
