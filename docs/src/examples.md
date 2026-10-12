@@ -341,15 +341,6 @@ Float32 superposition (for example, tied optima) can cause `minimize` itself to 
 Also, TenSolver's `prob` and membership queries currently construct CPU tensors;
 they do not support querying a GPU-resident solution.
 
-The optional CUDA regression suite requires a working NVIDIA GPU. Its separate
-environment is maintained manually; run these hardware tests after updating its
-dependencies. From the repository root, install the environment and run it with:
-
-```sh
-julia --project=test/gpu -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
-julia --project=test/gpu test/gpu/runtests.jl
-```
-
 For Apple Silicon GPUs:
 
 ```julia

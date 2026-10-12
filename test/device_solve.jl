@@ -1,7 +1,7 @@
 using Test, TenSolver
 import ITensors
 
-function test_device_solve(device, on_device; atol = 1e-8, broken_tie_sampling = false)
+function test_device_solve(device, on_device; atol = 1e-8)
   Q = [0.0 2.0 0.0; 0.0 0.0 -1.0; 0.0 0.0 0.0]
   l = [3.0, 1.0, 2.0]
   exactly_two = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(==))
@@ -72,20 +72,7 @@ function test_device_solve(device, on_device; atol = 1e-8, broken_tie_sampling =
     else
       (; kwargs..., noise = [0.0])
     end
-    if broken_tie_sampling && name == "single-site unconstrained tie"
-      # ITensorMPS 0.4.2 checks normalization against a fixed 1e-8 tolerance,
-      # tighter than Float32 precision. Preserve this known failure explicitly.
-      result = try
-        minimize(Q, l; kwargs...)
-      catch err
-        err
-      end
-      if result isa Exception
-        @test result isa ErrorException
-        @test startswith(sprint(showerror, result), "sample: MPS is not normalized")
-      end
-      @test_broken !(result isa Exception)
-    elseif isinf(optimum)
+    if isinf(optimum)
       energy, solution =
         @test_logs (:warn, r"empty feasible subspace") minimize(Q, l; kwargs...)
       @test energy == Inf
