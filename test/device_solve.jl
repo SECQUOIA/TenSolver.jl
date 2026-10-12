@@ -1,4 +1,5 @@
-using Test, TenSolver, ITensors
+using Test, TenSolver
+import ITensors
 
 function test_device_solve(device, on_device; atol = 1e-8, broken_tie_sampling = false)
   Q = [0.0 2.0 0.0; 0.0 0.0 -1.0; 0.0 0.0 0.0]
@@ -10,6 +11,7 @@ function test_device_solve(device, on_device; atol = 1e-8, broken_tie_sampling =
   cases = [
     ("unconstrained", Q, l, AbstractConstraint[], 0.0, [0, 0, 0]),
     ("native constraints", Q, l, [exactly_two], 2.0, [0, 1, 1]),
+    ("noise and variance", Q, l, [exactly_two], 2.0, [0, 1, 1]),
     (
       "multiple constraints",
       Q,
@@ -61,10 +63,15 @@ function test_device_solve(device, on_device; atol = 1e-8, broken_tie_sampling =
       inidim = 8,
       maxdim = 8,
       cutoff = 1e-12,
-      noise = [0.0],
       verbosity = 0,
       on_iteration = callback,
     )
+    kwargs = if name == "noise and variance"
+      # Use the backend's default noise schedule and evaluate variance each sweep.
+      (; kwargs..., check_variance_every_iteration = 1, vtol = -Inf)
+    else
+      (; kwargs..., noise = [0.0])
+    end
     if broken_tie_sampling && name == "single-site unconstrained tie"
       # ITensorMPS 0.4.2 checks normalization against a fixed 1e-8 tolerance,
       # tighter than Float32 precision. Preserve this known failure explicitly.
@@ -93,6 +100,10 @@ function test_device_solve(device, on_device; atol = 1e-8, broken_tie_sampling =
       @test is_feasible(solution)
       @test all(on_device, solution.tensor)
       @test callbacks[] == (length(l) == 1 ? 1 : 3)
+      if name == "noise and variance"
+        @test length(solution.stats.variances) == 3
+        @test all(v -> !isnothing(v) && isfinite(v), solution.stats.variances)
+      end
       for x in TenSolver.sample(solution, 8)
         @test is_feasible(x, constraints)
         @test isnothing(expected) || x == expected

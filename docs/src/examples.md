@@ -334,13 +334,16 @@ iteration callbacks stay on the selected device. Single-variable problems compar
 their local energies on the CPU and transfer the resulting state back to the device.
 `CUDA.cu` uses Float32 storage by default; use `x -> Adapt.adapt(CUDA.CuArray, x)`
 after importing `Adapt` to preserve the input precision.
-Float64 is recommended when sampling superpositions: ITensorMPS 0.4.2 uses a
-normalization tolerance tighter than Float32 precision and can reject a normalized
-Float32 state. Also, TenSolver's `prob` and membership queries currently construct
-CPU tensors; they do not support querying a GPU-resident solution.
+`minimize` samples the final state internally to calculate the returned objective.
+ITensorMPS 0.4.2 uses a normalization tolerance tighter than Float32 precision, so a
+Float32 superposition (for example, tied optima) can cause `minimize` itself to throw
+`sample: MPS is not normalized`. Use Float64 storage as above to avoid this limitation.
+Also, TenSolver's `prob` and membership queries currently construct CPU tensors;
+they do not support querying a GPU-resident solution.
 
-The optional CUDA regression suite requires a working NVIDIA GPU. From the
-repository root, install its separate test environment and run it with:
+The optional CUDA regression suite requires a working NVIDIA GPU. Its separate
+environment is maintained manually; run these hardware tests after updating its
+dependencies. From the repository root, install the environment and run it with:
 
 ```sh
 julia --project=test/gpu -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'

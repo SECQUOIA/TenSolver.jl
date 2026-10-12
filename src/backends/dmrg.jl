@@ -450,7 +450,7 @@ function groundstate(H::MPO, psi0::MPS; projections, device, cutoff=1e-8, kwargs
     # an infeasible one whenever the feasible objective is positive.
     s = only(ITensorMPS.siteinds(psi0))
     # The single-site exact comparison is small; avoid scalar GPU indexing.
-    # Zero MPOs can have empty storage, which cannot be converted to an array.
+    # Direct calls can supply empty zero MPOs, which cannot be converted to arrays.
     Ht = isempty(only(H)) ? zeros(eltype(only(H)), ITensors.dim(s), ITensors.dim(s)) :
       Array(ITensors.array(only(H), s, ITensors.prime(s)))
     pt = Array(ITensors.array(only(psi0), s))
