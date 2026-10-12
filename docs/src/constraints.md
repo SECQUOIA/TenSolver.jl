@@ -52,15 +52,16 @@ The DMRG backend constructs real `Float32` and `Float64` quadratic objectives
 directly from their coefficient matrices. At each bond it factors only the
 nonzero rows and columns of the interactions crossing that bond. This avoids
 the generic operator-string bookkeeping for dense QUBOs and keeps the matrices
-small for banded objectives. Higher-order objectives retain the generic `OpSum`
-construction.
+small for banded objectives. Higher-order arrays, polynomial inputs, and other
+coefficient types retain the generic `OpSum` construction.
 
 The objective constructor filters coefficients using `cutoff` after combining
 `Q[i,j] + Q[j,i]`. Its bond compression uses the same relative discarded
 squared-singular-value weight, `1e-15`, as the generic quadratic construction.
 This compression can approximate small coefficients when other coefficients
 are large; it does not certify the optimum of the original objective.
-The DMRG and projection operations use their own `cutoff` settings.
+The same public `cutoff` keyword also controls DMRG and projection truncation;
+the `1e-15` objective-compression weight is fixed.
 
 Construction time is only one part of a constrained solve. Replacing quadratic
 penalties with native constraints can leave a linear or sparse objective, making

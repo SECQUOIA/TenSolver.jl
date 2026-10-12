@@ -1,4 +1,4 @@
-import SparseArrays: nnz, nonzeros, nzrange, rowvals
+import SparseArrays: dropzeros!, nnz, nonzeros, nzrange, rowvals, sparse
 
 function tensorize(
   Q::AbstractMatrix{T};
