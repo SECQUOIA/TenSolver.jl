@@ -7,14 +7,14 @@ function conversion_type(Q::AbstractMatrix, l, c)
 end
 
 function check_qubo_dimensions(Q::AbstractMatrix, l)
-  issquare(Q) || throw(DimensionMismatch("The QUBO matrix must be square. Encountered dimensions $(size(Q))."))
-  if !isnothing(l) && length(l) != size(Q, 1)
+  n = LinearAlgebra.checksquare(Q)
+  if !isnothing(l) && length(l) != n
     throw(DimensionMismatch("The QUBO linear vector length must match the matrix size. Encountered matrix size $(size(Q)) and vector length $(length(l))."))
   end
 end
 
 function check_ising_dimensions(J::AbstractMatrix, h::AbstractVector)
-  issquare(J) || throw(DimensionMismatch("The Ising coupling matrix must be square. Encountered dimensions $(size(J))."))
+  LinearAlgebra.checksquare(J)
   size(J, 1) == length(h) || throw(DimensionMismatch("The Ising field vector length must match the coupling matrix size. Encountered dimensions $(size(J)) and length $(length(h))."))
 end
 

@@ -63,6 +63,7 @@ TenSolver.constraint_sites
 
 ```@docs
 Base.in(::AbstractVector, ::TenSolver.Solution)
+TenSolver.permute
 ```
 
 ## Internal Functions
@@ -76,7 +77,7 @@ Notice: As unexported method and types, they are subject to change without warni
 ```@docs
 TenSolver.tensorize
 TenSolver.qmatrix_permutation
-TenSolver.preprocess_qubo
+TenSolver.preprocess_model
 ```
 
 ### MPO Construction
@@ -84,6 +85,7 @@ TenSolver.preprocess_qubo
 ```@docs
 TenSolver.DFA
 TenSolver.constraint_to_dfa
+TenSolver.mapreduce_dfa
 TenSolver.dfa_to_mpo
 TenSolver.projection_mpo
 TenSolver.projection_mpos
@@ -94,6 +96,13 @@ TenSolver.projection_mpos
 ```@docs
 TenSolver.project_hamiltonian
 TenSolver.project_state
+```
+
+### Variable Domains
+
+```@docs
+TenSolver.Domains
+TenSolver.domain_residue
 ```
 
 ## Index

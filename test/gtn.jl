@@ -82,6 +82,32 @@ import ProblemReductions
     @test_throws ArgumentError TenSolver.minimize(Q, l, c; backend = :gtn, verbosity = 0)
   end
 
+  @testset "Normalized Boolean domains" begin
+    Q = [-2.0 0.0; 0.0 1.0]
+    l = [1.0, -4.0]
+    DynamicPolynomials.@polyvar x[1:2]
+    p = -2.0 * x[1]^2 + x[1] + x[2]^2 - 4.0 * x[2]
+    # Both objectives have the unique Boolean optimum -4 at [1, 1],
+    # with both diagonal terms active before domain reduction.
+    for domain in (0:1, [1, 0, 1], [[1, 0, 1], [0, 1]])
+      for objective in ((Q, l), (p,))
+        energy, solution = TenSolver.minimize(objective...; backend = :gtn, domain)
+        @test energy ≈ -4.0
+        @test TenSolver.sample(solution) == [1, 1]
+      end
+    end
+
+    for domain in ([[0, 1], [-1, 1]], [[0], [0, 1]])
+      for objective in ((Q, l), (p,))
+        @test_throws ArgumentError TenSolver.minimize(
+          objective...;
+          backend = :gtn,
+          domain,
+        )
+      end
+    end
+  end
+
   @testset "Higher-order polynomial objective" begin
     DynamicPolynomials.@polyvar x[1:3]
     p = 1.0 * x[1] * x[2] * x[3] - 2.0 * x[1] + 0.5 * x[2] + 4.0
@@ -96,5 +122,15 @@ import ProblemReductions
     repeated_energy, repeated_sol = TenSolver.minimize(repeated; backend = :gtn)
     @test repeated_energy ≈ -2.0
     @test TenSolver.sample(repeated_sol) == [0, 1]
+  end
+
+  @testset "Polynomial reduction removes variables" begin
+    DynamicPolynomials.@polyvar x[1:2]
+    p = x[1]^2 - x[1] - 2.0 * x[2]
+    # The two optima [0, 1] and [1, 1] must not collapse to a single one-bit state.
+    for property in (:single, :count, :configs)
+      @test_throws ArgumentError TenSolver.minimize(p; backend = :gtn, domain = 0:1, property)
+    end
+    @test_throws ArgumentError TenSolver.minimize(x[1]^2 - x[1]; backend = :gtn, domain = 0:1)
   end
 end

@@ -1,6 +1,3 @@
-import ITensors, ITensorMPS
-import ITensorMPS: MPS, siteinds
-
 """
     SolverStatistics{T}
 
@@ -70,7 +67,7 @@ vectors; check with [`is_feasible`](@ref) before sampling.
 """
 struct Solution{T <: Real}
   tensor      :: Union{MPS, Nothing}
-  domain      :: Vector{T}
+  domain      :: Domains{T}
   permutation :: Vector{Int}
   stats       :: SolverStatistics{T}
 
@@ -111,7 +108,8 @@ since there is no solution to query.
 """
 function sample(psi::Solution)
   if is_feasible(psi)
-    bs = psi.domain[ITensorMPS.sample!(psi.tensor)]
+    keys = ITensorMPS.sample(psi.tensor)
+    bs   = [psi.domain[i][k] for (i, k) in pairs(keys)]
     return original_order(bs, psi.permutation)
   else
     throw(DomainError("the model is infeasible; there is no solution to sample"))
@@ -166,19 +164,16 @@ function prob(psi::Solution{T}, bs) where {T}
   return is_feasible(psi) ? abs2(coeff(psi, bs)) : zero(T)
 end
 
-function coeff(psi::Solution, bs)
-  tn    = psi.tensor
-  sites = siteinds(tn)
-  bs    = bs[psi.permutation]
-  positions = map(bs) do value
-    position = findfirst(==(value), psi.domain)
-    if isnothing(position)
-      throw(DomainError(value, "value is outside the solution domain $(psi.domain)"))
-    end
-    return position - 1
+function coeff(psi::Solution, assignment)
+  (; domain, permutation, tensor) = psi
+  assignment = assignment[permutation]
+  if assignment in domain
+    positions = [searchsortedfirst(d, v) - 1 for (v, d) in zip(assignment, domain)]
+  else
+    throw(DomainError(assignment, "Value not in domain $(repr(domain))"))
   end
   # Qudit state names are zero-based basis positions, not physical domain values.
-  psi0  = MPS(sites, string.(positions))
+  psi0  = MPS(ITensorMPS.siteinds(tensor), string.(positions))
 
-  return inner(psi0,  tn)
+  return inner(psi0, tensor)
 end

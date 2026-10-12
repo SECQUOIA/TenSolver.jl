@@ -1,7 +1,3 @@
-function issquare(a :: AbstractArray)
-  return allequal(size(a))
-end
-
 function qmatrix_adjacency(Q::AbstractMatrix, cutoff)
   n = size(Q, 1)
   adjacency = [Int[] for _ in 1:n]
@@ -71,7 +67,7 @@ function reverse_cuthill_mckee(adjacency, weights)
 end
 
 """
-    qmatrix_permutation(Q; cutoff=0)
+    qmatrix_permutation(Q; cutoff)
 
 Return a deterministic permutation that places coupled QUBO variables closer
 together in the one-dimensional MPS ordering.
@@ -91,7 +87,7 @@ Q = [0.0 0.0 1.0;
      0.0 0.0 0.0;
      1.0 0.0 0.0]
 
-permutation = qmatrix_permutation(Q)
+permutation = qmatrix_permutation(Q; cutoff=0)
 Q[permutation, permutation]
 
 # output
@@ -102,34 +98,26 @@ Q[permutation, permutation]
  0.0  0.0  0.0
 ```
 """
-function qmatrix_permutation(Q::AbstractMatrix; cutoff = 0)
-  if !issquare(Q)
-    throw(DimensionMismatch("Q must be square. Encountered dimensions $(size(Q))."))
-  end
+function qmatrix_permutation(Q::AbstractMatrix; cutoff)
+  LinearAlgebra.checksquare(Q)
 
   adjacency, weights = qmatrix_adjacency(Q, cutoff)
   return reverse_cuthill_mckee(adjacency, weights)
 end
 
 """
-    preprocess_qubo(Q, l, cutoff)
+    preprocess_model(Q, l, c; domain, constraints, cutoff)
 
-Permute QUBO variables before Hamiltonian construction so coupled variables are
+Permute variables before Hamiltonian construction so coupled variables are
 closer in the one-dimensional tensor order.
-
-Returns `(Qp, lp, permutation)`, where `Qp` and `lp` are reordered for tensor-site
-order and `permutation[k]` is the caller's original variable index represented
-by tensor site `k`.
-
-Standalone [`qmatrix_permutation`](@ref) uses `cutoff = 0` by default so direct
-callers keep every nonzero coupling. The solve path passes the solver cutoff,
-which defaults to `1e-8`, so numerically tiny couplings are ignored during
-preprocessing.
 """
-function preprocess_qubo(Q, l, cutoff)
+function preprocess_model(Q, l, c; domain, constraints, cutoff)
   permutation = qmatrix_permutation(Q; cutoff)
-  Qp = Q[permutation, permutation]
-  lp = isnothing(l) ? nothing : l[permutation]
 
-  return Qp, lp, permutation
+  Qp          = Q[permutation, permutation]
+  lp          = l[permutation]
+  constraints = eltype(constraints)[permute(c, permutation) for c in constraints]
+  domain      = permute(domain, permutation)
+
+  return Qp, lp, c, domain, constraints, permutation
 end

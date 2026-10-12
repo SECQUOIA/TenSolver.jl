@@ -102,7 +102,6 @@ import DynamicPolynomials
 
     @test E == Inf
     @test !is_feasible(psi)
-    @test psi.domain == spin_domain
     @test [1] ∉ psi
     @test_throws DomainError sample(psi)
   end

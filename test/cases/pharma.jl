@@ -52,13 +52,19 @@ end
 @testset "Stuck in local minima (Issue #19)" begin
   Q, L, beta = build_model()
 
-  E, psi = minimize(Q, beta; cutoff=1e-10, mindim = 2)
+  # Feasible reference; global optimality has not been certified.
+  reference_x = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0]
+  reference_value = 11.7099
+
+  @test dot(reference_x, Q, reference_x) ≈ -1111.4558 atol=1e-9
+  @test dot(L, reference_x) ≈ 481.9412 atol=1e-9
+  @test dot(reference_x, Q, reference_x) + dot(L, reference_x) + beta ≈ reference_value atol=1e-9
+
+  # Bound the stochastic solve independently of variance-based stopping.
+  E, psi = minimize(Q, L, beta; domain=0:1, verbosity=0, cutoff=1e-10, mindim=2, iterations=30)
   x = TenSolver.sample(psi)
 
-  true_opt = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0]
-
-  # Known Solution
-  @test_skip E ≈ 11.709899999999834 atol=1e-2
-  @test_skip true_opt in psi
-  @test_skip x == true_opt
+  @test_skip E ≈ reference_value atol=1e-2
+  @test_skip reference_x in psi
+  @test_skip x == reference_x
 end

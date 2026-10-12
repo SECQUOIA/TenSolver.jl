@@ -1,10 +1,3 @@
-import ITensors: inner
-import ITensorMPS: MPS, MPO, OpSum, @OpName_str, @SiteType_str, @StateName_str
-
-import ITensors, ITensorMPS
-
-import MultivariatePolynomials: AbstractPolynomial, coefficient, monomial, terms, variables, effective_variables, powers, isconstant
-
 # Diagonal matrix whose eigenvalues are the ordered feasible values for a variable.
 # For Spin variables, this is the Pauli σ_z matrix.
 # For Boolean variables, this is a projection on |1>. Or equivalently, (I - σ_z) / 2.
@@ -61,17 +54,23 @@ Backend-specific keyword arguments:
 - `eigsolve_tol :: Float64 = 1e-14` - Eigensolver tolerance.
 - `eigsolve_maxiter :: Int = 1` - Maximum iterations for eigensolver.
 """
-function minimize(::DMRGBackend, Q::AbstractMatrix{T}, l::AbstractVector{T}, c::T
+function minimize(::DMRGBackend, Q::AbstractMatrix, l::AbstractVector, c::Real
   ; cutoff=1e-8
   , preprocess::Bool=false
-  , domain::AbstractVector = 0:1
+  , domain::Domains
+  , constraints::AbstractVector{<:AbstractConstraint}
   , kwargs...
-) where T
-  Qp, lp, permutation = preprocess ? preprocess_qubo(Q, l, cutoff) : (Q, l, collect(1:size(Q, 1)))
-  H      = tensorize(Qp, lp; cutoff, domain)
+)
+  if preprocess
+    Q, l, c, domain, constraints, permutation = preprocess_model(Q, l, c; domain, constraints, cutoff)
+  else
+    permutation = collect(1:length(l))
+  end
+
+  H      = tensorize(Q, l; cutoff, domain)
   obj(x) = dot(x, Q, x) + dot(l, x) + c
 
-  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, kwargs...)
+  return minimize_mpo(H, c, obj ; cutoff, permutation, domain, constraints, objective_bound = objective_box_bound(Q, l, domain), kwargs...)
 end
 
 """
@@ -86,18 +85,20 @@ See also [`maximize`](@ref).
 """
 function minimize(
   ::DMRGBackend,
-  p::AbstractPolynomial{T}
+  p::AbstractPolynomial
   ;
   cutoff=1e-8,
-  domain::AbstractVector = 0:1,
+  domain::Domains,
   kwargs...,
-) where {T}
+)
   cte    = constant_term(p)
   vs     = effective_variables(p)
   obj(x) = real(p(vs => x))
   H      = tensorize(p; cutoff, domain)
 
-  return minimize_mpo(H, cte, obj ; cutoff, domain, kwargs...)
+  permutation = collect(1:length(vs))
+
+  return minimize_mpo(H, cte, obj ; cutoff, domain, permutation, objective_bound = objective_box_bound(p, domain), kwargs...)
 end
 
 
@@ -126,6 +127,32 @@ function constant_term(p::AbstractPolynomial{T}) where T
   idx = findfirst(isconstant, ts)
 
   return isnothing(idx) ? zero(T) : coefficient(ts[idx])
+end
+
+# Strict upper bound on the objective magnitude over the domain box: each
+# variable is bounded by its own domain's largest magnitude, and the one-unit
+# margin keeps the bound strictly above every attainable value. The constant
+# term is excluded, matching `tensorize`. Constrained solves use this value
+# directly as the spectral shift in `minimize_mpo`.
+function objective_box_bound(Q::AbstractMatrix, l::AbstractVector, domain::Domains)
+  M = [maximum(abs, d) for d in domain]
+  return M' * abs.(Q) * M + dot(abs.(l), M) + one(eltype(M))
+end
+
+function objective_box_bound(p::AbstractPolynomial{T}, domain::Domains) where T
+  M       = [maximum(abs, d) for d in domain]
+  indices = Dict(v => i for (i, v) in enumerate(effective_variables(p)))
+
+  bound = zero(real(T))
+  for t in terms(p)
+    isconstant(t) && continue
+    term_bound = abs(coefficient(t))
+    for (v, e) in powers(t)
+      term_bound *= M[indices[v]]^e
+    end
+    bound += term_bound
+  end
+  return bound + one(bound)
 end
 
 # Returns `nothing` when the projected state has no feasible amplitude,
@@ -166,7 +193,7 @@ function tensorize(
   Q::AbstractArray{T},
   rest::Vararg{AbstractArray{T}};
   cutoff = zero(T),
-  domain,
+  domain::Domains,
 ) where T
   Qs = [Q, rest...]
   if !allequal(Iterators.flatmap(size, Qs))
@@ -174,7 +201,7 @@ function tensorize(
   end
 
   N = size(Q, 1)
-  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
+  sites = [ITensors.siteind("Qudit"; dim = length(domain[k])) for k in 1:N]
   os = OpSum{T}()
 
   for t in Qs
@@ -185,7 +212,7 @@ function tensorize(
       coeff = sum(k -> t[k...], multiset_permutations(idx, ndims(t)))
 
       if abs(coeff) > cutoff
-        op   = Iterators.flatmap(v -> ("D", (domain = domain,), v), idx)
+        op   = Iterators.flatmap(k -> ("D", (domain = domain[k],), k), idx)
         os .+= (coeff, op...)
       end
     end
@@ -197,10 +224,10 @@ end
 function tensorize(
   p::AbstractPolynomial{T};
   cutoff = zero(T),
-  domain,
+  domain::Domains,
 ) where T
   N = length(effective_variables(p))
-  sites = ITensors.siteinds("Qudit", N; dim = length(domain))
+  sites = [ITensors.siteind("Qudit"; dim = length(domain[k])) for k in 1:N]
   os = OpSum{T}()
 
   # Map: var name => index
@@ -213,8 +240,9 @@ function tensorize(
       op = Iterators.flatten(
         map(powers(t)) do p
           v, e = p
+          k = indices[v]
           Iterators.flatten(
-            Iterators.repeated(("D", (domain = domain,), indices[v]), e),
+            Iterators.repeated(("D", (domain = domain[k],), k), e),
           )
         end
       )
@@ -231,8 +259,9 @@ function minimize_mpo( H_obj :: MPO
                      ; device      = cpu
                      , cutoff      = 1e-8  #  a cutoff of 1E-5 gives sensible accuracy; a cutoff of 1E-8 is high accuracy; and a cutoff of 1E-12 is near exact accuracy. (https://itensor.org/docs.cgi?page=tutorials/dmrg_params)
                      , verbosity   = 1
-                     , constraints = AbstractConstraint[]
-                     , domain
+                     , constraints :: AbstractVector{<:AbstractConstraint}
+                     , domain      :: Domains
+                     , objective_bound :: T
                      # Stopping criteria
                      , iterations :: Union{Nothing, Int} = nothing
                      , time_limit = +Inf
@@ -249,12 +278,11 @@ function minimize_mpo( H_obj :: MPO
                      # Iteration callback
                      , on_iteration     :: Union{Nothing, Function} = nothing
                      , callback_every   :: Int = 1
-                     , permutation :: Vector{Int} = collect(1:length(H_obj))
+                     , permutation :: Vector{Int}
                      ) where {T}
-  callback_every >= 1 || throw(ArgumentError("`callback_every` must be >= 1, got $callback_every"))
-  check_variance_every_iteration >= 1 || throw(ArgumentError(
-    "`check_variance_every_iteration` must be >= 1, got $check_variance_every_iteration",
-  ))
+  @argcheck callback_every >= 1
+  @argcheck check_variance_every_iteration >= 1
+
   initial_time = time()
 
   # Quantization
@@ -263,12 +291,23 @@ function minimize_mpo( H_obj :: MPO
   # Constraints
   projections = map(
     device,
-    projection_mpos(T, constraints, sites; permutation, domain),
+    projection_mpos(T, constraints, sites; domain),
   )
 
+  zero_objective = is_zero_tensor(H_obj; cutoff)
+
+  # The projected Hamiltonian P'HP assigns energy zero to the infeasible
+  # subspace (the kernel of the projections). When every feasible objective
+  # value is positive, that kernel is the ground space, so the DMRG sweep is
+  # attracted into it and the solve collapses with zero feasible amplitude
+  # ([issue #132](https://github.com/SECQUOIA/TenSolver.jl/issues/132)). Shifting the objective spectrum below zero by more than its
+  # magnitude bound makes the feasible minimum the true ground state again.
+  shift = zero_objective || isempty(projections) ? zero(real(T)) : real(T)(objective_bound)
+
   # Hamiltonian construction
-  H_obj = device(H_obj)
-  H = is_zero_tensor(H_obj; cutoff) ? H_obj : device(project_hamiltonian(H_obj, projections; cutoff))
+  H_solve = iszero(shift) ? H_obj : H_obj - shift * ITensorMPS.MPO(T, sites, "Id")
+  H_obj   = device(H_obj)
+  H = zero_objective ? H_obj : device(project_hamiltonian(device(H_solve), projections; cutoff))
 
   # Initial state
   psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
@@ -324,10 +363,14 @@ function minimize_mpo( H_obj :: MPO
 
     bond_dim = ITensorMPS.maxlinkdim(psi)
 
+    # The solve runs on the shifted spectrum; every reported value undoes the
+    # shift together with the constant, in one place.
+    objective = energy + shift + c
+
     # Per-iteration stats (always collected)
     record_stats!(
       stats;
-      energy = energy+c,
+      energy = objective,
       bond_dim,
       elapsed_time,
       variance = checked_variance,
@@ -336,7 +379,7 @@ function minimize_mpo( H_obj :: MPO
     iterlog_iteration(
       verbosity,
       i,
-      energy + c,
+      objective,
       bond_dim,
       checked_variance,
       elapsed_time,
@@ -344,7 +387,7 @@ function minimize_mpo( H_obj :: MPO
 
     # Optional callback
     if !isnothing(on_iteration) && i % callback_every == 0
-      on_iteration(psi; iteration=i, objective=energy+c, bond_dim, elapsed_time)
+      on_iteration(psi; iteration=i, objective, bond_dim, elapsed_time)
     end
 
     # Stopping criteria #
@@ -368,8 +411,8 @@ function minimize_mpo( H_obj :: MPO
   else
     # The calculated energy has approximation errors compared to the true solution.
     # It makes more sense to sample a solution and calculate the true objective function applied to it.
+    optimal = obj([dom[x] for (dom, x) in zip(domain, ITensorMPS.sample!(psi))])
     dist = Solution{T}(psi, domain, permutation, stats)
-    optimal = obj(sample(dist))
   end
 
   elapsed_time = time() - initial_time
@@ -385,8 +428,11 @@ function groundstate(H::MPO, psi0::MPS; projections, cutoff=1e-8, kwargs...)
     # In exact arithmetic the sweep keeps a feasible start feasible (the local
     # eigensolver only ever applies P'HP to a feasible state), but the injected
     # `noise` term and SVD truncation can leak amplitude into the infeasible
-    # subspace. That subspace is the kernel of the projections, where P'HP has
-    # zero energy, so the leaked amplitude is never penalized back out on its own.
+    # subspace — the kernel of the projections. The spectral shift in
+    # `minimize_mpo` makes that kernel energetically unfavorable, which
+    # suppresses leakage but cannot forbid it (DMRG updates are local and noise
+    # is injected deliberately), so this re-projection remains the feasibility
+    # guarantee for the sampled state.
     psi = project_feasible_state(psi, projections; cutoff)
   else
     # ITensorMPS.dmrg does not support single-site systems, so solve the n=1

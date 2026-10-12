@@ -35,10 +35,11 @@ function ProblemReductions.objectives(problem::PseudoBooleanCSP{T}) where {T}
   ]
 end
 
-function validate_gtn_inputs(domain, constraints, k, cutoff)
-  domain_values = collect(TenSolver.validate_solve_domain(domain))
-  if !(domain_values == [0, 1])
-    throw(ArgumentError("GTNBackend currently supports only the Boolean domain [0, 1], got $(repr(domain_values)).",))
+function validate_gtn_inputs(domain::TenSolver.Domains, constraints, k, cutoff)
+  for (i, values) in enumerate(domain)
+    if values != [0, 1]
+      throw(ArgumentError("GTNBackend requires the Boolean domain [0, 1] for every variable; variable $i has $(repr(values)).",))
+    end
   end
   if !(isempty(constraints))
     throw(ArgumentError("GTNBackend does not yet support TenSolver constraints; use backend = :dmrg.",))
@@ -254,7 +255,7 @@ function TenSolver.minimize(
   bounded::Bool = true,
   tree_storage::Bool = false,
   cutoff::Real = 1e-8,
-  domain = 0:1,
+  domain::TenSolver.Domains,
   constraints = TenSolver.AbstractConstraint[],
   kwargs...,
 ) where {T<:Real}
@@ -287,12 +288,16 @@ function TenSolver.minimize(
   bounded::Bool = true,
   tree_storage::Bool = false,
   cutoff::Real = 1e-8,
-  domain = 0:1,
+  domain::TenSolver.Domains,
   constraints = TenSolver.AbstractConstraint[],
   kwargs...,
 ) where {T<:Real}
   validate_gtn_inputs(domain, constraints, k, cutoff)
   reject_gtn_keywords(kwargs)
+  # Reduced polynomials must preserve the original configuration size and count.
+  if length(domain) != length(effective_variables(p))
+    throw(ArgumentError("GTNBackend cannot preserve variables removed by polynomial domain reduction.",))
+  end
   problem, constant = polynomial_problem(p; cutoff)
   return solve_gtn(
     problem,

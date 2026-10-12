@@ -1,0 +1,34 @@
+{
+  "repository": "SECQUOIA/TenSolver.jl",
+  "required_checks": [
+    "Julia lts - ubuntu-latest - x64 - pull_request",
+    "Julia lts - windows-latest - x64 - pull_request",
+    "Julia 1 - ubuntu-latest - x64 - pull_request",
+    "Julia 1 - windows-latest - x64 - pull_request",
+    "Julia pre - ubuntu-latest - x64 - pull_request",
+    "Julia pre - windows-latest - x64 - pull_request",
+    "Julia lts - macOS-latest - aarch64 - pull_request",
+    "Julia 1 - macOS-latest - aarch64 - pull_request",
+    "Julia pre - macOS-latest - aarch64 - pull_request",
+    "Dependabot policy",
+    "build"
+  ],
+  "protected_checks": [
+    "Julia lts - ubuntu-latest - x64 - pull_request",
+    "Julia lts - windows-latest - x64 - pull_request",
+    "Julia 1 - ubuntu-latest - x64 - pull_request",
+    "Julia 1 - windows-latest - x64 - pull_request",
+    "Julia pre - ubuntu-latest - x64 - pull_request",
+    "Julia pre - windows-latest - x64 - pull_request",
+    "Julia lts - macOS-latest - aarch64 - pull_request",
+    "Julia 1 - macOS-latest - aarch64 - pull_request",
+    "Julia pre - macOS-latest - aarch64 - pull_request"
+  ],
+  "publication": [
+    {
+      "workflow": "documentation.yml",
+      "input": "dependabot_pr",
+      "title": "Dependabot documentation"
+    }
+  ]
+}

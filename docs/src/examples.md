@@ -63,11 +63,11 @@ l = [1.0, -4.0, 2.0]
 E, psi = TenSolver.minimize(l; domain = [-2, 0, 3], verbosity = 0)
 x = TenSolver.sample(psi)
 
-(E ≈ -18.0, x, psi.domain)
+(E ≈ -18.0, x)
 
 # output
 
-(true, [-2.0, 3.0, -2.0], [-2.0, 0.0, 3.0])
+(true, [-2.0, 3.0, -2.0])
 ```
 
 ## Fractional Domains
@@ -83,11 +83,11 @@ l = [-2.0, 3.0]
 E, psi = TenSolver.minimize(l; domain = [0.0, 0.5, 1.0], verbosity = 0)
 x = TenSolver.sample(psi)
 
-(E ≈ -2.0, x, psi.domain)
+(E ≈ -2.0, x)
 
 # output
 
-(true, [1.0, 0.0], [0.0, 0.5, 1.0])
+(true, [1.0, 0.0])
 ```
 
 Hard constraints can impose narrower domain requirements. In particular,
@@ -446,6 +446,12 @@ state. The default backend remains `TenSolver.DMRGBackend()`. GTN-backed solves 
 [`TenSolver.GTNSolution`](@ref), which stores exact solution-space data when the selected
 property produces configurations. MPS-specific APIs such as coefficient/probability queries
 remain specific to the default DMRG [`TenSolver.Solution`](@ref).
+
+Every variable must have the Boolean domain `[0, 1]` after sorting and deduplication.
+GTN currently rejects polynomial inputs whose Boolean simplification removes a
+variable, such as `x[1]^2 - x[1] - 2x[2]`, because it cannot preserve the original
+configuration indices and degeneracy. Such calls raise `ArgumentError`. For
+quadratic objectives, the matrix interface preserves the full variable set.
 
 ### Example: Graph Coloring
 
