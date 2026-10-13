@@ -42,7 +42,7 @@ the effective Hamiltonian has bond dimension bounded by
 | [`SumModConstraint`](@ref) | ``\sum_i w_i \, x_{s_i} \equiv b \pmod m`` | ``m`` |
 | [`NotEqualsConstraint`](@ref) | ``x_S \ne v`` (one forbidden assignment) | 2 |
 | [`AssignmentConstraint`](@ref) | ``\mathrm{count}_{i \in S}(x_i \in G) \lessgtr b`` | ``b + 2`` |
-| [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | 2 |
+| [`RelationConstraint`](@ref) | ``x_i \lessgtr x_j`` | At most ``\lvert U_{\min(i,j)}\rvert`` |
 
 ## Using constraints
 
@@ -80,6 +80,65 @@ You can also check an assignment against constraints directly with
 (true, false)
 ```
 
+## Domains with Constraints
+
+The native domain syntax from [Choosing Native Domains](@ref) also applies to
+constrained solves. Domains select the allowed values; constraints test those
+values at their variable indices, including with per-variable domains.
+
+| Constraint | Domain requirement for participating variables |
+|:-----------|:-----------------------------------------------|
+| [`SumConstraint`](@ref) | Nonnegative integer-valued entries |
+| [`SumModConstraint`](@ref) | Integer-valued entries, including negative values |
+| [`NotEqualsConstraint`](@ref) | Real values representable in the element type of `values` |
+| [`AssignmentConstraint`](@ref) | Real values, including fractional values |
+| [`RelationConstraint`](@ref) | Real values, including fractional values |
+
+For the sum constraints, the requirement applies to sites with nonzero weights;
+other variables may use different real-valued domains. Integer-valued floating
+values such as `2.0` satisfy the integer requirement, while `0.5` does not.
+`SumConstraint` also requires nonnegative integer weights and rhs;
+`SumModConstraint` allows signed integer weights and rhs and requires a positive
+integer modulus. Equality and membership comparisons use exact values.
+
+For `NotEqualsConstraint`, choose a `values` element type that represents every
+participating domain value. With a fractional domain, use floating-point values,
+such as `NotEqualsConstraint([1], [1.0])`; an integer `values` vector can cause an
+`InexactError` when a fractional domain value is converted during lowering.
+
+Constraint values do not enlarge domains. For example, counting occurrences of
+`2` at a site with domain `0:1` always contributes zero; a requirement that it
+contribute one is infeasible. Check [`is_feasible`](@ref) on the solution before
+sampling when feasibility is uncertain.
+
+### Nonbinary budget example
+
+Reuse the asset values from [Using constraints](@ref), allowing zero, one or two
+units of each asset and at most three units in total. Every unit of asset 3 is
+worth `4`, compared with `3` and `2` for the others. Its limit of two units means
+the best allocation takes two units of asset 3 and one of asset 1:
+`4 × 2 + 3 × 1 = 11`. Any replacement lowers the value, so `[1, 0, 2]` is the
+unique optimum.
+
+```jldoctest nonbinary-budget
+using TenSolver
+
+values = [3.0, 2.0, 4.0]
+domains = [0:2, 0:2, 0:2]
+budget = SumConstraint([1, 2, 3], [1, 1, 1], 3; relation = :(<=))
+
+E, psi = TenSolver.maximize(values;
+    domain = domains, constraints = [budget], verbosity = 0)
+x = TenSolver.sample(psi)
+
+(E ≈ 11.0, x, values' * x ≈ E,
+ all(x[i] in domains[i] for i in eachindex(x)), is_feasible(x, [budget]))
+
+# output
+
+(true, [1.0, 0.0, 2.0], true, true, true)
+```
+
 ## Constraint reference
 
 ### SumConstraint
@@ -95,7 +154,7 @@ where `relation` is one of `:(==)`, `:(!=)`, `:(<=)`, or `:(>=)`.
 The `sites` are unique positive integers representing variable indices,
 while `weights` and `rhs` must be **nonnegative integers**.
 Furthermore, the solver currently only supports `SumConstraint`
-when the variable domains are nonnegative integers.
+when domains at sites with nonzero weights contain nonnegative integer-valued entries.
 
 
 Its automaton tracks a capped partial sum,
@@ -114,7 +173,8 @@ The `sites` are unique positive integers representing variable indices,
 while `weights` and `rhs` must be **integers** and may be negative.
 The modulus `m` must be a positive integer.
 Weights and the rhs are normalized to their least nonnegative residues modulo `m`,
-and variable domains may contain any integer values.
+and domains at sites with nonzero weights may contain any integer-valued entries.
+Other variables may have fractional domains, as described in [Domains with Constraints](@ref).
 
 Its MPO tracks a partial sum with bond dimension `m`.
 
@@ -171,7 +231,8 @@ E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; domain = 0:1, const
 
 `RelationConstraint(left_site, relation, right_site)` enforces the pairwise
 relation ``x_{\texttt{left}} \lessgtr x_{\texttt{right}}`` with the same four
-relations as `SumConstraint`.  Bond dimension 2.
+relations as `SumConstraint`. Its projection bond dimension is at most the size
+of the earlier-indexed variable's domain (2 for binary domains).
 
 ```jldoctest relation
 using TenSolver

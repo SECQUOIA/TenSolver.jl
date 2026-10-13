@@ -30,25 +30,57 @@ x = TenSolver.sample(psi)
 (true, "Wind, Battery")
 ```
 
-## Per-variable Domains
+## Choosing Native Domains
 
-Pass one domain for each variable when their allowed values differ:
+For native DMRG solves, pass `domain` explicitly to [`minimize`](@ref) or
+[`maximize`](@ref). A single nonempty vector or range of real values is a
+**uniform domain**, shared by every variable. A vector of nonempty vectors or
+ranges gives **one domain per variable**; its length must equal the number of
+variables.
+
+| Variable values | Uniform `domain` | Worked example |
+|:----------------|:-----------------|:---------------|
+| Binary | `0:1` | [Basic QUBO Problem](@ref) |
+| Ising spins | `[-1, 1]` | [Ising Model](@ref) |
+| Multi-valued integers | `0:2` or `[-2, 0, 3]` | [Non-consecutive Integer Domains](@ref) |
+| Fractional values | `[0.0, 0.5, 1.0]` | [Fractional Domains](@ref) |
+
+These domains select discrete values, including gaps; `[0.0, 0.5, 1.0]` is a
+three-value choice. Each domain is converted to the objective's floating-point
+type, sorted and deduplicated before solving. [`sample`](@ref) returns the
+selected values, rather than their positions in the sorted domain; integer
+choices can therefore appear as floating-point values in a sample.
+
+For a matrix/linear objective `x'Q*x + l'x + c`, domain `i` and sample entry `i`
+refer to row/column `i` of `Q` and entry `i` of `l`. Matrix preprocessing returns
+samples in that same input order. Polynomial inputs use the input's
+`effective_variables` order, as explained in [Polynomial Variable Order](@ref).
+Constraint site indices follow the same variable order. For constraint-specific
+requirements, see [Domains with Constraints](@ref).
+
+### Per-variable Domains
+
+Pass one domain for each variable when their allowed values differ. This
+example minimizes `2x₁ - 3x₂ + 4`: the first coefficient selects `x₁ = -1`,
+the second selects `x₂ = 1.5`, giving `-2 - 4.5 + 4 = -2.5`:
 
 ```jldoctest heterogeneous-domain
 using TenSolver
 
+domains = [[-1, 2], [0.0, 0.5, 1.5]]
 E, psi = TenSolver.minimize([2.0, -3.0], 4.0;
-    domain = [[-1, 2], [0.0, 0.5, 1.5]], verbosity = 0)
+    domain = domains, verbosity = 0)
 x = TenSolver.sample(psi)
 
-(E ≈ -2.5, x)
+(E ≈ -2.5, x, 2x[1] - 3x[2] + 4 ≈ E,
+ all(x[i] in domains[i] for i in eachindex(x)))
 
 # output
 
-(true, [-1.0, 1.5])
+(true, [-1.0, 1.5], true, true)
 ```
 
-## Ising Model
+### Ising Model
 
 Use `domain = [-1, 1]` when the variables are Ising spins:
 
@@ -62,16 +94,17 @@ h = [0.25, -0.5]
 E, psi = TenSolver.minimize(J, h; domain = [-1, 1], verbosity = 0)
 s = TenSolver.sample(psi)
 
-(E ≈ -2.25, s, all(in((-1, 1)), s))
+(E ≈ -2.25, s, s' * J * s + h' * s ≈ E, all(in((-1, 1)), s))
 
 # output
 
-(true, [1.0, 1.0], true)
+(true, [1.0, 1.0], true, true)
 ```
 
-## Non-consecutive Integer Domains
+### Non-consecutive Integer Domains
 
-Use any finite integer domain:
+Use a finite set with more than two integer values. Positive coefficients select
+`-2`, while the negative coefficient selects `3`, giving `-2 - 12 - 4 = -18`:
 
 ```jldoctest sparse-domain
 using TenSolver
@@ -81,17 +114,18 @@ l = [1.0, -4.0, 2.0]
 E, psi = TenSolver.minimize(l; domain = [-2, 0, 3], verbosity = 0)
 x = TenSolver.sample(psi)
 
-(E ≈ -18.0, x)
+(E ≈ -18.0, x, l' * x ≈ E, all(in((-2, 0, 3)), x))
 
 # output
 
-(true, [-2.0, 3.0, -2.0])
+(true, [-2.0, 3.0, -2.0], true, true)
 ```
 
-## Fractional Domains
+### Fractional Domains
 
 Unconstrained DMRG optimization accepts any finite domain of real values,
-including fractional values:
+including fractional values. Here `-2x₁ + 3x₂` is minimized by `x₁ = 1`
+and `x₂ = 0`:
 
 ```jldoctest fractional-domain
 using TenSolver
@@ -101,15 +135,15 @@ l = [-2.0, 3.0]
 E, psi = TenSolver.minimize(l; domain = [0.0, 0.5, 1.0], verbosity = 0)
 x = TenSolver.sample(psi)
 
-(E ≈ -2.0, x)
+(E ≈ -2.0, x, l' * x ≈ E, all(in((0.0, 0.5, 1.0)), x))
 
 # output
 
-(true, [1.0, 0.0])
+(true, [1.0, 0.0], true, true)
 ```
 
-Hard constraints can impose narrower domain requirements. In particular,
-[`SumConstraint`](@ref) currently requires a nonnegative integer domain.
+Hard constraints can impose narrower domain requirements; see
+[Domains with Constraints](@ref).
 
 ## QUBO with Linear and Constant Terms
 
@@ -451,6 +485,34 @@ still has two entries: either `[0, 1]` or `[1, 1]`. A constraint on index `1`
 continues to refer to `x[1]`. With domains `[0:1, [2, 4]]` in that same order,
 the minimum is `-8` and the second sample entry is `4`.
 
+Read the order from the **input** polynomial before solving, and pair the sample
+with those variables when evaluating it. Effective variables are those occurring
+with nonzero degree in the input, so a declared variable absent from the input
+has no sample entry. Declaration order alone should not be used to choose the
+per-variable domain order.
+
+```jldoctest polynomial-domain-order
+using TenSolver
+using DynamicPolynomials
+
+@polyvar z[1:2]
+p = 1.0z[1]^2 - z[1] - 2z[2]
+vars = effective_variables(p)
+# Assign binary values to z[1] and {2, 4} to z[2] in the input's order.
+domains = [v == z[1] ? collect(0:1) : [2, 4] for v in vars]
+
+E, psi = TenSolver.minimize(p; domain = domains, verbosity = 0)
+values = TenSolver.sample(psi)
+
+# z[1]^2 - z[1] vanishes on its domain but its sample position is retained.
+(E ≈ -8.0, length(values) == length(vars) == 2,
+ all(values[i] in domains[i] for i in eachindex(vars)), p(vars => values) ≈ E)
+
+# output
+
+(true, true, true, true)
+```
+
 ### Example: Graph Coloring
 
 Here's an example of using the polynomial interface for a graph coloring problem:
@@ -484,7 +546,7 @@ Number of conflicts: 0.0
 
 ## Constraints
 
-TenSolver can also enforce hard constraints on the binary variables, so every
+TenSolver can also enforce hard constraints on the variables, so every
 sampled solution is guaranteed feasible. This is a larger topic with its own
 page — see [Constrained Optimization](@ref) for the projection method behind it,
 the available constraint types, and worked examples.

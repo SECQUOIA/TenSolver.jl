@@ -59,6 +59,9 @@ x = TenSolver.sample(psi)
 (true, "Wind, Battery")
 ```
 
+For binary, spin, integer, fractional and per-variable choices, see
+[Choosing Native Domains](@ref).
+
 ## Features
 
 - **Tensor Network Optimization**: Uses advanced tensor network methods (DMRG) for efficient optimization
