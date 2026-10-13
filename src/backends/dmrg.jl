@@ -74,20 +74,29 @@ end
 
 function minimize(
   ::DMRGBackend,
-  p::AbstractPolynomial
+  p::AbstractPolynomial,
+  vars::AbstractVector = effective_variables(p),
   ;
-  cutoff=1e-8,
+  cutoff = 1e-8,
   domain::Domains,
   kwargs...,
 )
   cte    = constant_term(p)
-  vs     = effective_variables(p)
-  obj(x) = real(p(vs => x))
-  H      = tensorize(p; cutoff, domain)
+  obj(x) = real(p(vars => x))
+  H      = tensorize(p, vars; cutoff, domain)
 
-  permutation = collect(1:length(vs))
+  permutation = collect(1:length(vars))
 
-  return minimize_mpo(H, cte, obj ; cutoff, domain, permutation, objective_bound = objective_box_bound(p, domain), kwargs...)
+  return minimize_mpo(
+    H,
+    cte,
+    obj;
+    cutoff,
+    domain,
+    permutation,
+    objective_bound = objective_box_bound(p, domain, vars),
+    kwargs...,
+  )
 end
 
 
@@ -128,15 +137,24 @@ function objective_box_bound(Q::AbstractMatrix, l::AbstractVector, domain::Domai
   return M' * abs.(Q) * M + dot(abs.(l), M) + one(eltype(M))
 end
 
-function objective_box_bound(p::AbstractPolynomial{T}, domain::Domains) where T
+function objective_box_bound(
+  p::AbstractPolynomial{T},
+  domain::Domains,
+  vars::AbstractVector = effective_variables(p),
+) where {T}
   M       = [maximum(abs, d) for d in domain]
-  indices = Dict(v => i for (i, v) in enumerate(effective_variables(p)))
+  indices = Dict(v => i for (i, v) in enumerate(vars))
 
   bound = zero(real(T))
   for t in terms(p)
-    isconstant(t) && continue
+    if isconstant(t)
+      continue
+    end
     term_bound = abs(coefficient(t))
     for (v, e) in powers(t)
+      if iszero(e)
+        continue
+      end
       term_bound *= M[indices[v]]^e
     end
     bound += term_bound
@@ -211,35 +229,35 @@ function tensorize(
 end
 
 function tensorize(
-  p::AbstractPolynomial{T};
+  p::AbstractPolynomial{T},
+  vars::AbstractVector = effective_variables(p);
   cutoff = zero(T),
   domain::Domains,
-) where T
-  N = length(effective_variables(p))
+) where {T}
+  N = length(vars)
   sites = [ITensors.siteind("Qudit"; dim = length(domain[k])) for k in 1:N]
   os = OpSum{T}()
 
   # Map: var name => index
-  indices = Dict(v => i for (i, v) in enumerate(effective_variables(p)))
+  indices = Dict(v => i for (i, v) in enumerate(vars))
 
   for t in terms(p)
     coeff = coefficient(t)
 
     if abs(coeff) > cutoff && ! isconstant(t)
-      op = Iterators.flatten(
-        map(powers(t)) do p
-          v, e = p
-          k = indices[v]
-          Iterators.flatten(
-            Iterators.repeated(("D", (domain = domain[k],), k), e),
-          )
-        end
-      )
+      op = Iterators.flatten(map(Iterators.filter(
+        pair -> !iszero(last(pair)),
+        powers(t),
+      )) do p
+        v, e = p
+        k = indices[v]
+        return Iterators.flatten(Iterators.repeated(("D", (domain = domain[k],), k), e),)
+      end)
       os .+= (coeff, op...)
     end
   end
 
-  return isempty(os) ? MPO(T,sites) : MPO(T, os, sites)
+  return isempty(os) ? MPO(T, sites) : MPO(T, os, sites)
 end
 
 function minimize_mpo( H_obj :: MPO

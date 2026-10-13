@@ -435,8 +435,21 @@ objective_value ≈ E
 true
 ```
 
-This interface automatically handles the conversion of polynomial expressions into the tensor network representation used internally by the solver. Variables take values in the selected `domain`; this example selects binary
-variables with `domain = 0:1`.
+This interface converts polynomial expressions into the tensor network representation
+used by the solver. Use `domain` to select the finite values allowed for each variable.
+
+### Polynomial Variable Order
+
+For polynomial inputs, per-variable domains, constraint indices, and sampled
+vectors use the input polynomial's `effective_variables` order. Native DMRG
+retains those positions when domain reduction makes a variable independent of
+the objective.
+
+For example, `p = x[1]^2 - x[1] - 2x[2]` with binary variables has minimum
+`-2`. The first two terms vanish on the binary domain, but every returned sample
+still has two entries: either `[0, 1]` or `[1, 1]`. A constraint on index `1`
+continues to refer to `x[1]`. With domains `[0:1, [2, 4]]` in that same order,
+the minimum is `-8` and the second sample entry is `4`.
 
 ### Example: Graph Coloring
 
