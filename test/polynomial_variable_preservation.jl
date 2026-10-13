@@ -106,6 +106,19 @@ function test_polynomial_variable_preservation(x)
     )
   end
 
+  @testset "Nonbinary elimination retains its generated constant" begin
+    # (x1 - 1)(x1 - 2) vanishes on {1, 2}, so x1^2 - 3x1 = -2.
+    # The generated constant survives reduction, and x2 = 1 gives min -4.
+    p = x[1]^2 - 3x[1] - 2x[2]
+    assert_preserved_polynomial_solution(
+      p,
+      x,
+      [[1, 2], 0:1],
+      -4.0,
+      a -> a[1]^2 - 3a[1] - 2a[2],
+    )
+  end
+
   @testset "Constraint retains an objective-independent variable" begin
     # Constraint index 1 still means original x1. Fixing x1 = 0 leaves
     # x2 = 1 optimal at -2, uniquely [0, 1] in the original input order.
