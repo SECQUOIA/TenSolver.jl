@@ -12,6 +12,10 @@ Backends must provide backend-specific `minimize` methods for the normalized
 optimization inputs they support. Matrix backends implement
 `minimize(::MyBackend, Q::AbstractMatrix, l, c; kwargs...)`; polynomial
 backends implement `minimize(::MyBackend, p::AbstractPolynomial; kwargs...)`.
+To retain variables eliminated by domain reduction, implement
+`minimize(::MyBackend, p::AbstractPolynomial, vars::AbstractVector; kwargs...)`,
+where `vars` is the original ordered effective-variable register. The two-argument
+method remains supported when reduction preserves that register.
 Extensions that support symbolic selection must also define
 `normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
 
@@ -84,7 +88,8 @@ Keyword arguments:
 - `constraints :: AbstractVector{<:AbstractConstraint}` - Experimental native Julia hard constraints.
   Defaults to `AbstractConstraint[]`. In constrained DMRG solves, TenSolver lowers each constraint to
   a projection MPO, solves the projected Hamiltonian, and returns a feasible sampled assignment.
-  For polynomial objectives, constraints are expressed in the same order as their `effective_variables`.
+  For polynomial objectives, constraints are expressed in the order of the input's
+  `effective_variables`, before domain reduction.
   If the constraints admit no solution at all, the solve does not error: it logs a warning and
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
 - `domain` - Allowed values per variable.
@@ -93,6 +98,9 @@ Keyword arguments:
   Unconstrained DMRG optimization accepts any finite collection of real values;
   individual constraint types can impose narrower requirements. Use `[-1, 1]`
   for Ising spins. Domains are sorted and deduplicated before solving.
+  For polynomial inputs, per-variable domains and returned samples follow the
+  input's `effective_variables` order. Variables retain their positions even when
+  domain reduction removes their contribution to the objective.
 - `iterations :: Int` - Maximum iterations the solver should run. Defaults to `10`.
 - `cutoff :: Float64` - Any absolute value below this threshold is considered zero. Defaults to `1e-8`.
   You can use this keyword to control the solver's accuracy vs resources trade-off.
@@ -152,21 +160,33 @@ function minimize(backend::AbstractTenSolverBackend, args...; kwargs...)
 end
 
 function minimize(
-    p::AbstractPolynomial
-  ;
-  backend=default_backend,
+  backend::AbstractTenSolverBackend,
+  p::AbstractPolynomial,
+  vars::AbstractVector;
+  kwargs...,
+)
+  if effective_variables(p) != vars
+    throw(ArgumentError("Backend $(repr(backend)) does not support polynomial domain reduction that removes variables."))
+  end
+  return minimize(backend, p; kwargs...)
+end
+
+function minimize(
+  p::AbstractPolynomial;
+  backend = default_backend,
   domain = 0:1,
   constraints = AbstractConstraint[],
   kwargs...,
 )
-  nvars = length(MP.effective_variables(p))
+  vars = MP.effective_variables(p)
+  nvars = length(vars)
 
   T = float(MP.coefficient_type(p))
   p = MP.polynomial(p, T)
 
   domain = Domains{T}(domain, nvars)
   p      = domain_residue(p, domain)
-  return minimize(normalize_backend(backend), p; domain, constraints, kwargs...)
+  return minimize(normalize_backend(backend), p, vars; domain, constraints, kwargs...)
 end
 
 function minimize(
