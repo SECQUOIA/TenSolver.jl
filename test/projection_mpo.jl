@@ -8,13 +8,23 @@ function mpo_diagonal(H, sites, bits)
   return real(ITensors.inner(psi', H, psi))
 end
 
-function assert_projection_matches_feasibility(constraint, sites; domain = TenSolver.Domains{Float64}(0:1, length(sites)))
-  H = TenSolver.projection_mpo(constraint, sites; domain)
+function assert_projection_matches_feasibility(
+  constraint,
+  sites;
+  domain = TenSolver.Domains{Float64}(0:1, length(sites)),
+)
+  dfa = TenSolver.constraint_to_dfa(constraint, domain)
+  minimized = @inferred TenSolver.minimize_dfa(dfa)
+  arrays = @inferred TenSolver.transition_tensors(Int, dfa)
+  H = @inferred TenSolver.projection_mpo(constraint, sites; domain)
 
   assignments = Iterators.product(domain...)
   for assignment in assignments
     expected = Float64(is_feasible(collect(assignment), constraint))
     basis_values = [findfirst(==(v), domain[k]) - 1 for (k, v) in pairs(assignment)]
+    @test dfa_accepts(dfa, assignment) == Bool(expected)
+    @test dfa_accepts(minimized, assignment) == Bool(expected)
+    @test raw_projection_diagonal(arrays, basis_values) == expected
     @test mpo_diagonal(H, sites, basis_values) ≈ expected atol=sqrt(eps(Float64))
   end
 
@@ -71,6 +81,187 @@ function divisible_by_three_dfa(num_sites)
   ]
 
   return TenSolver.DFA([0, 1, 2], fill(0:1, num_sites), 0, Set([0]), transitions)
+end
+
+# Restore only the implicit boundary dimensions, then contract exact integer
+# entries. This checks the mask before any floating-point MPO compression.
+function raw_projection_diagonal(arrays, basis)
+  value = [1]
+  for (i, A) in enumerate(arrays)
+    left = i == 1 ? 1 : size(A, 1)
+    right = i == length(arrays) ? 1 : size(A, i == 1 ? 1 : 2)
+    d = size(A, ndims(A))
+    tensor = reshape(A, left, right, d, d)
+    value = vec(transpose(value) * tensor[:, :, basis[i] + 1, basis[i] + 1])
+  end
+  return only(value)
+end
+
+raw_layer_widths(arrays) = [size(arrays[i], i == 1 ? 1 : 2) for i in 1:(length(arrays) - 1)]
+
+# Count distinct nonempty suffix languages independently of the minimizer.
+function suffix_language_widths(dfa)
+  prefix_states = Set([dfa.initial])
+  widths = Int[]
+  for i in 1:(length(dfa.transitions) - 1)
+    prefix_states = Set(dfa.transitions[i][(s, a)] for s in prefix_states for
+        a in dfa.alphabets[i] if haskey(dfa.transitions[i], (s, a)))
+    suffixes = collect(Iterators.product(dfa.alphabets[(i + 1):end]...))
+    languages = Set{Vector{Bool}}()
+    for state in prefix_states
+      language = map(suffixes) do suffix
+        s = state
+        for (j, a) in enumerate(suffix)
+          table = dfa.transitions[i + j]
+          if !haskey(table, (s, a))
+            return false
+          end
+          s = table[(s, a)]
+        end
+        return s in dfa.accepting
+      end
+      if any(language)
+        push!(languages, vec(language))
+      end
+    end
+    push!(widths, max(1, length(languages)))
+  end
+  return widths
+end
+
+@testset "Exact layered DFA minimization" begin
+  domain = TenSolver.Domains{Float64}(0:1, 4)
+  weighted = SumConstraint(collect(1:4), [1, 2, 3, 4], 5; relation = :(<=))
+  dfa = TenSolver.constraint_to_dfa(weighted, domain)
+  minimized = @inferred TenSolver.minimize_dfa(dfa)
+  arrays = @inferred TenSolver.transition_tensors(Int, dfa)
+  @test length.(minimized.states) == [1, 2, 3, 2, 1]
+  @test raw_layer_widths(arrays) == [2, 3, 2]
+  @test size.(arrays) == [(2, 2, 2), (2, 3, 2, 2), (3, 2, 2, 2), (2, 2, 2)]
+
+  # :unreachable has an accepting suffix but no prefix; :dead has a prefix
+  # but no accepting suffix. :a and :b differ only on rejecting transitions.
+  synthetic = TenSolver.DFA(
+    [:start, :a, :b, :dead, :unreachable, :accept, :reject],
+    [[0, 1, 2], [4, 5], [7, 8]],
+    :start,
+    Set([:accept]),
+    [
+      Dict((:start, 0)=>:a, (:start, 1)=>:b, (:start, 2)=>:dead),
+      Dict(
+        (:a, 4)=>:a,
+        (:a, 5)=>:reject,
+        (:b, 4)=>:b,
+        (:dead, 4)=>:dead,
+        (:unreachable, 4)=>:a,
+      ),
+      Dict(
+        (:a, 7)=>:accept,
+        (:b, 7)=>:accept,
+        (:unreachable, 7)=>:accept,
+        (:dead, 8)=>:reject,
+      ),
+    ],
+  )
+  reduced = @inferred TenSolver.minimize_dfa(synthetic)
+  @test length.(reduced.states) == [1, 1, 1, 1]
+  tensors = TenSolver.transition_tensors(Int, synthetic)
+  @test size.(tensors) == [(1, 3, 3), (1, 1, 2, 2), (1, 2, 2)]
+  sites = [
+    ITensors.Index(length(a), "Site,Qudit,n=$i") for
+    (i, a) in enumerate(synthetic.alphabets)
+  ]
+  P = TenSolver.dfa_to_mpo(Float64, synthetic, sites)
+  for assignment in Iterators.product(synthetic.alphabets...)
+    basis = [findfirst(==(a), synthetic.alphabets[i])-1 for (i, a) in enumerate(assignment)]
+    expected = assignment[1] in (0, 1) && assignment[2] == 4 && assignment[3] == 7
+    @test dfa_accepts(synthetic, assignment) == expected
+    @test dfa_accepts(reduced, assignment) == expected
+    @test raw_projection_diagonal(tensors, basis) == expected
+    @test mpo_diagonal(P, sites, basis) ≈ expected atol=1e-12
+  end
+
+  # Exhaustive language comparison of small partial, step-dependent automata,
+  # including arbitrary terminal accepting sets and heterogeneous alphabets.
+  for _ in 1:20
+    alphabets = [[0, 1], [2], [3, 4, 5], [6, 7]]
+    tables = [
+      Dict((s, a)=>rand(1:4) for s in 1:4 for a in alphabet if rand(Bool)) for
+      alphabet in alphabets
+    ]
+    original =
+      TenSolver.DFA(collect(1:4), alphabets, 1, Set(filter(_->rand(Bool), 1:4)), tables)
+    reduced = TenSolver.minimize_dfa(original)
+    arrays = TenSolver.transition_tensors(Int, original)
+    @test raw_layer_widths(arrays) == suffix_language_widths(original)
+    for assignment in Iterators.product(alphabets...)
+      basis = [findfirst(==(a), alphabets[i])-1 for (i, a) in enumerate(assignment)]
+      @test dfa_accepts(reduced, assignment) == dfa_accepts(original, assignment)
+      @test raw_projection_diagonal(arrays, basis) == dfa_accepts(original, assignment)
+    end
+  end
+
+  @testset "Constraint edge cases and permutations" begin
+    domain = TenSolver.Domains{Float64}([[0, 2], [1], [0, 1, 3], [0, 2]], 4)
+    constraints = AbstractConstraint[
+      SumConstraint([1, 3, 4], [0, 1, 5], rhs; relation) for rhs in (0, 2, 9) for
+      relation in (:(==), :(!=), :(<=), :(>=))
+    ]
+    append!(
+      constraints,
+      [
+        SumModConstraint([1, 3, 4], [-1, 2, 3], 1; mod = 4),
+        NotEqualsConstraint([1, 3], [2, 1]),
+        AssignmentConstraint([1, 3, 4], [1, 2], :(==), 1),
+        RelationConstraint(4, :(>=), 1),
+      ],
+    )
+    for permutation in ([1, 2, 3, 4], [3, 1, 4, 2])
+      permuted_domain = TenSolver.Domains{Float64}(domain.ds[permutation], 4)
+      sites = [
+        ITensors.Index(length(d), "Site,Qudit,n=$i") for
+        (i, d) in enumerate(permuted_domain)
+      ]
+      for constraint in constraints
+        permuted = TenSolver.permute(constraint, permutation)
+        assert_projection_matches_feasibility(permuted, sites; domain = permuted_domain)
+        for x in Iterators.product(domain...)
+          @test is_feasible(collect(x)[permutation], permuted) ==
+                is_feasible(collect(x), constraint)
+        end
+      end
+    end
+  end
+
+  @testset "Single site and empty languages" begin
+    for values in ([0], [0, 1, 2])
+      domain = TenSolver.Domains{Float64}(values, 1)
+      sites = ITensors.siteinds("Qudit", 1; dim = length(values))
+      for rhs in (0, 1, 3)
+        assert_projection_matches_feasibility(
+          SumConstraint([1], [1], rhs; relation = :(==)),
+          sites;
+          domain,
+        )
+      end
+    end
+    for n in (1, 2, 4)
+      dfa = TenSolver.DFA(
+        [0, 1],
+        fill([0, 1], n),
+        0,
+        Set{Int}(),
+        [Dict((s, a)=>s for s in 0:1 for a in 0:1) for _ in 1:n],
+      )
+      reduced = TenSolver.minimize_dfa(dfa)
+      @test length.(reduced.states) == ones(Int, n+1)
+      @test all(isempty, reduced.transitions)
+      arrays = TenSolver.transition_tensors(Int, dfa)
+      @test all(A->all(iszero, A), arrays)
+      P = TenSolver.dfa_to_mpo(Float64, dfa, ITensors.siteinds("Qudit", n; dim = 2))
+      @test norm(P) ≈ 0 atol=1e-12
+    end
+  end
 end
 
 @testset "Constraints as MPO Projection" begin
