@@ -62,7 +62,7 @@ Every sampled solution is guaranteed feasible, with no penalty terms involved:
 
 ```julia
 budget = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
-E, psi = TenSolver.maximize([5.5, 2.1, 3.2]; constraints = [budget])
+E, psi = TenSolver.maximize([5.5, 2.1, 3.2]; domain = 0:1, constraints = [budget])
 ```
 
 The constraint API is experimental and subject to change; see the
@@ -85,7 +85,7 @@ begin
   @variable(m, x[1:dim], Bin)
   @objective(m, Min, x'Q*x)
 
-  optimize!(m)                   # <-- Equivalent to running TenSolver.minimize(Q)
+  optimize!(m)
 end
 ```
 
@@ -107,7 +107,7 @@ import CUDA: cu
 
 Q = randn(4, 4)
 
-E, psi = minimize(Q; device = CUDA.cu)
+E, psi = minimize(Q; domain = 0:1, device = CUDA.cu)
 ```
 
 Since ITensor's GPU platform support is always improving,

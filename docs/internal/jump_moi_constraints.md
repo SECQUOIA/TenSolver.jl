@@ -36,9 +36,9 @@ The JuMP path stops earlier. `TenSolver.Optimizer` is generated with
 Boolean QUBO/Ising model, apart from fixed-value constraints. Its generic
 `MOI.supports_constraint` fallback rejects other constraint types.
 `QUBODrivers.sample` in TenSolver then extracts only QUBO objective data with
-`QUBOTools.qubo` and calls `minimize` without a `domain`, `constraints`, or
-`backend` argument. Consequently, the current JuMP path cannot represent the
-finite-domain work from #105/#67, the hard constraints from #62, the backend
+`QUBOTools.qubo` and calls `minimize` with `domain = 0:1`, without a
+`constraints` or `backend` argument. Consequently, the current JuMP path cannot
+represent the finite-domain work from #105/#67, the hard constraints from #62, the backend
 selection planned in #44, or the polynomial objectives requested in #68.
 
 That generated sampler remains a useful compatibility adapter for Boolean

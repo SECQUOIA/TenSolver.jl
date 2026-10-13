@@ -23,7 +23,7 @@ Pkg.add("TenSolver")
 
 ## Quick Start
 
-The simplest way to use this package is passing a matrix to the solver:
+The simplest way to use this package is passing an objective and domain to the solver:
 
 ```jldoctest quickstart
 using TenSolver
@@ -34,7 +34,7 @@ assets = ["Wind", "Solar", "Battery"]
 Q = [0.0 1.0 -1.5;
      1.0 0.0 -0.5;
      -1.5 -0.5 0.0]
-E, psi = TenSolver.minimize(Q; verbosity=0)
+E, psi = TenSolver.minimize(Q; domain = 0:1, verbosity=0)
 
 # Verify we found the minimum
 E ≈ -3.0

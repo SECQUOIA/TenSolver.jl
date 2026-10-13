@@ -95,6 +95,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
   # min_x a*(x'Qx + l'x + b)
   #  s.t. x in {0, 1}^n
   results = @timed minimize(Q, l, b;
+    domain = 0:1,
     time_limit,
     verbosity,
     cutoff      = get("cutoff"),

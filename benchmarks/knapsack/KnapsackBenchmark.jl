@@ -238,6 +238,7 @@ function projection_method()
   solve = function (instance, constraint, settings)
     reported_objective, solution = TenSolver.maximize(
       instance.values;
+      domain = 0:1,
       constraints = [constraint],
       solver_options(settings)...,
     )
@@ -270,6 +271,7 @@ function penalty_method(penalty_factor)
       model.Q,
       model.l,
       model.constant;
+      domain = 0:1,
       solver_options(settings)...,
     )
     decode = function (sample)
@@ -476,6 +478,7 @@ function projection_scaling_rows(; cutoff = 1e-10, time_limit = 60.0)
     )
     _, solution = TenSolver.maximize(
       instance.values;
+      domain = 0:1,
       constraints = [constraint],
       solver_options(settings)...,
     )

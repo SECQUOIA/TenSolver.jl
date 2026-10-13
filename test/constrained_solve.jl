@@ -22,6 +22,7 @@ end
   ]
 
   qubo_kwargs = (
+    domain=0:1,
     constraints=all_constraint_types,
     iterations=3,
     verbosity=0,
@@ -64,6 +65,7 @@ end
     E, psi = maximize(
       Q,
       l;
+      domain = 0:1,
       constraints,
       iterations=3,
       verbosity=0,
@@ -86,6 +88,7 @@ end
 
     E, psi = minimize(
       p;
+      domain = 0:1,
       constraints=all_constraint_types,
       iterations=3,
       verbosity=0,
@@ -105,6 +108,7 @@ end
     E, psi = minimize(
       Q,
       l;
+      domain = 0:1,
       constraints=force_zero,
       iterations=3,
       verbosity=0,
@@ -121,6 +125,7 @@ end
 
     E_poly, psi_poly = minimize(
       p;
+      domain = 0:1,
       constraints=force_one,
       iterations=3,
       verbosity=0,
@@ -141,6 +146,7 @@ end
 
     E_qpos, psi_qpos = minimize(
       Qpos;
+      domain = 0:1,
       constraints=force_one_qubo,
       iterations=3,
       verbosity=0,
@@ -157,6 +163,7 @@ end
 
     E_ppos, psi_ppos = minimize(
       p_pos;
+      domain = 0:1,
       constraints=force_one_poly,
       iterations=3,
       verbosity=0,
@@ -171,6 +178,7 @@ end
     constraints = AbstractConstraint[AssignmentConstraint([1, 2], 1, :(==), 1)]
     E, psi = minimize(
       zeros(2, 2);
+      domain = 0:1,
       constraints,
       iterations=2,
       verbosity=0,
@@ -190,6 +198,7 @@ end
     E, psi = with_logger(ConsoleLogger(io, Logging.Debug)) do
       minimize(
         zeros(2, 2);
+        domain = 0:1,
         constraints=impossible,
         verbosity=0,
       )
@@ -210,6 +219,7 @@ end
     # The supremum over an empty feasible set is -Inf.
     Emax, psimax = @test_logs (:warn, r"empty feasible subspace") maximize(
       zeros(2, 2);
+      domain = 0:1,
       constraints=impossible,
       verbosity=0,
     )
@@ -223,6 +233,7 @@ end
 
     E, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
       ones(1, 1);
+      domain = 0:1,
       constraints=impossible,
       verbosity=0,
     )
@@ -236,6 +247,7 @@ end
     impossible = AbstractConstraint[SumConstraint([1, 2], [1, 1], 3; relation=:(==))]
     _, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
       zeros(2, 2);
+      domain = 0:1,
       constraints=impossible,
       verbosity=0,
     )
@@ -260,6 +272,7 @@ end
     E, psi = minimize(
       zeros(4, 4),
       -values;
+      domain = 0:1,
       constraints,
       iterations=4,
       verbosity=0,
@@ -283,6 +296,7 @@ end
     E, psi = minimize(
       zeros(5, 5),
       l;
+      domain = 0:1,
       constraints,
       iterations=4,
       verbosity=0,
@@ -309,6 +323,7 @@ end
     E, psi = minimize(
       zeros(2, 2),
       l;
+      domain = 0:1,
       constraints,
       iterations=3,
       verbosity=0,
@@ -330,6 +345,7 @@ end
     relaxed = AbstractConstraint[SumConstraint([1], [1], 1; relation=:(<=))]
     E1, psi1 = minimize(
       zeros(1, 1);
+      domain = 0:1,
       constraints=relaxed,
       iterations=2,
       verbosity=0,
