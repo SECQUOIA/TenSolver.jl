@@ -16,6 +16,12 @@ QUBOTools = "60eb5b62-0a39-4ddc-84c5-97d2adff9319"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
+[weakdeps]
+SpinGlassPEPS = "2c514f87-1261-494e-8566-326879aaf4fe"
+
+[extensions]
+TenSolverSpinGlassPEPSExt = "SpinGlassPEPS"
+
 [compat]
 ArgCheck = "2.5.0"
 Combinatorics = "1"
@@ -28,4 +34,5 @@ QUBODrivers = "0.6.1"
 QUBOTools = "0.13, 0.14, 0.15, 0.16"
 Random = "1.10"
 SparseArrays = "1.10"
+SpinGlassPEPS = "2.0.1"
 julia = "1.10"

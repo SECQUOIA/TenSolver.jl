@@ -19,9 +19,10 @@ method remains supported when reduction preserves that register.
 Extensions that support symbolic selection must also define
 `normalize_backend(::Val{:my_backend}) = MyBackend(...)`.
 
-# See also
+The default implementation is [`DMRGBackend`](@ref).
 
-[`DMRGBackend`](@ref), [`normalize_backend`](@ref)
+# See also
+[`DMRGBackend`](@ref), [`normalize_backend`](@ref).
 """
 abstract type AbstractTenSolverBackend end
 
@@ -55,8 +56,8 @@ normalize_backend(backend) = throw(backend_error(backend))
 # Backends
 #
 include("backends/dmrg.jl")
+include("backends/peps.jl")
 const default_backend = DMRGBackend()
-
 
 #=======================================================================#
 # Minimization and Maximization                                         #
@@ -130,7 +131,8 @@ Keyword arguments:
   Some keywords, such as `constraints` and `domain`,
   may have limited support depending on the backend.
 
-The returned `Solution` carries per-iteration convergence data in `solution.stats`.
+The [`DMRGSolution`](@ref) returned by the default backend carries
+per-iteration convergence data in `solution.stats`.
 
 Provably infeasible constrained models are reported as a status:
 `minimize` logs a warning and returns `+Inf` (the minimum over an empty feasible set)
