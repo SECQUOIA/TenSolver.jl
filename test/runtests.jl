@@ -34,6 +34,7 @@ include(filepath("tensorize.jl"))
 # Traditional interface
 include(filepath("qubo.jl"))
 include(filepath("pubo.jl"))
+include(filepath("polynomial_variable_preservation.jl"))
 include(filepath("domains.jl"))
 include(filepath("spin_domains.jl"))
 include(filepath("constrained_solve.jl"))

@@ -1,5 +1,19 @@
 struct TestSymbolBackend <: TenSolver.AbstractTenSolverBackend end
 struct MissingMethodBackend <: TenSolver.AbstractTenSolverBackend end
+struct TestPolynomialBackend <: TenSolver.AbstractTenSolverBackend end
+
+import DynamicPolynomials as DP
+import MultivariatePolynomials as MP
+
+function TenSolver.minimize(
+  ::TestPolynomialBackend,
+  p::MP.AbstractPolynomial;
+  domain,
+  constraints,
+  verbosity,
+)
+  return 42.0, (; p, domain, constraints, verbosity)
+end
 
 TenSolver.normalize_backend(::Val{:test_symbol_backend}) = TestSymbolBackend()
 function TenSolver.minimize(::TestSymbolBackend, Q::AbstractMatrix{T}, l::Union{AbstractVector{T}, Nothing}=nothing, c::T=zero(T); kwargs...) where {T}
@@ -7,6 +21,32 @@ function TenSolver.minimize(::TestSymbolBackend, Q::AbstractMatrix{T}, l::Union{
 end
 
 @testset "Backend interface" begin
+  @testset "Existing polynomial methods retain their keyword contract" begin
+    DP.@polyvar x[1:2]
+    p = x[1]^2 + x[2]
+    E, payload = minimize(p; backend = TestPolynomialBackend(), domain = 0:1, verbosity = 0)
+    @test E == 42.0
+    @test payload.p == x[1] + x[2]
+    @test length(payload.domain) == 2
+    @test isempty(payload.constraints)
+    @test payload.verbosity == 0
+
+    # A backend must explicitly support the original register before receiving
+    # an objective whose reduced dependency set would truncate assignments.
+    err = try
+      minimize(
+        x[1]^2 - x[1] - 2x[2];
+        backend = TestPolynomialBackend(),
+        domain = 0:1,
+        verbosity = 0,
+      )
+    catch caught
+      caught
+    end
+    @test err isa ArgumentError
+    @test occursin("domain reduction that removes variables", sprint(showerror, err))
+  end
+
   @testset "Maximize forwards backend selection" begin
     # The three-valued domain keeps the diagonal quadratic term in Q instead
     # of simplifying it into the linear term before it reaches the backend.
