@@ -13,7 +13,7 @@ $$\begin{array}{rl}
   \text{s.t.} & Ax = b \\
               & P x \le q \\
               & x \in \mathtt{Constraints} \\
-              & x_i \in \\{u_0,\ldots,u_{d-1}\\} \subseteq \mathbb{Z}
+              & x_i \in U_i \subseteq \mathbb{R},\quad |U_i| < \infty
 \end{array}$$
 
 Additionally, TenSolver provides special support
@@ -54,6 +54,13 @@ These vectors are the (approximate) optimal solutions to the original optimizati
 ```julia
 x = TenSolver.sample(psi)
 ```
+
+A single `domain` applies to every variable: use `0:1` for binary values,
+`[-1, 1]` for spins, or a finite integer or fractional vector. Pass a vector of
+vectors, such as `domain = [[-1, 2], [0.0, 0.5, 1.5]]`, for one domain per
+variable. Samples contain domain values in the input variable order. See
+[Choosing Native Domains](https://SECQUOIA.github.io/TenSolver.jl/dev/examples/#Choosing-Native-Domains)
+for examples, polynomial variable ordering and constraint restrictions.
 
 ### Constraints
 
