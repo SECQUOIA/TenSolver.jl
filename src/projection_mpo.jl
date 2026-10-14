@@ -331,11 +331,11 @@ function constraint_to_dfa(constraint::SumModConstraint{S}, domains::Domains) wh
   )
 end
 
-function constraint_to_dfa(constraint::NotEqualsConstraint{S}, domains::Domains) where {S}
+function constraint_to_dfa(constraint::NotEqualsConstraint, domains::Domains)
   (; values) = constraint
 
   return mapreduce_dfa(
-    i -> a -> S(a) != values[i],
+    i -> a -> a != values[i],
     i -> (|),
     constraint,
     domains,
