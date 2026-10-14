@@ -164,6 +164,20 @@ end
     capacity = SumConstraint([1], [1], 1; relation=:(<=))
     @test_throws ArgumentError minimize([0.0]; domain=[0.0, 0.5, 1.0], constraints=[capacity], verbosity=0)
   end
+
+  @testset "NotEqualsConstraint with fractional domain" begin
+    for forbidden in ([1], [1.0])
+      constraint = NotEqualsConstraint([1], forbidden)
+      E, psi = minimize([-1.0]; domain = [0.0, 0.5, 1.0],
+                        constraints = [constraint], verbosity = 0)
+
+      @test E ≈ -0.5
+      @test [0.5] in psi
+      x = sample(psi)
+      @test x == [0.5]
+      @test is_feasible(x, constraint)
+    end
+  end
 end
 
 @testset "Per-variable domains" begin
