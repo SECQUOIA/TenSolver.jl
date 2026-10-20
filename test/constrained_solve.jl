@@ -80,6 +80,21 @@ end
     @test E ≈ 2.0
   end
 
+  @testset "Positive quadratic objective with native constraints" begin
+    # Exactly two variables: costs at 110, 101 and 011 are 6, 5 and 2.
+    # The infeasible all-zero state has cost zero, so the objective shift
+    # must still exclude the projection kernel with the quadratic constructor.
+    Q = [0.0 2.0 0.0; 0.0 0.0 -1.0; 0.0 0.0 0.0]
+    l = [3.0, 1.0, 2.0]
+    constraints = [SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(==))]
+    E, psi = minimize(
+      Q, l; domain = 0:1, constraints, iterations = 3, inidim = 8,
+      maxdim = 8, noise = [0.0], cutoff = 1e-12, verbosity = 0,
+    )
+    obj(x) = dot(x, Q, x) + dot(l, x)
+    assert_constrained_solution(E, psi, obj, constraints, 2.0, [0, 1, 1])
+  end
+
   @testset "Polynomial minimize supports constraints" begin
     DynamicPolynomials.@polyvar y[1:3]
     p = -3.0y[1] - 2.0y[2] - 1.0y[3]

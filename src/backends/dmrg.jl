@@ -260,6 +260,8 @@ function tensorize(
   return isempty(os) ? MPO(T, sites) : MPO(T, os, sites)
 end
 
+include("quadratic_mpo.jl")
+
 function minimize_mpo( H_obj :: MPO
                      , c     :: T
                      , obj
