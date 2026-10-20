@@ -17,6 +17,12 @@ TenSolver.DMRGBackend
 TenSolver.normalize_backend
 ```
 
+## DMRG Initialization
+
+```@docs
+TenSolver.QAOAInitialState
+```
+
 ## Solution
 
 ```@docs

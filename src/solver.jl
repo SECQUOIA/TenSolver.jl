@@ -119,6 +119,10 @@ Keyword arguments:
   `psi` is the MPS for that iteration.
   Default: `nothing` (no callback).
 - `callback_every :: Int` - Invoke the callback every N iterations. Must be >= 1. Default: `1`.
+- `initial_state` - DMRG initialization. Defaults to `nothing` (a random MPS).
+  Pass [`TenSolver.QAOAInitialState`](@ref) for gate-based depth-one preparation
+  with default or supplied angles on unconstrained spin matrix or linear objectives.
+  `inidim` (default `40`) caps the initial bond dimension; `maxdim` controls DMRG.
 - `backend` - Solver backend. Defaults to the current DMRG implementation.
   Use `backend = :dmrg` or `backend = DMRGBackend()` to select it explicitly.
   Other backends are reserved for optional extensions.
