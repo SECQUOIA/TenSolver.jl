@@ -57,7 +57,7 @@ using TenSolver
 values = [3.0, 2.0, 4.0]
 budget = SumConstraint([1, 2, 3], [1, 1, 1], 2; relation = :(<=))
 
-E, psi = TenSolver.maximize(zeros(3, 3), values; constraints = [budget], verbosity = 0)
+E, psi = TenSolver.maximize(zeros(3, 3), values; domain = 0:1, constraints = [budget], verbosity = 0)
 x = TenSolver.sample(psi)
 
 # The optimum keeps the two most valuable assets (1 and 3), within the budget.
@@ -132,7 +132,7 @@ using TenSolver
 # [1, 1] is the unconstrained optimum, but that assignment is forbidden.
 exclude = NotEqualsConstraint([1, 2], [1, 1])
 
-E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; constraints = [exclude], verbosity = 0)
+E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, -1.0]; domain = 0:1, constraints = [exclude], verbosity = 0)
 
 (E ≈ -2.0, TenSolver.sample(psi))
 
@@ -158,7 +158,7 @@ using TenSolver
 # Pick exactly one of the three options; the second is the most valuable.
 one_hot = AssignmentConstraint([1, 2, 3], [1], :(==), 1)
 
-E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; constraints = [one_hot], verbosity = 0)
+E, psi = TenSolver.minimize(zeros(3, 3), [-1.0, -3.0, -2.0]; domain = 0:1, constraints = [one_hot], verbosity = 0)
 
 (E ≈ -3.0, TenSolver.sample(psi))
 
@@ -179,7 +179,7 @@ using TenSolver
 # Selecting item 1 requires also selecting item 2 (x1 <= x2).
 implies = RelationConstraint(1, :(<=), 2)
 
-E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, 1.0]; constraints = [implies], verbosity = 0)
+E, psi = TenSolver.minimize(zeros(2, 2), [-2.0, 1.0]; domain = 0:1, constraints = [implies], verbosity = 0)
 
 # Taking both (-2 + 1 = -1) beats the feasible alternatives [0,0] and [0,1].
 (E ≈ -1.0, TenSolver.sample(psi))
@@ -204,7 +204,7 @@ constraints = [
     RelationConstraint(1, :(>=), 3),
 ]
 
-E, psi = TenSolver.minimize(zeros(3, 3), [-3.0, -2.0, -1.0]; constraints, verbosity = 0)
+E, psi = TenSolver.minimize(zeros(3, 3), [-3.0, -2.0, -1.0]; domain = 0:1, constraints, verbosity = 0)
 x = TenSolver.sample(psi)
 
 (E ≈ -4.0, x, is_feasible(x, constraints))
@@ -225,7 +225,7 @@ Check with [`is_feasible`](@ref); sampling an infeasible solution throws.
 
 ```julia
 impossible = [SumConstraint([1, 2], [1, 1], 3; relation = :(==))]
-E, psi = TenSolver.minimize(zeros(2, 2); constraints = impossible)
+E, psi = TenSolver.minimize(zeros(2, 2); domain = 0:1, constraints = impossible)
 
 E                 # +Inf
 is_feasible(psi)  # false

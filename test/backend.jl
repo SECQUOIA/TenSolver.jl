@@ -67,7 +67,7 @@ end
 
   @testset "Symbol backends can be provided by extensions" begin
     Q = reshape([1.0], 1, 1)
-    E, payload = minimize(Q; backend=:test_symbol_backend, verbosity=0, cutoff=1e-6)
+    E, payload = minimize(Q; domain = 0:1, backend=:test_symbol_backend, verbosity=0, cutoff=1e-6)
 
     @test E == 42.0
     @test payload.kwargs[:cutoff] == 1e-6
@@ -79,7 +79,7 @@ end
     Q = reshape([1.0], 1, 1)
 
     peps_error = try
-      minimize(Q; backend=:peps, verbosity=0)
+      minimize(Q; domain = 0:1, backend=:peps, verbosity=0)
     catch err
       err
     end
@@ -89,7 +89,7 @@ end
     @test occursin("backend = :dmrg", sprint(showerror, peps_error))
 
     unknown_symbol_error = try
-      minimize(Q; backend=:foo, verbosity=0)
+      minimize(Q; domain = 0:1, backend=:foo, verbosity=0)
     catch err
       err
     end
@@ -98,7 +98,7 @@ end
     @test !occursin("PEPS extension", sprint(showerror, unknown_symbol_error))
 
     unsupported_error = try
-      minimize(Q; backend="dmrg", verbosity=0)
+      minimize(Q; domain = 0:1, backend="dmrg", verbosity=0)
     catch err
       err
     end
@@ -106,7 +106,7 @@ end
     @test occursin("No backend-specific `minimize` method is available for backend \"dmrg\"", sprint(showerror, unsupported_error))
 
     missing_method_error = try
-      minimize(Q; backend=MissingMethodBackend(), verbosity=0)
+      minimize(Q; domain = 0:1, backend=MissingMethodBackend(), verbosity=0)
     catch err
       err
     end

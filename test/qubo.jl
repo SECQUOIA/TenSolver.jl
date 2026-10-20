@@ -4,15 +4,15 @@
   @testset "Ill-formed input" begin
     # Should throw when the matrix is not square
     Q = randn(dim, dim - 2)
-    @test_throws DimensionMismatch minimize(Q)
+    @test_throws DimensionMismatch minimize(Q; domain = 0:1, verbosity = 0)
 
     Q = randn(dim - 2, dim)
-    @test_throws DimensionMismatch minimize(Q)
+    @test_throws DimensionMismatch minimize(Q; domain = 0:1, verbosity = 0)
   end
 
   @testset "Ultra simple sanity checks" begin
     @testset "Zero matrix" begin
-      E, psi = minimize([0.0 0; 0 0]; verbosity = 0)
+      E, psi = minimize([0.0 0; 0 0]; domain = 0:1, verbosity = 0)
 
       @test E ≈ 0.0
       for x in [[i, j] for i in 0:1, j in 0:1]
@@ -21,7 +21,7 @@
     end
 
     @testset "Zero matrix + constant" begin
-      E, psi = minimize([0.0 0; 0 0], 3.0; verbosity = 0)
+      E, psi = minimize([0.0 0; 0 0], 3.0; domain = 0:1, verbosity = 0)
 
       @test E ≈ 3.0
       for x in [[i, j] for i in 0:1, j in 0:1]
@@ -30,7 +30,7 @@
     end
 
     @testset "Zero matrix + zero linear" begin
-      E, psi = minimize([0.0 0; 0 0], [0.0, 0.0]; verbosity = 0)
+      E, psi = minimize([0.0 0; 0 0], [0.0, 0.0]; domain = 0:1, verbosity = 0)
 
       @test E ≈ 0.0
       for x in [[i, j] for i in 0:1, j in 0:1]
@@ -39,14 +39,14 @@
     end
 
     @testset "Zero matrix + linear" begin
-      E, psi = minimize([0.0 0; 0 0], [1.0, -1.0]; verbosity = 0)
+      E, psi = minimize([0.0 0; 0 0], [1.0, -1.0]; domain = 0:1, verbosity = 0)
 
       @test E ≈ -1.0
       @test TenSolver.sample(psi) == [0, 1]
     end
 
     @testset "Zero matrix + linear + const" begin
-      E, psi = minimize([0.0 0; 0 0], [1.0, -1.0], 3.0; verbosity = 0)
+      E, psi = minimize([0.0 0; 0 0], [1.0, -1.0], 3.0; domain = 0:1, verbosity = 0)
 
       @test E ≈ 2.0
       @test TenSolver.sample(psi) == [0, 1]
@@ -54,7 +54,7 @@
 
     @testset "Single variable" begin
       Q = reshape([-2.0], 1, 1)
-      E, psi = minimize(Q; backend = :dmrg, verbosity = 0)
+      E, psi = minimize(Q; domain = 0:1, backend = :dmrg, verbosity = 0)
 
       @test E ≈ -2.0
       @test TenSolver.sample(psi) == [1]
@@ -65,7 +65,7 @@
 
     @testset "Single variable with linear and constant terms" begin
       Q = reshape([0.0], 1, 1)
-      E, psi = minimize(Q, [-3.0], 2.0; verbosity = 0)
+      E, psi = minimize(Q, [-3.0], 2.0; domain = 0:1, verbosity = 0)
 
       @test E ≈ -1.0
       @test TenSolver.sample(psi) == [1]
@@ -73,7 +73,7 @@
 
     @testset "Single variable degeneracy" begin
       Q = reshape([0.0], 1, 1)
-      E, psi = minimize(Q; verbosity = 0)
+      E, psi = minimize(Q; domain = 0:1, verbosity = 0)
 
       @test E ≈ 0.0
       @test [0] in psi
@@ -82,21 +82,21 @@
 
     @testset "Max: Single variable" begin
       Q = reshape([2.0], 1, 1)
-      E, psi = maximize(Q; verbosity = 0)
+      E, psi = maximize(Q; domain = 0:1, verbosity = 0)
 
       @test E ≈ 2.0
       @test TenSolver.sample(psi) == [1]
     end
 
     @testset "Identity" begin
-      E, psi = minimize([1.0 0.0; 0.0 1.0]; verbosity = 0)
+      E, psi = minimize([1.0 0.0; 0.0 1.0]; domain = 0:1, verbosity = 0)
 
       @test E ≈ 0.0
       @test TenSolver.sample(psi) == [0, 0]
     end
 
     @testset "One variable" begin
-      E, psi = minimize(reshape([2.0], 1, 1), [-3.0]; verbosity=0)
+      E, psi = minimize(reshape([2.0], 1, 1), [-3.0]; domain = 0:1, verbosity=0)
 
       @test E ≈ -1.0
       @test TenSolver.sample(psi) == [1]
@@ -104,21 +104,21 @@
     end
 
     @testset "Max: Identity" begin
-      E, psi = maximize([1.0 0.0; 0.0 1.0]; verbosity = 0)
+      E, psi = maximize([1.0 0.0; 0.0 1.0]; domain = 0:1, verbosity = 0)
 
       @test E ≈ 2.0
       @test TenSolver.sample(psi) == [1, 1]
     end
 
     @testset "Max: Identity + const" begin
-      E, psi = maximize([1.0 0.0; 0.0 1.0], 3.0; verbosity = 0)
+      E, psi = maximize([1.0 0.0; 0.0 1.0], 3.0; domain = 0:1, verbosity = 0)
 
       @test E ≈ 5.0
       @test TenSolver.sample(psi) == [1, 1]
     end
 
     @testset "Max: Zero matrix + linear + const" begin
-      E, psi = maximize([0.0 0.0; 0.0 0.0], [1.0, -1.0], 3.0; verbosity = 0)
+      E, psi = maximize([0.0 0.0; 0.0 0.0], [1.0, -1.0], 3.0; domain = 0:1, verbosity = 0)
 
       @test E ≈ 4.0
       @test TenSolver.sample(psi) == [1, 0]
@@ -129,6 +129,7 @@
     @testset "Solution carries stats" begin
       E, psi = minimize(
         [1.0 0; 0 -1.0];
+        domain = 0:1,
         iterations=5,
         check_variance_every_iteration=2,
         vtol=-Inf,
@@ -156,7 +157,7 @@
       function cb(psi; iteration, objective, bond_dim, elapsed_time)
         push!(calls, (; iteration, objective, bond_dim, elapsed_time))
       end
-      minimize([1.0 0; 0 -1.0]; iterations=5, on_iteration=cb, verbosity = 0)
+      minimize([1.0 0; 0 -1.0]; domain = 0:1, iterations=5, on_iteration=cb, verbosity = 0)
       @test getproperty.(calls, :iteration) == collect(1:5)
       @test all(call -> isfinite(call.objective), calls)
       @test all(call -> call.bond_dim > 0, calls)
@@ -166,15 +167,15 @@
     @testset "callback_every" begin
       calls = Int[]
       cb = (psi; iteration, kw...) -> push!(calls, iteration)
-      minimize([1.0 0; 0 -1.0]; iterations=9, on_iteration=cb, callback_every=3, verbosity = 0)
+      minimize([1.0 0; 0 -1.0]; domain = 0:1, iterations=9, on_iteration=cb, callback_every=3, verbosity = 0)
       @test calls == [3, 6, 9]
     end
 
     @testset "iteration cadence < 1 throws" begin
-      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; verbosity = 0, iterations=1, callback_every=0)
-      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; verbosity = 0, iterations=1, callback_every=-1)
-      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; verbosity = 0, iterations=1, check_variance_every_iteration=0)
-      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; verbosity = 0, iterations=1, check_variance_every_iteration=-1)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; domain = 0:1, verbosity = 0, iterations=1, callback_every=0)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; domain = 0:1, verbosity = 0, iterations=1, callback_every=-1)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; domain = 0:1, verbosity = 0, iterations=1, check_variance_every_iteration=0)
+      @test_throws ArgumentError minimize([1.0 0; 0 -1.0]; domain = 0:1, verbosity = 0, iterations=1, check_variance_every_iteration=-1)
     end
 
     @testset "callback receives a fresh MPS each iteration" begin
@@ -182,7 +183,7 @@
       # in-place, so each callback invocation receives a distinct object.
       ids = UInt[]
       cb = (psi; kw...) -> push!(ids, objectid(psi))
-      minimize([1.0 0; 0 -1.0]; iterations=3, on_iteration=cb, verbosity = 0)
+      minimize([1.0 0; 0 -1.0]; domain = 0:1, iterations=3, on_iteration=cb, verbosity = 0)
       @test length(ids) == 3
       @test length(unique(ids)) == 3
     end
@@ -223,11 +224,11 @@
       l = [0.5, 1.0, 0.5]
 
       Random.seed!(1)
-      E0, psi0 = minimize(Q, l; preprocess=false, iterations=3, verbosity=0)
+      E0, psi0 = minimize(Q, l; domain = 0:1, preprocess=false, iterations=3, verbosity=0)
       x0 = TenSolver.sample(psi0)
 
       Random.seed!(1)
-      E, psi = minimize(Q, l; preprocess=true, iterations=3, verbosity=0)
+      E, psi = minimize(Q, l; domain = 0:1, preprocess=true, iterations=3, verbosity=0)
       x = TenSolver.sample(psi)
 
       @test E0 ≈ -3.0
@@ -248,7 +249,7 @@
     ]
 
     # TenSolver solution
-    e, psi = TenSolver.minimize(Q; verbosity = 0)
+    e, psi = TenSolver.minimize(Q; domain = 0:1, verbosity = 0)
     x = TenSolver.sample(psi)
 
     # Is the sampled solution part of the ground state?
@@ -276,7 +277,7 @@
     obj(x) = dot(x, Q, x) + dot(l, x) + c
 
     # TenSolver solution
-    e, psi = TenSolver.minimize(Q, l, c; verbosity = 0)
+    e, psi = TenSolver.minimize(Q, l, c; domain = 0:1, verbosity = 0)
     x = TenSolver.sample(psi)
 
     # Does the ground energy match solution?

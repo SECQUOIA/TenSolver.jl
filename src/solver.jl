@@ -94,7 +94,6 @@ Keyword arguments:
   returns `+Inf` together with an infeasible [`Solution`](@ref) (see [`is_feasible`](@ref)).
 - `domain` - Allowed values per variable.
    Can be either a vector of per-variable domains or a single uniform domain valid for all variables.
-   Defaults to `[0, 1]`.
   Unconstrained DMRG optimization accepts any finite collection of real values;
   individual constraint types can impose narrower requirements. Use `[-1, 1]`
   for Ising spins. Domains are sorted and deduplicated before solving.
@@ -145,10 +144,10 @@ and pass its accelerator as argument.
 
 ```julia
 import CUDA
-minimize(Q; device = CUDA.cu)
+minimize(Q; domain = 0:1, device = CUDA.cu)
 
 import Metal
-minimize(Q; device = Metal.mtl)
+minimize(Q; domain = 0:1, device = Metal.mtl)
 ```
 
 See also [`maximize`](@ref).
@@ -174,7 +173,7 @@ end
 function minimize(
   p::AbstractPolynomial;
   backend = default_backend,
-  domain = 0:1,
+  domain,
   constraints = AbstractConstraint[],
   kwargs...,
 )
@@ -195,7 +194,7 @@ function minimize(
   c :: Real = zero(eltype(Q))
   ;
   backend = default_backend,
-  domain = 0:1,
+  domain,
   constraints = AbstractConstraint[],
   kwargs...,
 )
@@ -237,7 +236,8 @@ In the matrix version, the objective is limited to quadratic forms x -> x'Qx + l
 Missing arguments (quadratic, linear or constant term)
 are allowed and taken to be zero.
 
-All keywords accepted by [`minimize`](@ref) can also be used for maximization problems.
+All keywords accepted by [`minimize`](@ref)
+can also be used for maximization problems.
 Provably infeasible constrained models return `-Inf` (the supremum over an
 empty feasible set) together with an infeasible [`Solution`](@ref).
 

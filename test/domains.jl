@@ -1,4 +1,5 @@
 import DynamicPolynomials as DP
+import TypedPolynomials as TP
 using LinearAlgebra
 
 @testset "Non-binary domains" begin
@@ -112,11 +113,27 @@ using LinearAlgebra
   @testset "Domain API and validation" begin
     Q = [-1.0 0.0; 0.0 2.0]
 
-    E_default, psi_default = minimize(Q; iterations = 4, verbosity = 0)
+    @testset "Domain is required across native overloads" begin
+      l = [-3.0, 2.0]
+      c = 4.0
+      DP.@polyvar x[1:2]
+      TP.@polyvar y[1:2]
+      p = x[1]^2 - x[2]
+      typed_p = y[1]^2 - y[2]
+
+      for solve in (minimize, maximize)
+        for args in ((Q,), (Q, l), (Q, l, c), (Q, c), (l,), (l, c), (p,), (typed_p,))
+          @test_throws UndefKeywordError(:domain) solve(args...; verbosity = 0)
+        end
+      end
+    end
+
+    E_range, psi_range = minimize(Q; domain = 0:1, iterations = 4, verbosity = 0)
     E_bool, psi_bool = minimize(Q; domain = [0, 1], iterations = 4, verbosity = 0)
 
-    @test E_default ≈ E_bool
-    @test sample(psi_default) == [1, 0]
+    @test E_range ≈ -1.0
+    @test E_bool ≈ -1.0
+    @test sample(psi_range) == [1, 0]
     @test [1, 0] in psi_bool
 
     E_ordered, psi_ordered = minimize([1.0]; domain = [1, -1], verbosity = 0)

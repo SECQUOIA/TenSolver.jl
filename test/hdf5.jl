@@ -17,7 +17,7 @@ using TenSolver, HDF5, ITensorMPS
     end
   end
 
-  E, psi = TenSolver.minimize(Q; iterations=iter, on_iteration=cb, callback_every=cb_every)
+  E, psi = TenSolver.minimize(Q; domain = 0:1, iterations=iter, on_iteration=cb, callback_every=cb_every)
 
   expected_iters = cb_every:cb_every:iter   # [2, 4, 6]
 

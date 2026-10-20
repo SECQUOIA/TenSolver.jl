@@ -17,7 +17,7 @@ Q = [0.0 1.0 -1.5;
      -1.5 -0.5 0.0]
 
 # Solve for minimum
-E, psi = TenSolver.minimize(Q; verbosity=0)
+E, psi = TenSolver.minimize(Q; domain = 0:1, verbosity=0)
 
 # Sample a solution
 x = TenSolver.sample(psi)
@@ -28,6 +28,24 @@ x = TenSolver.sample(psi)
 # output
 
 (true, "Wind, Battery")
+```
+
+## Per-variable Domains
+
+Pass one domain for each variable when their allowed values differ:
+
+```jldoctest heterogeneous-domain
+using TenSolver
+
+E, psi = TenSolver.minimize([2.0, -3.0], 4.0;
+    domain = [[-1, 2], [0.0, 0.5, 1.5]], verbosity = 0)
+x = TenSolver.sample(psi)
+
+(E ≈ -2.5, x)
+
+# output
+
+(true, [-1.0, 1.5])
 ```
 
 ## Ising Model
@@ -110,7 +128,7 @@ l = [-3.0, -2.0, -2.0]
 c = 5.0
 
 # Solve: min b'Qb + l'b + c
-E, psi = TenSolver.minimize(Q, l, c; verbosity=0)
+E, psi = TenSolver.minimize(Q, l, c; domain = 0:1, verbosity=0)
 x = TenSolver.sample(psi)
 
 # The best plan keeps wind and storage, but skips solar because of overlap penalties.
@@ -220,6 +238,7 @@ Q = [0.0 1.0 -1.5;
 # Solve with custom parameters
 E, psi = TenSolver.minimize(
     Q;
+    domain = 0:1,
     iterations = 20,        # More iterations for better convergence
     cutoff = 1e-10,         # Higher accuracy
     maxdim = [10, 20, 50, 100, 200],  # Bond dimension schedule
@@ -263,7 +282,7 @@ function cb(mps; iteration, kw...)  # kw... absorbs unused kwargs (objective, bo
     results[iteration] = [x' * Q * x for x in xs]
 end
 
-E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
+E, psi = TenSolver.minimize(Q; domain = 0:1, iterations=50, on_iteration=cb, callback_every=5)
 
 # Persist derived statistics (not the MPS) for later post-processing
 serialize("results.jls", results)
@@ -285,7 +304,7 @@ function cb(mps; iteration, kw...)
     end
 end
 
-E, psi = TenSolver.minimize(Q; iterations=50, on_iteration=cb, callback_every=5)
+E, psi = TenSolver.minimize(Q; domain = 0:1, iterations=50, on_iteration=cb, callback_every=5)
 ```
 
 To load a snapshot in a later session:
@@ -311,7 +330,7 @@ import CUDA
 Q = randn(100, 100)
 
 # Solve on GPU using CUDA
-E, psi = TenSolver.minimize(Q; device = CUDA.cu)
+E, psi = TenSolver.minimize(Q; domain = 0:1, device = CUDA.cu)
 
 # Sample solutions
 x = TenSolver.sample(psi)
@@ -326,7 +345,7 @@ import Metal
 Q = randn(100, 100)
 
 # Solve on GPU using Metal
-E, psi = TenSolver.minimize(Q; device = Metal.mtl)
+E, psi = TenSolver.minimize(Q; domain = 0:1, device = Metal.mtl)
 ```
 
 ## Maximization Problems
@@ -343,7 +362,7 @@ Q = [0.0 0.5 0.0;
      0.0 0.5 0.0]
 
 # Solve for maximum instead of minimum
-E, psi = TenSolver.maximize(Q; verbosity=0)
+E, psi = TenSolver.maximize(Q; domain = 0:1, verbosity=0)
 x = TenSolver.sample(psi)
 
 # Verify we get the expected maximum
@@ -364,7 +383,7 @@ using TenSolver
 # Two single-route plans are equally good, but taking both routes together is wasteful.
 Q = [0.0 1.0; 1.0 0.0]
 l = [-1.0, -1.0]
-E, psi = TenSolver.minimize(Q, l, 0.0; verbosity=0)
+E, psi = TenSolver.minimize(Q, l, 0.0; domain = 0:1, verbosity=0)
 
 # Generate multiple samples
 num_samples = 10
@@ -399,7 +418,7 @@ using DynamicPolynomials
 polynomial = 1.0*x[1]^2 + 2.0*x[1]*x[2] + 1.0*x[2]^2 - 1.0*x[3] + 1.0*x[4]
 
 # Minimize the polynomial
-E, psi = TenSolver.minimize(polynomial; verbosity=0)
+E, psi = TenSolver.minimize(polynomial; domain = 0:1, verbosity=0)
 
 # Sample a solution
 solution = TenSolver.sample(psi)
@@ -448,7 +467,7 @@ using DynamicPolynomials
 polynomial = 1.0*x[1]*x[2] + 1.0*x[2]*x[3] + 1.0*x[3]*x[4] + 1.0*x[4]*x[1]
 
 # Solve
-E, psi = TenSolver.minimize(polynomial; verbosity=0)
+E, psi = TenSolver.minimize(polynomial; domain = 0:1, verbosity=0)
 
 # Pick a deterministic representative from the two equivalent 2-colorings
 coloring = [0, 1, 0, 1] in psi ? [0, 1, 0, 1] : [1, 0, 1, 0]
