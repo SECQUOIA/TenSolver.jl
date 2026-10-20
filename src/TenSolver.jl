@@ -42,7 +42,7 @@ include("log.jl")
 
 include("solver.jl")
 export minimize, maximize
-export DMRGBackend
+export AbstractTenSolverBackend, DMRGBackend
 
 
 ## ~:~ Welcome to the QUBOVerse ~:~ ##
@@ -141,7 +141,7 @@ function QUBODrivers.sample(sampler::Optimizer{T}) where {T}
 end
 
 function tensolver_metadata(
-  solution::Solution;
+  solution::DMRGSolution;
   effective_time::Real,
   num_reads::Integer,
   final_num_reads::Integer,
@@ -188,7 +188,11 @@ function tensolver_metadata(
   return metadata
 end
 
-function tensolver_status(solution::Solution; iterations::Integer, time_limit::Real)
+function tensolver_status(
+  solution::DMRGSolution;
+  iterations::Integer,
+  time_limit::Real,
+)
   elapsed_time = isempty(solution.stats.elapsed_times) ? 0.0 : last(solution.stats.elapsed_times)
   if !is_feasible(solution)
     return MOI.INFEASIBLE, "infeasible"

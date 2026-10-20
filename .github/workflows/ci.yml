@@ -52,3 +52,23 @@ jobs:
       - uses: codecov/codecov-action@v7
         with:
           files: lcov.info
+
+  peps:
+    name: SpinGlassPEPS CPU integration - Julia 1.11
+    runs-on: ubuntu-latest
+    env:
+      JULIA_NUM_PRECOMPILE_TASKS: '2'
+      JULIA_NUM_THREADS: '2'
+      OPENBLAS_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.11'
+      - uses: julia-actions/cache@v3
+      - name: Resolve registered optional dependencies with this checkout
+        run: >-
+          julia --startup-file=no --project=test/peps -e
+          'using Pkg; Pkg.develop(PackageSpec(path=pwd())); Pkg.instantiate()'
+      - name: Execute TenSolver PEPS integration on CPU
+        run: julia --startup-file=no --project=test/peps test/peps/runtests.jl
