@@ -275,6 +275,58 @@ end
     end
   end
 
+  @testset "NotEqualsConstraint mixed numeric projection" begin
+    cases = [
+      ("fractional domain, integer exclusion",
+       TenSolver.Domains{Float64}([0.0, 0.5, 1.0], 1),
+       NotEqualsConstraint([1], [1]), [(0.0,), (0.5,)]),
+      ("fractional domain, Bool exclusion",
+       TenSolver.Domains{Float64}([0.0, 0.5, 1.0], 1),
+       NotEqualsConstraint([1], [true]), [(0.0,), (0.5,)]),
+      ("integer domain, fractional exclusion outside domain",
+       TenSolver.Domains{Int}([0, 1, 2], 1),
+       NotEqualsConstraint([1], [0.5]), [(0,), (1,), (2,)]),
+      ("heterogeneous domains and forbidden types",
+       TenSolver.Domains{Float64}([[0, 0.5, 1], [0.5, 2], [-1, 0.25]], 3),
+       NotEqualsConstraint([1, 2], Real[1, 0.5f0]),
+       [(0.0, 0.5, -1.0), (0.5, 0.5, -1.0),
+        (0.0, 2.0, -1.0), (0.5, 2.0, -1.0), (1.0, 2.0, -1.0),
+        (0.0, 0.5, 0.25), (0.5, 0.5, 0.25),
+        (0.0, 2.0, 0.25), (0.5, 2.0, 0.25), (1.0, 2.0, 0.25)]),
+      ("rational exclusion",
+       TenSolver.Domains{Float64}(Real[0, 0.5f0, 1//1], 1),
+       NotEqualsConstraint([1], [1//2]), [(0.0,), (1.0,)]),
+      ("exact mixed float comparison",
+       TenSolver.Domains{Float64}([1.0, nextfloat(1.0)], 1),
+       NotEqualsConstraint([1], [1.0f0]), [(nextfloat(1.0),)]),
+      ("exact large integer comparison",
+       TenSolver.Domains{Float64}([2.0^53, 2.0^53 + 2], 1),
+       NotEqualsConstraint([1], [2^53 + 1]), [(2.0^53,), (2.0^53 + 2,)]),
+      ("binary domain, Bool forbidden tuple",
+       TenSolver.Domains{Float64}(0:1, 2),
+       NotEqualsConstraint([1, 2], Bool[true, false]),
+       [(0.0, 0.0), (0.0, 1.0), (1.0, 1.0)]),
+    ]
+
+    for (name, domain, constraint, allowed) in cases
+      @testset "$name" begin
+        sites = [ITensors.Index(length(d), "Qudit,Site,n=$i")
+                 for (i, d) in enumerate(domain)]
+        dfa = TenSolver.constraint_to_dfa(constraint, domain)
+        H = TenSolver.projection_mpo(constraint, sites; domain)
+
+        for assignment in Iterators.product(domain...)
+          expected = assignment in allowed
+          basis = [findfirst(==(v), domain[i]) - 1
+                   for (i, v) in enumerate(assignment)]
+          @test dfa_accepts(dfa, assignment) == expected
+          @test is_feasible(collect(assignment), constraint) == expected
+          @test mpo_diagonal(H, sites, basis) ≈ Float64(expected) atol=1e-8
+        end
+      end
+    end
+  end
+
   @testset "AssignmentConstraint projection" begin
     generalized_cases = [
       AssignmentConstraint([1, 3], [1, 2], relation, rhs)
