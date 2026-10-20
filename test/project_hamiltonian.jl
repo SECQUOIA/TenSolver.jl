@@ -79,3 +79,42 @@ end
     formulation = :unknown,
   )
 end
+
+@testset "Minimized projectors preserve dense masking" begin
+  sites = ITensors.siteinds("Qubit", 3)
+  domain = TenSolver.Domains{Float64}(0:1, 3)
+  constraints = AbstractConstraint[
+    SumConstraint([1, 2, 3], [1, 2, 3], 4; relation = :(<=)),
+    AssignmentConstraint([1, 3], [1], :(==), 1),
+    SumModConstraint([1, 3], [1, 1], 1; mod = 2),
+  ]
+  projections = @inferred TenSolver.projection_mpos(constraints, sites; domain)
+  terms = ITensorMPS.OpSum()
+  terms += 1.0, "X", 1
+  terms += 2.0, "Z", 2
+  terms += -0.5, "X", 3
+  H = ITensorMPS.MPO(terms, sites)
+  projected_H = @inferred TenSolver.project_hamiltonian(
+    H,
+    projections;
+    formulation = :sandwich,
+    cutoff = 1e-12,
+  )
+  psi = ITensorMPS.MPS(sites, fill("+", 3))
+  projected_psi = TenSolver.project_state(psi, projections; cutoff = 1e-12)
+
+  for bra in all_bitstrings(3), ket in all_bitstrings(3)
+    # Independent matrix elements of X₁ + 2Z₂ - X₃/2.
+    h = bra == ket ? 2.0 * (ket[2] == 0 ? 1 : -1) : 0.0
+    h += bra == (1-ket[1], ket[2], ket[3]) ? 1.0 : 0.0
+    h += bra == (ket[1], ket[2], 1-ket[3]) ? -0.5 : 0.0
+    expected =
+      is_feasible(collect(bra), constraints) && is_feasible(collect(ket), constraints) ? h :
+      0.0
+    @test mpo_matrix_element(projected_H, sites, bra, ket) ≈ expected atol=1e-10
+  end
+  for bits in all_bitstrings(3)
+    expected = is_feasible(collect(bits), constraints) ? inv(sqrt(8.0)) : 0.0
+    @test mps_amplitude(projected_psi, sites, bits) ≈ expected atol=1e-10
+  end
+end

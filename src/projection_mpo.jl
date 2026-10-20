@@ -18,8 +18,8 @@
 Deterministic finite automaton with step-dependent and partial transitions.
 
 Fields:
-- `states`: DFA states, used to define the MPO bond dimension.
-- `alphabet`: Per-stage DFA alphabet.
+- `states`: DFA states before layer minimization.
+- `alphabets`: Per-stage DFA alphabets.
 - `initial`: start state.
 - `accepting`: set of accepting states.
 - `transitions`: one transition table per step; each table maps `(state, symbol)` to
@@ -69,56 +69,153 @@ end
 alphabet(dfa::DFA, i) = dfa.alphabets[i]
 states(dfa::DFA, i)   = dfa.states
 
+# Each layer uses its own class numbers. Class zero is the implicit rejecting
+# outcome and is never allocated as a tensor bond.
+struct LayeredDFA{A}
+  states::Vector{Vector{Int}}
+  alphabets::Vector{Vector{A}}
+  initial::Int
+  accepting::Set{Int}
+  transitions::Vector{Dict{Tuple{Int,A},Int}}
+end
+
+alphabet(dfa::LayeredDFA, i) = dfa.alphabets[i]
+states(dfa::LayeredDFA, i) = dfa.states[i + 1]
+
+"""
+    minimize_dfa(dfa)
+
+Prune unreachable and nonaccepting paths of a layered DFA, then merge states
+with identical acceptance behavior for every remaining suffix. Missing
+transitions and transitions into dead states share the rejecting outcome.
+"""
+function minimize_dfa(dfa::DFA{S,A}) where {S,A}
+  n = length(dfa.transitions)
+  reachable = [Set{S}() for _ in 1:(n + 1)]
+  push!(reachable[1], dfa.initial)
+  for i in 1:n
+    for ((s, a), target) in dfa.transitions[i]
+      if s in reachable[i]
+        push!(reachable[i + 1], target)
+      end
+    end
+  end
+
+  layers = [Int[] for _ in 1:(n + 1)]
+  tables = [Dict{Tuple{Int,A},Int}() for _ in 1:n]
+  classes = Dict(s => 1 for s in dfa.states if s in reachable[end] && s in dfa.accepting)
+  if !isempty(classes)
+    push!(layers[end], 1)
+  end
+
+  for i in n:-1:1
+    signatures = Dict{Vector{Int},Int}()
+    current = Dict{S,Int}()
+    for s in dfa.states
+      if !(s in reachable[i])
+        continue
+      end
+      signature = [
+        haskey(dfa.transitions[i], (s, a)) ? get(classes, dfa.transitions[i][(s, a)], 0) :
+        0 for a in alphabet(dfa, i)
+      ]
+      # Backward induction removes precisely the states with no accepting
+      # suffix, while the signature identifies each remaining suffix language.
+      if all(iszero, signature)
+        continue
+      end
+      c = get(signatures, signature, 0)
+      if iszero(c)
+        c = length(signatures) + 1
+        signatures[signature] = c
+        push!(layers[i], c)
+        for (a, target) in zip(alphabet(dfa, i), signature)
+          if !iszero(target)
+            tables[i][(c, a)] = target
+          end
+        end
+      end
+      current[s] = c
+    end
+    classes = current
+  end
+
+  if isempty(layers[1])
+    # ITensor links require positive dimensions even for the empty language.
+    # A single rejecting path represents its identically zero projection.
+    return LayeredDFA(fill([1], n + 1), dfa.alphabets, 1, Set{Int}(), tables)
+  end
+  return LayeredDFA(layers, dfa.alphabets, 1, Set([1]), tables)
+end
+
 """
     dfa_to_mpo([T], dfa, sites)
 
 Build an exact diagonal projection MPO from a step-dependent DFA.
 
-The MPO bond dimension is at most the number of states.
+Minimize the DFA layers exactly before allocating tensors. Each raw MPO bond
+uses the corresponding layer width, bounded by the original number of states.
+The assembled MPO also undergoes numerical compression.
 """
-function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where T
+function dfa_to_mpo(::Type{T}, dfa::DFA, sites) where {T}
+  @argcheck length(sites) == length(dfa.transitions)
   for (k, site) in pairs(sites)
     @argcheck ITensors.dim(site) == length(alphabet(dfa, k))
   end
   tensors = transition_tensors(T, dfa)
-  return arrays_to_itensor_mpo( tensors, sites)
+  return arrays_to_itensor_mpo(tensors, sites)
 end
 
 # Turn a stepwise DFA into a sequence of 3-tensors or 4-tensors
 # representing its transition matrices.
-function transition_tensors(::Type{T}, dfa::DFA) where T
+function transition_tensors(::Type{T}, dfa::DFA) where {T}
+  return transition_tensors(T, minimize_dfa(dfa))
+end
+
+function transition_tensors(::Type{T}, dfa::LayeredDFA) where {T}
   (; transitions, initial, accepting) = dfa
 
   # initial -> states -> states -> ... -> states -> accepting
-  sources(i) = i == firstindex(transitions) ? (initial,)   : states(dfa, i)
-  targets(i) = i == lastindex(transitions)  ? (accepting,) : tuple.(states(dfa, i))
+  sources(i) = i == firstindex(transitions) ? (initial,) : states(dfa, i - 1)
+  targets(i) = i == lastindex(transitions) ? (accepting,) : tuple.(states(dfa, i))
 
   # Turn a 1xkxnxn or kx1xnxn tensor into a kxnxn tensor (used on the boundaries)
-  proper_shape(A) = dropdims(A; dims = Tuple(filter(d -> size(A, d) == 1, (1, 2))))
+  # Only boundary bonds are implicit; singleton interior bonds keep their axes.
+  proper_shape(A, i) = dropdims(
+    A;
+    dims = Tuple(d for (d, boundary) in
+                 ((1, i == firstindex(transitions)), (2, i == lastindex(transitions))) if
+                 boundary),
+  )
 
-  return [
-    proper_shape(T[
-      a == b && haskey(transitions[i], (s, a)) && transitions[i][(s, a)] in ts
-      for s  in sources(i),
-          ts in targets(i),
-          a  in alphabet(dfa, i),
-          b  in alphabet(dfa, i)
-    ])
-    for (i, t) in pairs(transitions)
+  return Array{T}[
+    proper_shape(
+      T[
+        a == b && haskey(transitions[i], (s, a)) && transitions[i][(s, a)] in ts for
+        s in sources(i), ts in targets(i), a in alphabet(dfa, i), b in alphabet(dfa, i)
+      ],
+      i,
+    ) for (i, t) in pairs(transitions)
   ]
 end
 
 # Turn a homebrew MPO into an appropriate ITensor.
 # This is the only bridge between ITensor and this module.
-function arrays_to_itensor_mpo(arrays, sites) :: MPO
+function arrays_to_itensor_mpo(arrays, sites)::MPO
   links = [
-    ITensors.Index(size(A, 1), "Link,l=$i")
-    for (i, A) in pairs(arrays) if i != lastindex(arrays)
+    ITensors.Index(size(A, i == firstindex(arrays) ? 1 : 2), "Link,l=$i") for
+    (i, A) in pairs(arrays) if i != lastindex(arrays)
   ]
-  wires(i) = filter(!isnothing, (get(links, i-1, nothing), get(links, i, nothing), sites[i]', sites[i]))
-  itensors = [ ITensors.itensor(A, wires(i)...) for (i, A) in pairs(arrays) ]
+  wires(i) = filter(
+    !isnothing,
+    (get(links, i-1, nothing), get(links, i, nothing), sites[i]', sites[i]),
+  )
+  itensors = [ITensors.itensor(A, wires(i)...) for (i, A) in pairs(arrays)]
 
-  return ITensorMPS.truncate!(ITensorMPS.MPO(itensors); cutoff = eps(real(eltype(first(arrays)))))
+  return ITensorMPS.truncate!(
+    ITensorMPS.MPO(itensors);
+    cutoff = eps(real(eltype(first(arrays)))),
+  )
 end
 
 """
@@ -132,12 +229,12 @@ Constraint site numbers must use the same 1-based register indexing as `sites`.
 - [`SumConstraint`](@ref) uses a exact integer partial-sum automaton.
   For a constraint with rhs `k`, its maximum bond dimension is `k+2`.
 - [`SumModConstraint`](@ref) uses a modular partial-sum automaton.
-  Its `m` residue states give it bond dimension `m`.
-- [`NotEqualsConstraint`](@ref) uses a MPO with bond dimension `2`,
+  Its normalized `m` residue states bound each bond dimension by `m`.
+- [`NotEqualsConstraint`](@ref) uses a MPO with bond dimension at most `2`,
   independently of the rhs.
 - [`AssignmentConstraint`](@ref) uses a membership counting automaton.
   For rhs `k`, the maximum bond dimension is `k+2`.
-- [`RelationConstraint`](@ref) uses a MPO with bond dimension equal to the first variable's domain size.
+- [`RelationConstraint`](@ref) has bond dimension bounded by the earlier site's domain size.
 """
 function projection_mpo end
 
