@@ -164,8 +164,8 @@ end
 
 # Returns `nothing` when the projected state has no feasible amplitude,
 # which at the initial state proves the constraints are infeasible.
-function constrained_initial_state(T, sites, projections; cutoff, inidim)
-  psi = ITensorMPS.random_mps(T, sites; linkdims=inidim)
+function constrained_initial_state(T, sites, projections; cutoff, inidim, device)
+  psi = device(ITensorMPS.random_mps(T, sites; linkdims=inidim))
   return isempty(projections) ? psi : project_feasible_state(psi, projections; cutoff)
 end
 
@@ -312,13 +312,19 @@ function minimize_mpo( H_obj :: MPO
   shift = zero_objective || isempty(projections) ? zero(real(T)) : real(T)(objective_bound)
 
   # Hamiltonian construction
+  # CUDA.cu cannot adapt empty storage. Materialize only the empty local
+  # tensors before transfer, preserving any nonzero objective entries.
+  if any(isempty, H_obj)
+    H_obj = map(H_obj) do t
+      isempty(t) ? ITensors.ITensor(T, zero(T), ITensors.inds(t)) : t
+    end
+  end
   H_solve = iszero(shift) ? H_obj : H_obj - shift * ITensorMPS.MPO(T, sites, "Id")
   H_obj   = device(H_obj)
   H = zero_objective ? H_obj : device(project_hamiltonian(device(H_solve), projections; cutoff))
 
   # Initial state
-  psi = constrained_initial_state(T, sites, projections; cutoff, inidim)
-  psi = device(psi)
+  psi = constrained_initial_state(T, sites, projections; cutoff, inidim, device)
 
   stats = SolverStatistics{T}(;
     projections   = ITensorMPS.maxlinkdim.(projections),
@@ -344,6 +350,7 @@ function minimize_mpo( H_obj :: MPO
   for i in iter
     energy, psi = groundstate(H, device(psi)
                       ; projections
+                      , device
                       , nsweeps     = 1
                       , ishermitian = true
                       , outputlevel = 0
@@ -427,7 +434,7 @@ function minimize_mpo( H_obj :: MPO
   return optimal, dist
 end
 
-function groundstate(H::MPO, psi0::MPS; projections, cutoff=1e-8, kwargs...)
+function groundstate(H::MPO, psi0::MPS; projections, device, cutoff=1e-8, kwargs...)
   if length(psi0) != 1
     energy, psi = ITensorMPS.dmrg(H, psi0; cutoff, kwargs...)
 
@@ -449,22 +456,25 @@ function groundstate(H::MPO, psi0::MPS; projections, cutoff=1e-8, kwargs...)
     # projections), so picking the global lowest-energy basis state would select
     # an infeasible one whenever the feasible objective is positive.
     s = only(ITensorMPS.siteinds(psi0))
-    Ht = only(H)
-    pt = only(psi0)
+    # The single-site exact comparison is small; avoid scalar GPU indexing.
+    # Direct calls can supply empty zero MPOs, which cannot be converted to arrays.
+    Ht = isempty(only(H)) ? zeros(eltype(only(H)), ITensors.dim(s), ITensors.dim(s)) :
+      Array(ITensors.array(only(H), s, ITensors.prime(s)))
+    pt = Array(ITensors.array(only(psi0), s))
 
-    feasible = filter(a -> !iszero(pt[s => a]), 1:ITensorMPS.dim(s))
+    feasible = filter(a -> !iszero(pt[a]), 1:ITensorMPS.dim(s))
 
     if isempty(feasible)
       energy = Inf
       psi = nothing
     else
-      energies = [real(Ht[s => a, ITensors.prime(s) => a]) for a in feasible]
+      energies = [real(Ht[a, a]) for a in feasible]
       energy = minimum(energies)
       optimal = [a for (a, e) in zip(feasible, energies) if e == energy]
 
       basis = ITensors.ITensor(eltype(pt), s)
       foreach(a -> (basis[s => a] = 1), optimal)
-      psi = ITensorMPS.MPS([basis])
+      psi = device(ITensorMPS.MPS([basis]))
       ITensorMPS.normalize!(psi)
     end
   end
