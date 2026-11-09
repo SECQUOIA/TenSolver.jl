@@ -217,7 +217,7 @@ end
     @test !occursin("Exception while generating log record", debug_log)
 
     # The supremum over an empty feasible set is -Inf.
-    Emax, psimax = @test_logs (:warn, r"empty feasible subspace") maximize(
+    Emax, psimax = @test_logs (:warn, r"empty feasible subspace") match_mode = :any maximize(
       zeros(2, 2);
       domain = 0:1,
       constraints=impossible,
@@ -231,7 +231,7 @@ end
   @testset "Infeasible single-variable solves report status" begin
     impossible = AbstractConstraint[SumConstraint([1], [1], 2; relation=:(==))]
 
-    E, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
+    E, psi = @test_logs (:warn, r"empty feasible subspace") match_mode = :any minimize(
       ones(1, 1);
       domain = 0:1,
       constraints=impossible,
@@ -245,7 +245,7 @@ end
 
   @testset "Infeasible solutions map to MOI.INFEASIBLE" begin
     impossible = AbstractConstraint[SumConstraint([1, 2], [1, 1], 3; relation=:(==))]
-    _, psi = @test_logs (:warn, r"empty feasible subspace") minimize(
+    _, psi = @test_logs (:warn, r"empty feasible subspace") match_mode = :any minimize(
       zeros(2, 2);
       domain = 0:1,
       constraints=impossible,
